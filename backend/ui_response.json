@@ -1,0 +1,135 @@
+{
+  "id": "4c6294ae-e027-493c-af48-fd0a1749824e",
+  "config": {
+    "components": [
+      {
+        "type": "navbar",
+        "id": "navbar_1",
+        "props": {
+          "title": "Fitness Tracker"
+        },
+        "children": [],
+        "styles": {},
+        "events": {}
+      },
+      {
+        "type": "card",
+        "id": "card_1",
+        "props": {
+          "title": "Workout Statistics"
+        },
+        "children": [
+          {
+            "type": "chart",
+            "id": "chart_1",
+            "props": {
+              "data": "workout_data"
+            },
+            "children": [],
+            "styles": {},
+            "events": {}
+          }
+        ],
+        "styles": {},
+        "events": {}
+      },
+      {
+        "type": "card",
+        "id": "card_2",
+        "props": {
+          "title": "Daily Activity"
+        },
+        "children": [
+          {
+            "type": "chart",
+            "id": "chart_2",
+            "props": {
+              "data": "activity_data"
+            },
+            "children": [],
+            "styles": {},
+            "events": {}
+          }
+        ],
+        "styles": {},
+        "events": {}
+      },
+      {
+        "type": "card",
+        "id": "card_3",
+        "props": {
+          "title": "Nutrition Information"
+        },
+        "children": [
+          {
+            "type": "chart",
+            "id": "chart_3",
+            "props": {
+              "data": "nutrition_data"
+            },
+            "children": [],
+            "styles": {},
+            "events": {}
+          }
+        ],
+        "styles": {},
+        "events": {}
+      },
+      {
+        "type": "card",
+        "id": "card_4",
+        "props": {
+          "title": "Log New Workout"
+        },
+        "children": [
+          {
+            "type": "input",
+            "id": "input_1",
+            "props": {
+              "placeholder": "Workout Name"
+            },
+            "children": [],
+            "styles": {},
+            "events": {}
+          },
+          {
+            "type": "button",
+            "id": "button_1",
+            "props": {
+              "label": "Submit"
+            },
+            "children": [],
+            "styles": {},
+            "events": {
+              "onClick": "logWorkout"
+            }
+          }
+        ],
+        "styles": {},
+        "events": {}
+      }
+    ],
+    "layout": {
+      "type": "grid",
+      "config": {}
+    },
+    "theme": {
+      "colors": {
+        "primary": "#000",
+        "secondary": "#fff"
+      },
+      "typography": {
+        "fontFamily": "Arial",
+        "fontSize": "16px"
+      },
+      "spacing": {
+        "padding": "10px",
+        "margin": "10px"
+      }
+    },
+    "functionality": {
+      "type": "fitness",
+      "config": {}
+    }
+  }
+}

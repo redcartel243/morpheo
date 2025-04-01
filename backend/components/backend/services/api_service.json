@@ -1,0 +1,221 @@
+{
+  "id": "api-service",
+  "name": "API Service",
+  "description": "A service for making HTTP requests to external APIs",
+  "type": "service",
+  "capabilities": ["data fetching", "data submission", "external API integration"],
+  "configOptions": {
+    "baseUrl": {
+      "type": "string",
+      "description": "Base URL for API calls",
+      "required": true
+    },
+    "headers": {
+      "type": "object",
+      "description": "Default headers to include with all requests",
+      "default": {
+        "Content-Type": "application/json"
+      }
+    },
+    "timeout": {
+      "type": "number",
+      "description": "Request timeout in milliseconds",
+      "default": 30000
+    },
+    "enableCaching": {
+      "type": "boolean",
+      "description": "Whether to cache GET requests",
+      "default": false
+    },
+    "cacheDuration": {
+      "type": "number",
+      "description": "Cache duration in seconds",
+      "default": 300
+    },
+    "retryConfig": {
+      "type": "object",
+      "description": "Configuration for retry behavior",
+      "default": {
+        "maxRetries": 3,
+        "initialDelay": 300,
+        "maxDelay": 3000,
+        "factor": 2
+      }
+    },
+    "authType": {
+      "type": "string",
+      "description": "Type of authentication to use",
+      "options": ["none", "bearer", "basic", "api-key"],
+      "default": "none"
+    },
+    "authConfig": {
+      "type": "object",
+      "description": "Configuration for authentication",
+      "default": {}
+    }
+  },
+  "methods": {
+    "get": {
+      "description": "Performs a GET request to fetch data",
+      "params": {
+        "endpoint": {
+          "type": "string",
+          "description": "The API endpoint path",
+          "required": true
+        },
+        "queryParams": {
+          "type": "object",
+          "description": "Query parameters to include with the request",
+          "required": false
+        },
+        "headers": {
+          "type": "object",
+          "description": "Custom headers for this request",
+          "required": false
+        },
+        "useCache": {
+          "type": "boolean",
+          "description": "Whether to use cached result if available",
+          "default": true
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "The response data from the API"
+      }
+    },
+    "post": {
+      "description": "Performs a POST request to submit data",
+      "params": {
+        "endpoint": {
+          "type": "string",
+          "description": "The API endpoint path",
+          "required": true
+        },
+        "data": {
+          "type": "any",
+          "description": "Data to send in the request body",
+          "required": true
+        },
+        "headers": {
+          "type": "object",
+          "description": "Custom headers for this request",
+          "required": false
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "The response data from the API"
+      }
+    },
+    "put": {
+      "description": "Performs a PUT request to update data",
+      "params": {
+        "endpoint": {
+          "type": "string",
+          "description": "The API endpoint path",
+          "required": true
+        },
+        "data": {
+          "type": "any",
+          "description": "Data to send in the request body",
+          "required": true
+        },
+        "headers": {
+          "type": "object",
+          "description": "Custom headers for this request",
+          "required": false
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "The response data from the API"
+      }
+    },
+    "delete": {
+      "description": "Performs a DELETE request to remove data",
+      "params": {
+        "endpoint": {
+          "type": "string",
+          "description": "The API endpoint path",
+          "required": true
+        },
+        "headers": {
+          "type": "object",
+          "description": "Custom headers for this request",
+          "required": false
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "The response data from the API"
+      }
+    },
+    "patch": {
+      "description": "Performs a PATCH request for partial updates",
+      "params": {
+        "endpoint": {
+          "type": "string",
+          "description": "The API endpoint path",
+          "required": true
+        },
+        "data": {
+          "type": "any",
+          "description": "Data to send in the request body",
+          "required": true
+        },
+        "headers": {
+          "type": "object",
+          "description": "Custom headers for this request",
+          "required": false
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "The response data from the API"
+      }
+    }
+  },
+  "events": {
+    "onRequestStart": {
+      "description": "Triggered when a request is about to be sent",
+      "params": {
+        "method": "string",
+        "url": "string",
+        "headers": "object",
+        "data": "any"
+      }
+    },
+    "onRequestSuccess": {
+      "description": "Triggered when a request succeeds",
+      "params": {
+        "method": "string",
+        "url": "string",
+        "response": "object",
+        "status": "number"
+      }
+    },
+    "onRequestError": {
+      "description": "Triggered when a request fails",
+      "params": {
+        "method": "string",
+        "url": "string",
+        "error": "object",
+        "status": "number"
+      }
+    },
+    "onCacheHit": {
+      "description": "Triggered when a cached response is used",
+      "params": {
+        "url": "string",
+        "cachedAt": "date"
+      }
+    }
+  },
+  "implementation": {
+    "javascript": "class ApiService {\n  constructor(config) {\n    this.baseUrl = config.baseUrl;\n    this.headers = config.headers || { 'Content-Type': 'application/json' };\n    this.timeout = config.timeout || 30000;\n    this.enableCaching = config.enableCaching || false;\n    this.cacheDuration = (config.cacheDuration || 300) * 1000; // Convert to ms\n    this.retryConfig = config.retryConfig || {\n      maxRetries: 3,\n      initialDelay: 300,\n      maxDelay: 3000,\n      factor: 2\n    };\n    this.authType = config.authType || 'none';\n    this.authConfig = config.authConfig || {};\n    \n    // Cache storage\n    this.cache = new Map();\n    \n    // Bind methods\n    this.get = this.get.bind(this);\n    this.post = this.post.bind(this);\n    this.put = this.put.bind(this);\n    this.delete = this.delete.bind(this);\n    this.patch = this.patch.bind(this);\n    \n    // Event callbacks\n    this.onRequestStart = null;\n    this.onRequestSuccess = null;\n    this.onRequestError = null;\n    this.onCacheHit = null;\n  }\n  \n  // Helper method to create the full URL\n  _createUrl(endpoint, queryParams) {\n    const url = new URL(endpoint.startsWith('http') ? endpoint : `${this.baseUrl}${endpoint}`);\n    \n    if (queryParams) {\n      Object.entries(queryParams).forEach(([key, value]) => {\n        if (value !== undefined && value !== null) {\n          url.searchParams.append(key, value);\n        }\n      });\n    }\n    \n    return url.toString();\n  }\n  \n  // Helper method to prepare headers\n  _prepareHeaders(customHeaders) {\n    const headers = { ...this.headers, ...customHeaders };\n    \n    // Add authentication headers if configured\n    if (this.authType === 'bearer' && this.authConfig.token) {\n      headers['Authorization'] = `Bearer ${this.authConfig.token}`;\n    } else if (this.authType === 'basic' && this.authConfig.username && this.authConfig.password) {\n      const credentials = btoa(`${this.authConfig.username}:${this.authConfig.password}`);\n      headers['Authorization'] = `Basic ${credentials}`;\n    } else if (this.authType === 'api-key' && this.authConfig.key) {\n      const headerName = this.authConfig.headerName || 'X-API-Key';\n      headers[headerName] = this.authConfig.key;\n    }\n    \n    return headers;\n  }\n  \n  // Helper method to check cache\n  _checkCache(cacheKey, useCache) {\n    if (!this.enableCaching || !useCache) return null;\n    \n    const cachedItem = this.cache.get(cacheKey);\n    if (!cachedItem) return null;\n    \n    const now = Date.now();\n    if (now - cachedItem.timestamp > this.cacheDuration) {\n      // Cache expired\n      this.cache.delete(cacheKey);\n      return null;\n    }\n    \n    // Valid cache item found\n    if (this.onCacheHit) {\n      this.onCacheHit({\n        url: cacheKey,\n        cachedAt: new Date(cachedItem.timestamp)\n      });\n    }\n    \n    return cachedItem.data;\n  }\n  \n  // Helper method to update cache\n  _updateCache(cacheKey, data) {\n    if (!this.enableCaching) return;\n    \n    this.cache.set(cacheKey, {\n      data,\n      timestamp: Date.now()\n    });\n  }\n  \n  // Helper method to handle retries\n  async _fetchWithRetry(url, options) {\n    let lastError;\n    let delay = this.retryConfig.initialDelay;\n    \n    for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {\n      try {\n        const abortController = new AbortController();\n        const timeoutId = setTimeout(() => abortController.abort(), this.timeout);\n        \n        const fetchOptions = {\n          ...options,\n          signal: abortController.signal\n        };\n        \n        const response = await fetch(url, fetchOptions);\n        clearTimeout(timeoutId);\n        \n        // Handle non-2xx responses\n        if (!response.ok) {\n          const errorData = await response.json().catch(() => ({}));\n          throw new Error(JSON.stringify({\n            status: response.status,\n            statusText: response.statusText,\n            data: errorData\n          }));\n        }\n        \n        return await response.json();\n      } catch (error) {\n        lastError = error;\n        \n        // Don't retry if we've hit the max attempts or if it's a 4xx error\n        if (attempt >= this.retryConfig.maxRetries || \n            (error.message && error.message.includes('status') && \n             parseInt(JSON.parse(error.message).status) >= 400 && \n             parseInt(JSON.parse(error.message).status) < 500)) {\n          break;\n        }\n        \n        // Exponential backoff with jitter\n        await new Promise(resolve => setTimeout(resolve, delay + Math.random() * 100));\n        delay = Math.min(delay * this.retryConfig.factor, this.retryConfig.maxDelay);\n      }\n    }\n    \n    throw lastError;\n  }\n  \n  // Main request method\n  async _request(method, endpoint, data, queryParams, headers, useCache = false) {\n    const url = this._createUrl(endpoint, queryParams);\n    const requestHeaders = this._prepareHeaders(headers || {});\n    \n    const options = {\n      method,\n      headers: requestHeaders\n    };\n    \n    if (data !== undefined && method !== 'GET' && method !== 'DELETE') {\n      options.body = typeof data === 'string' ? data : JSON.stringify(data);\n    }\n    \n    // Trigger onRequestStart event\n    if (this.onRequestStart) {\n      this.onRequestStart({\n        method,\n        url,\n        headers: requestHeaders,\n        data\n      });\n    }\n    \n    // Check cache for GET requests\n    const cacheKey = `${method}:${url}`;\n    if (method === 'GET') {\n      const cachedData = this._checkCache(cacheKey, useCache);\n      if (cachedData) return cachedData;\n    }\n    \n    try {\n      const response = await this._fetchWithRetry(url, options);\n      \n      // Trigger onRequestSuccess event\n      if (this.onRequestSuccess) {\n        this.onRequestSuccess({\n          method,\n          url,\n          response,\n          status: 200 // We don't have the actual status code here since _fetchWithRetry handles it\n        });\n      }\n      \n      // Cache successful GET responses\n      if (method === 'GET') {\n        this._updateCache(cacheKey, response);\n      }\n      \n      return response;\n    } catch (error) {\n      // Parse error details if available\n      let errorDetails;\n      try {\n        errorDetails = JSON.parse(error.message);\n      } catch (_) {\n        errorDetails = { message: error.message };\n      }\n      \n      // Trigger onRequestError event\n      if (this.onRequestError) {\n        this.onRequestError({\n          method,\n          url,\n          error: errorDetails,\n          status: errorDetails.status || 0\n        });\n      }\n      \n      throw new Error(`API request failed: ${error.message}`);\n    }\n  }\n  \n  // Public methods\n  async get(endpoint, queryParams, headers, useCache = true) {\n    return this._request('GET', endpoint, undefined, queryParams, headers, useCache);\n  }\n  \n  async post(endpoint, data, headers) {\n    return this._request('POST', endpoint, data, null, headers);\n  }\n  \n  async put(endpoint, data, headers) {\n    return this._request('PUT', endpoint, data, null, headers);\n  }\n  \n  async delete(endpoint, headers) {\n    return this._request('DELETE', endpoint, undefined, null, headers);\n  }\n  \n  async patch(endpoint, data, headers) {\n    return this._request('PATCH', endpoint, data, null, headers);\n  }\n}\n\n// Factory function to create configured instance\nfunction createApiService(config) {\n  return new ApiService(config);\n}"
+  },
+  "usage": {
+    "javascript": "// Configuration for the API service\nconst apiConfig = {\n  baseUrl: 'https://api.example.com/v1',\n  headers: {\n    'Content-Type': 'application/json',\n    'Accept': 'application/json'\n  },\n  timeout: 5000,\n  enableCaching: true,\n  cacheDuration: 60, // 60 seconds\n  authType: 'bearer',\n  authConfig: {\n    token: 'YOUR_TOKEN_HERE'\n  }\n};\n\n// Create the API service instance\nconst apiService = createApiService(apiConfig);\n\n// Set up event handlers\napiService.onRequestError = ({ method, url, error }) => {\n  console.error(`Request failed: ${method} ${url}`, error);\n};\n\n// Make API calls\nasync function fetchUserData(userId) {\n  try {\n    const userData = await apiService.get(`/users/${userId}`);\n    return userData;\n  } catch (error) {\n    console.error('Failed to fetch user data:', error);\n    return null;\n  }\n}\n\nasync function createNewUser(userData) {\n  return await apiService.post('/users', userData);\n}\n\nasync function updateUserProfile(userId, profileData) {\n  return await apiService.put(`/users/${userId}/profile`, profileData);\n}"
+  }
+} 

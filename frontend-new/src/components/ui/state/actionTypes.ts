@@ -1,0 +1,9 @@
+// State manager action types
+export const ADD_REDUCER = 'STATE_MANAGER/ADD_REDUCER';
+export const REMOVE_REDUCER = 'STATE_MANAGER/REMOVE_REDUCER';
+export const ADD_MIDDLEWARE = 'STATE_MANAGER/ADD_MIDDLEWARE';
+export const REMOVE_MIDDLEWARE = 'STATE_MANAGER/REMOVE_MIDDLEWARE';
+
+// Subscription actions
+export const SUBSCRIBE = '@@SUBSCRIBE';
+export const UNSUBSCRIBE = '@@UNSUBSCRIBE'; 

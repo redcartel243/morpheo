@@ -1,0 +1,340 @@
+{
+  "name": "Select",
+  "type": "select",
+  "description": "A dropdown select component for choosing from a list of options",
+  "category": "input",
+  "schema": {
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "Unique identifier for the component"
+      },
+      "region": {
+        "type": "string",
+        "description": "The layout region where the component should be placed"
+      },
+      "properties": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Label text displayed above the select"
+          },
+          "placeholder": {
+            "type": "string",
+            "description": "Text displayed when no option is selected",
+            "default": "Select an option..."
+          },
+          "options": {
+            "type": "array",
+            "description": "Array of options to display in the select",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": ["string", "number"],
+                  "description": "The value of the option"
+                },
+                "label": {
+                  "type": "string",
+                  "description": "The display text for the option"
+                },
+                "disabled": {
+                  "type": "boolean",
+                  "description": "Whether the option is disabled",
+                  "default": false
+                }
+              },
+              "required": ["value", "label"]
+            }
+          },
+          "value": {
+            "type": ["string", "number", "null"],
+            "description": "The currently selected value"
+          },
+          "disabled": {
+            "type": "boolean",
+            "description": "Whether the select is disabled",
+            "default": false
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether the select is required",
+            "default": false
+          }
+        },
+        "required": ["options"]
+      },
+      "styles": {
+        "type": "object",
+        "properties": {
+          "width": {
+            "type": "string",
+            "description": "Width of the select component",
+            "default": "100%"
+          },
+          "maxWidth": {
+            "type": "string",
+            "description": "Maximum width of the select component",
+            "default": "20rem"
+          },
+          "variant": {
+            "type": "string",
+            "description": "Visual style variant",
+            "enum": ["default", "outlined", "filled"],
+            "default": "default"
+          },
+          "size": {
+            "type": "string",
+            "description": "Size of the select",
+            "enum": ["small", "medium", "large"],
+            "default": "medium"
+          },
+          "margin": {
+            "type": "string",
+            "description": "Margin around the select"
+          },
+          "padding": {
+            "type": "string",
+            "description": "Padding within the select"
+          },
+          "backgroundColor": {
+            "type": "string",
+            "description": "Background color of the select"
+          },
+          "color": {
+            "type": "string",
+            "description": "Text color of the select"
+          },
+          "borderColor": {
+            "type": "string",
+            "description": "Border color of the select"
+          },
+          "borderWidth": {
+            "type": "string",
+            "description": "Border width of the select"
+          },
+          "borderRadius": {
+            "type": "string",
+            "description": "Border radius of the select",
+            "default": "0.25rem"
+          },
+          "fontSize": {
+            "type": "string",
+            "description": "Font size of the select text"
+          },
+          "fontWeight": {
+            "type": "string",
+            "description": "Font weight of the select text"
+          },
+          "boxShadow": {
+            "type": "string",
+            "description": "Box shadow of the select"
+          },
+          "opacity": {
+            "type": "string",
+            "description": "Opacity of the select"
+          },
+          "transition": {
+            "type": "string",
+            "description": "Transition effects for the select"
+          },
+          "zIndex": {
+            "type": "string",
+            "description": "Z-index of the select"
+          },
+          "position": {
+            "type": "string",
+            "description": "Position of the select",
+            "default": "relative"
+          },
+          "display": {
+            "type": "string",
+            "description": "Display type of the select",
+            "default": "block"
+          }
+        }
+      },
+      "events": {
+        "type": "object",
+        "properties": {
+          "onChange": {
+            "type": "object",
+            "description": "Event triggered when the selected option changes",
+            "properties": {
+              "action": {
+                "type": "string",
+                "description": "Action to perform when the selection changes"
+              },
+              "params": {
+                "type": "object",
+                "description": "Parameters for the action"
+              }
+            }
+          },
+          "onFocus": {
+            "type": "object",
+            "description": "Event triggered when the select receives focus",
+            "properties": {
+              "action": {
+                "type": "string",
+                "description": "Action to perform when the select is focused"
+              },
+              "params": {
+                "type": "object",
+                "description": "Parameters for the action"
+              }
+            }
+          },
+          "onBlur": {
+            "type": "object",
+            "description": "Event triggered when the select loses focus",
+            "properties": {
+              "action": {
+                "type": "string",
+                "description": "Action to perform when the select loses focus"
+              },
+              "params": {
+                "type": "object",
+                "description": "Parameters for the action"
+              }
+            }
+          }
+        }
+      },
+      "connections": {
+        "type": "array",
+        "description": "Connections to other components",
+        "items": {
+          "type": "object",
+          "properties": {
+            "sourceConnectionId": {
+              "type": "string",
+              "description": "ID of the connection point in this component"
+            },
+            "targetComponentId": {
+              "type": "string",
+              "description": "ID of the target component"
+            },
+            "targetConnectionId": {
+              "type": "string",
+              "description": "ID of the connection point in the target component"
+            }
+          },
+          "required": ["sourceConnectionId", "targetComponentId", "targetConnectionId"]
+        }
+      }
+    },
+    "required": ["id", "type", "properties"]
+  },
+  "examples": [
+    {
+      "id": "country-select",
+      "type": "select",
+      "region": "main",
+      "properties": {
+        "label": "Select a country",
+        "placeholder": "Choose your country",
+        "options": [
+          { "value": "us", "label": "United States" },
+          { "value": "ca", "label": "Canada" },
+          { "value": "mx", "label": "Mexico" },
+          { "value": "fr", "label": "France" },
+          { "value": "uk", "label": "United Kingdom" }
+        ],
+        "value": "",
+        "required": true
+      },
+      "styles": {
+        "width": "100%",
+        "maxWidth": "25rem",
+        "variant": "outlined",
+        "size": "medium",
+        "margin": "1rem 0"
+      },
+      "events": {
+        "onChange": {
+          "action": "updateState",
+          "params": {
+            "key": "country"
+          }
+        }
+      }
+    },
+    {
+      "id": "color-select",
+      "type": "select",
+      "region": "sidebar",
+      "properties": {
+        "label": "Color Theme",
+        "options": [
+          { "value": "red", "label": "Red" },
+          { "value": "green", "label": "Green" },
+          { "value": "blue", "label": "Blue" },
+          { "value": "purple", "label": "Purple", "disabled": true }
+        ],
+        "value": "blue"
+      },
+      "styles": {
+        "variant": "filled",
+        "size": "small",
+        "borderRadius": "0.5rem",
+        "backgroundColor": "#f0f9ff"
+      },
+      "events": {
+        "onChange": {
+          "action": "changeTheme"
+        }
+      }
+    }
+  ],
+  "connectionPoints": [
+    {
+      "id": "change",
+      "name": "Selection Change Event",
+      "description": "Triggered when the selected option changes",
+      "type": "object",
+      "direction": "output"
+    },
+    {
+      "id": "enabled",
+      "name": "Select Enabled State",
+      "description": "Controls whether the select is enabled or disabled",
+      "type": "boolean",
+      "direction": "input",
+      "defaultValue": true
+    },
+    {
+      "id": "options",
+      "name": "Select Options",
+      "description": "Array of options to display in the select",
+      "type": "array",
+      "direction": "input",
+      "defaultValue": []
+    },
+    {
+      "id": "value",
+      "name": "Selected Value",
+      "description": "The currently selected value",
+      "type": "any",
+      "direction": "bidirectional",
+      "defaultValue": ""
+    },
+    {
+      "id": "label",
+      "name": "Field Label",
+      "description": "Label text displayed above the select",
+      "type": "string",
+      "direction": "input",
+      "defaultValue": ""
+    },
+    {
+      "id": "placeholder",
+      "name": "Placeholder Text",
+      "description": "Text to display when no option is selected",
+      "type": "string",
+      "direction": "input",
+      "defaultValue": "Select an option..."
+    }
+  ]
+} 

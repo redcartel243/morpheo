@@ -1,0 +1,251 @@
+{
+  "name": "Checkbox",
+  "type": "checkbox",
+  "description": "A checkbox component for binary input (on/off, true/false)",
+  "category": "input",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the component",
+      "required": true
+    },
+    "region": {
+      "type": "string",
+      "description": "ID of the region where the component is placed",
+      "required": true
+    },
+    "properties": {
+      "type": "object",
+      "description": "Component properties",
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "Label text displayed next to the checkbox",
+          "default": ""
+        },
+        "checked": {
+          "type": "boolean",
+          "description": "Whether the checkbox is checked",
+          "default": false
+        },
+        "value": {
+          "type": "string",
+          "description": "Value associated with the checkbox",
+          "default": ""
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "Whether the checkbox is disabled",
+          "default": false
+        },
+        "indeterminate": {
+          "type": "boolean",
+          "description": "Whether the checkbox is in an indeterminate state",
+          "default": false
+        },
+        "variant": {
+          "type": "string",
+          "description": "Visual style variant of the checkbox",
+          "default": "default",
+          "enum": ["default", "filled", "outlined"]
+        },
+        "size": {
+          "type": "string",
+          "description": "Size of the checkbox",
+          "default": "medium",
+          "enum": ["small", "medium", "large"]
+        }
+      }
+    },
+    "styles": {
+      "type": "object",
+      "description": "Component styles",
+      "properties": {
+        "margin": {
+          "type": "string",
+          "description": "Margin around the checkbox",
+          "default": "0 0 0.5rem 0"
+        },
+        "backgroundColor": {
+          "type": "string",
+          "description": "Background color of the checkbox when checked",
+          "default": "#3b82f6"
+        },
+        "borderColor": {
+          "type": "string",
+          "description": "Border color of the checkbox when unchecked",
+          "default": "#94a3b8"
+        },
+        "textColor": {
+          "type": "string",
+          "description": "Color of the label text",
+          "default": "#1e293b"
+        },
+        "disabledOpacity": {
+          "type": "number",
+          "description": "Opacity of the checkbox when disabled",
+          "default": 0.7
+        }
+      }
+    },
+    "events": {
+      "type": "object",
+      "description": "Component events",
+      "properties": {
+        "change": {
+          "type": "object",
+          "description": "Triggered when the checkbox is checked or unchecked",
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "Action to perform when the checkbox changes state",
+              "default": "updateState"
+            },
+            "params": {
+              "type": "object",
+              "description": "Parameters for the action",
+              "default": {}
+            }
+          }
+        }
+      }
+    },
+    "connections": {
+      "type": "array",
+      "description": "Connections to other components",
+      "default": [],
+      "items": {
+        "type": "object",
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "description": "ID of the source component"
+          },
+          "sourceConnectionId": {
+            "type": "string",
+            "description": "ID of the connection point in the source component"
+          },
+          "targetId": {
+            "type": "string",
+            "description": "ID of the target component"
+          },
+          "targetConnectionId": {
+            "type": "string",
+            "description": "ID of the connection point in the target component"
+          },
+          "transform": {
+            "type": "object",
+            "description": "Optional transformation to apply to the value",
+            "default": null
+          }
+        },
+        "required": ["sourceId", "sourceConnectionId", "targetId", "targetConnectionId"]
+      }
+    }
+  },
+  "examples": [
+    {
+      "name": "Simple Checkbox",
+      "config": {
+        "id": "agreeCheckbox",
+        "region": "formSection",
+        "properties": {
+          "label": "I agree to the terms and conditions",
+          "checked": false,
+          "variant": "default",
+          "size": "medium"
+        },
+        "events": {
+          "change": {
+            "action": "updateState",
+            "params": {
+              "componentId": "formState",
+              "key": "agreed",
+              "value": "{{value}}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Feature Toggle",
+      "config": {
+        "id": "darkModeOption",
+        "region": "settingsPanel",
+        "properties": {
+          "label": "Use dark mode",
+          "checked": true,
+          "variant": "filled",
+          "size": "large"
+        },
+        "styles": {
+          "backgroundColor": "#6366f1",
+          "textColor": "#4b5563"
+        },
+        "events": {
+          "change": {
+            "action": "setTheme",
+            "params": {
+              "theme": "dark",
+              "enabled": "{{value}}"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "connectionPoints": {
+    "inputs": [
+      {
+        "id": "checked",
+        "name": "Checked State",
+        "description": "The checked state of the checkbox",
+        "type": "boolean"
+      },
+      {
+        "id": "value",
+        "name": "Value",
+        "description": "The value associated with the checkbox",
+        "type": "string"
+      },
+      {
+        "id": "label",
+        "name": "Checkbox Label",
+        "description": "Text displayed next to the checkbox",
+        "type": "string"
+      },
+      {
+        "id": "enabled",
+        "name": "Checkbox Enabled State",
+        "description": "Controls whether the checkbox is enabled or disabled",
+        "type": "boolean"
+      },
+      {
+        "id": "variant",
+        "name": "Checkbox Variant",
+        "description": "Visual style variant of the checkbox",
+        "type": "string"
+      },
+      {
+        "id": "size",
+        "name": "Checkbox Size",
+        "description": "Size of the checkbox",
+        "type": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "change",
+        "name": "Change Event",
+        "description": "Triggered when the checkbox is checked or unchecked",
+        "type": "object"
+      },
+      {
+        "id": "checked",
+        "name": "Checked State",
+        "description": "The current checked state of the checkbox",
+        "type": "boolean"
+      }
+    ]
+  }
+} 

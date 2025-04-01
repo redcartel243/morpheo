@@ -1,0 +1,292 @@
+{
+  "name": "Card",
+  "type": "card",
+  "description": "A container component for organizing related content and actions",
+  "category": "display",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the component",
+      "required": true
+    },
+    "region": {
+      "type": "string",
+      "description": "ID of the region where the component is placed",
+      "required": true
+    },
+    "properties": {
+      "type": "object",
+      "description": "Component properties",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Title text displayed in the card header",
+          "default": ""
+        },
+        "subtitle": {
+          "type": "string",
+          "description": "Subtitle text displayed in the card header",
+          "default": ""
+        },
+        "content": {
+          "type": "string",
+          "description": "Text content displayed in the card body",
+          "default": ""
+        },
+        "footer": {
+          "type": "string",
+          "description": "Text content displayed in the card footer",
+          "default": ""
+        },
+        "headerImage": {
+          "type": "string",
+          "description": "URL of an image to display in the card header",
+          "default": ""
+        },
+        "variant": {
+          "type": "string",
+          "description": "Visual style variant of the card",
+          "default": "default",
+          "enum": ["default", "outlined", "elevated"]
+        },
+        "elevation": {
+          "type": "number",
+          "description": "Shadow elevation level of the card",
+          "default": 1,
+          "enum": [0, 1, 2, 3, 4, 5]
+        }
+      },
+      "required": ["title"]
+    },
+    "styles": {
+      "type": "object",
+      "description": "Component styles",
+      "properties": {
+        "width": {
+          "type": "string",
+          "description": "Width of the card",
+          "default": "100%"
+        },
+        "maxWidth": {
+          "type": "string",
+          "description": "Maximum width of the card",
+          "default": "100%"
+        },
+        "margin": {
+          "type": "string",
+          "description": "Margin around the card",
+          "default": "0 0 1rem 0"
+        },
+        "padding": {
+          "type": "string",
+          "description": "Padding inside the card",
+          "default": "0"
+        },
+        "backgroundColor": {
+          "type": "string",
+          "description": "Background color of the card",
+          "default": "#ffffff"
+        },
+        "borderRadius": {
+          "type": "string",
+          "description": "Border radius of the card",
+          "default": "0.5rem"
+        },
+        "border": {
+          "type": "string",
+          "description": "Border of the card",
+          "default": "none"
+        },
+        "boxShadow": {
+          "type": "string",
+          "description": "Box shadow of the card",
+          "default": "0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24)"
+        },
+        "overflow": {
+          "type": "string",
+          "description": "Overflow behavior of the card",
+          "default": "hidden"
+        },
+        "transition": {
+          "type": "string",
+          "description": "Transition effect of the card",
+          "default": "all 0.3s cubic-bezier(.25,.8,.25,1)"
+        }
+      }
+    },
+    "events": {
+      "type": "object",
+      "description": "Component events",
+      "properties": {
+        "click": {
+          "type": "object",
+          "description": "Triggered when the card is clicked",
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "Action to perform when the card is clicked",
+              "default": "click"
+            },
+            "params": {
+              "type": "object",
+              "description": "Parameters for the action",
+              "default": {}
+            }
+          }
+        },
+        "hover": {
+          "type": "object",
+          "description": "Triggered when the mouse enters or leaves the card",
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "Action to perform when the card is hovered",
+              "default": "hover"
+            },
+            "params": {
+              "type": "object",
+              "description": "Parameters for the action",
+              "default": {}
+            }
+          }
+        }
+      }
+    },
+    "connections": {
+      "type": "array",
+      "description": "Connections to other components",
+      "default": [],
+      "items": {
+        "type": "object",
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "description": "ID of the source component"
+          },
+          "sourceConnectionId": {
+            "type": "string",
+            "description": "ID of the connection point in the source component"
+          },
+          "targetId": {
+            "type": "string",
+            "description": "ID of the target component"
+          },
+          "targetConnectionId": {
+            "type": "string",
+            "description": "ID of the connection point in the target component"
+          },
+          "transform": {
+            "type": "object",
+            "description": "Optional transformation to apply to the value",
+            "default": null
+          }
+        },
+        "required": ["sourceId", "sourceConnectionId", "targetId", "targetConnectionId"]
+      }
+    }
+  },
+  "examples": [
+    {
+      "name": "Product Card",
+      "config": {
+        "id": "product-card-1",
+        "region": "mainContent",
+        "properties": {
+          "title": "Premium Headphones",
+          "subtitle": "Wireless Noise Cancelling",
+          "content": "Experience crystal-clear sound quality with our premium wireless headphones. Features active noise cancellation, 30-hour battery life, and comfortable over-ear design.",
+          "footer": "$299.99 - Free Shipping",
+          "headerImage": "https://example.com/images/headphones.jpg",
+          "variant": "elevated",
+          "elevation": 2
+        },
+        "events": {
+          "click": {
+            "action": "updateState",
+            "params": {
+              "componentId": "shopState",
+              "key": "selectedProduct",
+              "value": "headphones-1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Simple Info Card",
+      "config": {
+        "id": "info-card-1",
+        "region": "sidePanel",
+        "properties": {
+          "title": "Did You Know?",
+          "content": "The average person blinks around 15 to 20 times per minute, which is over 20,000 times a day!",
+          "variant": "outlined"
+        },
+        "styles": {
+          "backgroundColor": "#f8f9fa",
+          "maxWidth": "300px"
+        }
+      }
+    }
+  ],
+  "connectionPoints": {
+    "inputs": [
+      {
+        "id": "title",
+        "name": "Card Title",
+        "description": "Title text displayed in the card header",
+        "type": "string"
+      },
+      {
+        "id": "subtitle",
+        "name": "Card Subtitle",
+        "description": "Subtitle text displayed in the card header",
+        "type": "string"
+      },
+      {
+        "id": "content",
+        "name": "Card Content",
+        "description": "Text content displayed in the card body",
+        "type": "string"
+      },
+      {
+        "id": "footer",
+        "name": "Card Footer",
+        "description": "Text content displayed in the card footer",
+        "type": "string"
+      },
+      {
+        "id": "headerImage",
+        "name": "Header Image",
+        "description": "URL of an image to display in the card header",
+        "type": "string"
+      },
+      {
+        "id": "variant",
+        "name": "Card Variant",
+        "description": "Visual style variant of the card",
+        "type": "string"
+      },
+      {
+        "id": "elevation",
+        "name": "Card Elevation",
+        "description": "Shadow elevation level of the card",
+        "type": "number"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "click",
+        "name": "Click Event",
+        "description": "Triggered when the card is clicked",
+        "type": "object"
+      },
+      {
+        "id": "hover",
+        "name": "Hover Event",
+        "description": "Triggered when the mouse enters or leaves the card",
+        "type": "object"
+      }
+    ]
+  }
+} 

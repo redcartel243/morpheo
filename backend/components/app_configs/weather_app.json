@@ -1,0 +1,337 @@
+{
+  "id": "weather-app",
+  "name": "Weather Dashboard",
+  "description": "A weather dashboard application for checking forecasts",
+  "layout": {
+    "type": "grid",
+    "config": {
+      "container": true,
+      "spacing": 24,
+      "justifyContent": "center"
+    },
+    "children": [
+      {
+        "type": "grid",
+        "config": {
+          "item": true,
+          "xs": 12,
+          "lg": 10
+        },
+        "children": [
+          {
+            "id": "app-header",
+            "type": "card",
+            "config": {
+              "title": "Weather Dashboard",
+              "subtitle": "Check current weather and forecasts",
+              "variant": "elevated",
+              "elevation": 2,
+              "backgroundColor": "#f0f7ff"
+            },
+            "children": [
+              {
+                "id": "location-search-container",
+                "type": "grid",
+                "config": {
+                  "container": true,
+                  "spacing": 8,
+                  "alignItems": "center"
+                },
+                "children": [
+                  {
+                    "id": "location-input",
+                    "type": "text-input",
+                    "config": {
+                      "placeholder": "Enter city name...",
+                      "label": "Location",
+                      "fullWidth": true
+                    }
+                  },
+                  {
+                    "id": "search-button",
+                    "type": "button",
+                    "config": {
+                      "text": "Search",
+                      "variant": "primary",
+                      "fullWidth": false
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "current-weather",
+            "type": "card",
+            "config": {
+              "variant": "elevated",
+              "title": "Current Weather",
+              "elevation": 1
+            },
+            "children": [
+              {
+                "id": "current-weather-grid",
+                "type": "grid",
+                "config": {
+                  "container": true,
+                  "spacing": 16
+                },
+                "children": [
+                  {
+                    "id": "current-weather-info",
+                    "type": "grid",
+                    "config": {
+                      "item": true,
+                      "xs": 12,
+                      "md": 6
+                    },
+                    "children": [
+                      {
+                        "id": "current-location",
+                        "type": "text",
+                        "config": {
+                          "content": "No location selected",
+                          "variant": "h4"
+                        }
+                      },
+                      {
+                        "id": "current-datetime",
+                        "type": "text",
+                        "config": {
+                          "content": "",
+                          "variant": "body2",
+                          "color": "#666666"
+                        }
+                      },
+                      {
+                        "id": "current-temp",
+                        "type": "text",
+                        "config": {
+                          "content": "--°C",
+                          "variant": "h2",
+                          "gutterBottom": true
+                        }
+                      },
+                      {
+                        "id": "current-condition",
+                        "type": "text",
+                        "config": {
+                          "content": "--",
+                          "variant": "h5"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "current-weather-details",
+                    "type": "grid",
+                    "config": {
+                      "item": true,
+                      "xs": 12,
+                      "md": 6
+                    },
+                    "children": [
+                      {
+                        "id": "weather-detail-list",
+                        "type": "list",
+                        "config": {
+                          "variant": "outlined",
+                          "items": [
+                            {
+                              "id": "feels-like",
+                              "content": "Feels like: --°C"
+                            },
+                            {
+                              "id": "humidity",
+                              "content": "Humidity: --%"
+                            },
+                            {
+                              "id": "wind-speed",
+                              "content": "Wind: -- km/h"
+                            },
+                            {
+                              "id": "pressure",
+                              "content": "Pressure: -- hPa"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "forecast-container",
+            "type": "card",
+            "config": {
+              "title": "5-Day Forecast",
+              "variant": "elevated",
+              "elevation": 1
+            },
+            "children": [
+              {
+                "id": "forecast-grid",
+                "type": "grid",
+                "config": {
+                  "container": true,
+                  "spacing": 16
+                },
+                "children": [
+                  {
+                    "id": "forecast-items",
+                    "type": "grid",
+                    "config": {
+                      "container": true,
+                      "spacing": 16
+                    },
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "temperature-chart-container",
+            "type": "card",
+            "config": {
+              "title": "Temperature Forecast",
+              "variant": "elevated",
+              "elevation": 1
+            },
+            "children": [
+              {
+                "id": "temperature-chart",
+                "type": "bar-chart",
+                "config": {
+                  "height": 300,
+                  "data": [],
+                  "xKey": "day",
+                  "yKey": "temperature",
+                  "barColor": "#2196f3",
+                  "title": "5-Day Temperature Forecast"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "state": {
+    "location": "",
+    "currentWeather": null,
+    "forecast": [],
+    "loading": false,
+    "error": null
+  },
+  "backend": {
+    "services": [
+      {
+        "id": "weatherApi",
+        "type": "api-service",
+        "config": {
+          "baseUrl": "https://api.openweathermap.org/data/2.5",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "timeout": 10000,
+          "authType": "api-key",
+          "authConfig": {
+            "headerName": "x-api-key",
+            "key": "YOUR_API_KEY_HERE"
+          }
+        }
+      },
+      {
+        "id": "storage",
+        "type": "local-storage",
+        "config": {
+          "namespace": "weather-app",
+          "defaultExpiry": 3600
+        }
+      }
+    ]
+  },
+  "stateReducer": "function stateReducer(state, action) {\n  // Clone the state to avoid direct mutations\n  const newState = JSON.parse(JSON.stringify(state));\n  \n  switch (action.type) {\n    case 'SET_LOCATION':\n      newState.location = action.payload;\n      return newState;\n      \n    case 'FETCH_WEATHER_START':\n      newState.loading = true;\n      newState.error = null;\n      return newState;\n      \n    case 'FETCH_WEATHER_SUCCESS':\n      newState.loading = false;\n      newState.currentWeather = action.payload.current;\n      newState.forecast = action.payload.forecast;\n      \n      // Save to storage\n      const storage = getService('storage');\n      storage.setItem('lastWeatherData', {\n        location: newState.location,\n        currentWeather: newState.currentWeather,\n        forecast: newState.forecast,\n        timestamp: Date.now()\n      });\n      \n      return newState;\n      \n    case 'FETCH_WEATHER_ERROR':\n      newState.loading = false;\n      newState.error = action.payload;\n      return newState;\n      \n    case 'LOAD_SAVED_WEATHER':\n      // Try to load saved weather data\n      const savedData = getService('storage').getItem('lastWeatherData');\n      if (savedData) {\n        // Check if data is fresh (less than 1 hour old)\n        const isFresh = (Date.now() - savedData.timestamp) < 3600000;\n        if (isFresh) {\n          newState.location = savedData.location;\n          newState.currentWeather = savedData.currentWeather;\n          newState.forecast = savedData.forecast;\n        }\n      }\n      return newState;\n      \n    default:\n      return state;\n  }\n}",
+  "eventBindings": [
+    {
+      "componentId": "location-input",
+      "event": "onChange",
+      "action": {
+        "type": "SET_LOCATION",
+        "payloadFromEvent": "value"
+      }
+    },
+    {
+      "componentId": "location-input",
+      "event": "onKeyDown",
+      "condition": "event.key === 'Enter'",
+      "action": {
+        "type": "FETCH_WEATHER"
+      }
+    },
+    {
+      "componentId": "search-button",
+      "event": "onClick",
+      "action": {
+        "type": "FETCH_WEATHER"
+      }
+    },
+    {
+      "componentId": "app-header",
+      "event": "onMount",
+      "action": {
+        "type": "LOAD_SAVED_WEATHER"
+      }
+    }
+  ],
+  "dataBindings": [
+    {
+      "componentId": "location-input",
+      "prop": "value",
+      "stateSelector": "state.location"
+    },
+    {
+      "componentId": "search-button",
+      "prop": "disabled",
+      "stateSelector": "!state.location || state.location.length < 2 || state.loading"
+    },
+    {
+      "componentId": "current-location",
+      "prop": "content",
+      "stateSelector": "state.currentWeather ? state.currentWeather.location : 'No location selected'"
+    },
+    {
+      "componentId": "current-datetime",
+      "prop": "content",
+      "stateSelector": "state.currentWeather ? new Date(state.currentWeather.datetime).toLocaleString() : ''"
+    },
+    {
+      "componentId": "current-temp",
+      "prop": "content",
+      "stateSelector": "state.currentWeather ? `${Math.round(state.currentWeather.temperature)}°C` : '--°C'"
+    },
+    {
+      "componentId": "current-condition",
+      "prop": "content",
+      "stateSelector": "state.currentWeather ? state.currentWeather.condition : '--'"
+    },
+    {
+      "componentId": "weather-detail-list",
+      "prop": "items",
+      "stateSelector": "state.currentWeather ? [\n  { id: 'feels-like', content: `Feels like: ${Math.round(state.currentWeather.feelsLike)}°C` },\n  { id: 'humidity', content: `Humidity: ${state.currentWeather.humidity}%` },\n  { id: 'wind-speed', content: `Wind: ${state.currentWeather.windSpeed} km/h` },\n  { id: 'pressure', content: `Pressure: ${state.currentWeather.pressure} hPa` }\n] : [\n  { id: 'feels-like', content: 'Feels like: --°C' },\n  { id: 'humidity', content: 'Humidity: --%' },\n  { id: 'wind-speed', content: 'Wind: -- km/h' },\n  { id: 'pressure', content: 'Pressure: -- hPa' }\n]"
+    },
+    {
+      "componentId": "forecast-items",
+      "prop": "children",
+      "stateSelector": "state.forecast.map((day, index) => ({\n  id: `forecast-day-${index}`,\n  type: 'grid',\n  config: {\n    item: true,\n    xs: 6,\n    sm: 4,\n    md: 2.4\n  },\n  children: [\n    {\n      id: `forecast-card-${index}`,\n      type: 'card',\n      config: {\n        variant: 'outlined',\n        padding: '8px'\n      },\n      children: [\n        {\n          id: `forecast-day-${index}-date`,\n          type: 'text',\n          config: {\n            content: day.date,\n            variant: 'body2',\n            align: 'center',\n            bold: true\n          }\n        },\n        {\n          id: `forecast-day-${index}-temp`,\n          type: 'text',\n          config: {\n            content: `${Math.round(day.temp)}°C`,\n            variant: 'h5',\n            align: 'center'\n          }\n        },\n        {\n          id: `forecast-day-${index}-condition`,\n          type: 'text',\n          config: {\n            content: day.condition,\n            variant: 'body2',\n            align: 'center'\n          }\n        }\n      ]\n    }\n  ]\n}))"
+    },
+    {
+      "componentId": "temperature-chart",
+      "prop": "data",
+      "stateSelector": "state.forecast.map(day => ({\n  day: day.date,\n  temperature: Math.round(day.temp)\n}))"
+    }
+  ]
+} 

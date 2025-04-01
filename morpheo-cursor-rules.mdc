@@ -1,0 +1,29 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Morpheo Core Purpose
+
+Morpheo is an AI-driven component system with a fundamental principle:
+
+## No Hardcoded Application Logic
+
+1. **Zero Application-Specific Code**: No hardcoded calculator logic, growing button logic, etc.
+
+2. **Pure AI-Driven Generation**:
+   - The AI analyzes requests and determines needed components
+   - The AI creates connections and transformations
+   - The AI applies behaviors appropriate to the use case
+
+3. **Generic Component System**:
+   - Components should be generic building blocks
+   - Behaviors should be reusable across applications
+   - No component or behavior should be tied to a specific application type
+
+## Implementation Guidelines
+
+1. Avoid application type enums or switch statements based on application types
+2. Do not create specialized handler methods for specific applications (no createCalculatorApp, etc.)
+3. All component selection, connection, and behavior must come from the AI
+4. The system provides only the tools and framework - the AI provides the application logic 

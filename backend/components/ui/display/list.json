@@ -1,0 +1,115 @@
+{
+  "id": "list",
+  "name": "List",
+  "description": "A component for displaying lists of items with various styling options",
+  "type": "display",
+  "capabilities": ["content organization", "data display", "item listing"],
+  "propTypes": {
+    "items": {
+      "type": "array",
+      "description": "Array of items to display in the list",
+      "required": true
+    },
+    "variant": {
+      "type": "string",
+      "description": "The list variant style",
+      "options": ["standard", "outlined", "contained"],
+      "default": "standard"
+    },
+    "dense": {
+      "type": "boolean",
+      "description": "Whether the list should have smaller spacing",
+      "default": false
+    },
+    "dividers": {
+      "type": "boolean",
+      "description": "Whether to show dividers between list items",
+      "default": false
+    },
+    "numbered": {
+      "type": "boolean",
+      "description": "Whether to display an ordered list with numbers",
+      "default": false
+    },
+    "startIndex": {
+      "type": "number",
+      "description": "Starting index for ordered lists",
+      "default": 1
+    },
+    "iconPosition": {
+      "type": "string",
+      "description": "Position of icons in list items",
+      "options": ["start", "end"],
+      "default": "start"
+    },
+    "maxHeight": {
+      "type": "string",
+      "description": "Maximum height of the list with overflow scrolling",
+      "required": false
+    },
+    "emptyMessage": {
+      "type": "string",
+      "description": "Message to display when the list is empty",
+      "default": "No items to display"
+    }
+  },
+  "defaultStyles": {
+    "margin": "0",
+    "padding": "0",
+    "listStylePosition": "inside"
+  },
+  "variantStyles": {
+    "standard": {
+      "backgroundColor": "transparent"
+    },
+    "outlined": {
+      "border": "1px solid #e0e0e0",
+      "borderRadius": "4px"
+    },
+    "contained": {
+      "backgroundColor": "#f5f5f5",
+      "borderRadius": "4px"
+    }
+  },
+  "densityStyles": {
+    "normal": {
+      "padding": "8px 0"
+    },
+    "dense": {
+      "padding": "4px 0"
+    }
+  },
+  "itemStyles": {
+    "standard": {
+      "padding": "8px 16px",
+      "display": "flex",
+      "alignItems": "center"
+    },
+    "dense": {
+      "padding": "4px 16px",
+      "display": "flex",
+      "alignItems": "center"
+    },
+    "divider": {
+      "borderBottom": "1px solid #e0e0e0"
+    }
+  },
+  "emptyStyles": {
+    "padding": "16px",
+    "textAlign": "center",
+    "color": "#757575",
+    "fontStyle": "italic"
+  },
+  "events": {
+    "onItemClick": {
+      "description": "Triggered when a list item is clicked",
+      "params": {
+        "item": "object",
+        "index": "number"
+      }
+    }
+  },
+  "implementation": {
+    "react": "function List(props) {\n  const {\n    items = [],\n    variant = 'standard',\n    dense = false,\n    dividers = false,\n    numbered = false,\n    startIndex = 1,\n    iconPosition = 'start',\n    maxHeight,\n    emptyMessage = 'No items to display',\n    style = {},\n    onItemClick,\n    ...rest\n  } = props;\n\n  // Combine styles for the list container\n  const listStyle = {\n    ...defaultStyles,\n    ...(variantStyles[variant] || variantStyles.standard),\n    ...(dense ? densityStyles.dense : densityStyles.normal),\n    ...(maxHeight ? { maxHeight, overflowY: 'auto' } : {}),\n    listStyleType: numbered ? 'decimal' : 'none',\n    ...style\n  };\n\n  // Determine the list element type\n  const ListComponent = numbered ? 'ol' : 'ul';\n\n  // Function to render a list item based on its type\n  const renderItem = (item, index) => {\n    const itemStyle = {\n      ...(dense ? itemStyles.dense : itemStyles.standard),\n      ...(dividers && index !== items.length - 1 ? itemStyles.divider : {})\n    };\n\n    const handleClick = () => {\n      if (onItemClick) {\n        onItemClick(item, index);\n      }\n    };\n\n    // If the item is a string, render it directly\n    if (typeof item === 'string') {\n      return (\n        <li key={index} style={itemStyle} onClick={handleClick}>\n          {item}\n        </li>\n      );\n    }\n\n    // If the item has an id property, use it as the key\n    const key = item.id ? item.id : index;\n\n    // If the item has content property, render it\n    if (item.content) {\n      // If content is a React element\n      if (React.isValidElement(item.content)) {\n        return (\n          <li key={key} style={itemStyle} onClick={handleClick}>\n            {item.content}\n          </li>\n        );\n      }\n      \n      // If content is a string\n      if (typeof item.content === 'string') {\n        return (\n          <li key={key} style={itemStyle} onClick={handleClick}>\n            {item.content}\n          </li>\n        );\n      }\n\n      // If content is an object with type property (component config)\n      if (item.content && item.content.type) {\n        // This would be handled by your component renderer\n        return (\n          <li key={key} style={itemStyle} onClick={handleClick}>\n            {/* Render dynamic component based on content config */}\n            {/* This is a placeholder - your actual implementation will depend on your component system */}\n            <DynamicComponent config={item.content} />\n          </li>\n        );\n      }\n    }\n\n    // Fallback for other item structures\n    return (\n      <li key={key} style={itemStyle} onClick={handleClick}>\n        {JSON.stringify(item)}\n      </li>\n    );\n  };\n\n  return (\n    <ListComponent style={listStyle} start={numbered ? startIndex : undefined} {...rest}>\n      {items.length > 0 ? (\n        items.map(renderItem)\n      ) : (\n        <li style={emptyStyles}>{emptyMessage}</li>\n      )}\n    </ListComponent>\n  );\n}"
+  }
+} 

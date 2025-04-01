@@ -1,0 +1,105 @@
+{
+  "id": "button",
+  "name": "Button",
+  "description": "A clickable button component",
+  "type": "basic",
+  "capabilities": ["user interaction", "form submission", "action triggering"],
+  "propTypes": {
+    "text": {
+      "type": "string",
+      "description": "The text displayed on the button",
+      "required": true
+    },
+    "variant": {
+      "type": "string",
+      "description": "The button style variant",
+      "options": ["primary", "secondary", "outlined", "text"],
+      "default": "primary"
+    },
+    "size": {
+      "type": "string",
+      "description": "The button size",
+      "options": ["small", "medium", "large"],
+      "default": "medium"
+    },
+    "disabled": {
+      "type": "boolean",
+      "description": "Whether the button is disabled",
+      "default": false
+    },
+    "fullWidth": {
+      "type": "boolean",
+      "description": "Whether the button should take full width",
+      "default": false
+    },
+    "icon": {
+      "type": "string",
+      "description": "Icon to display alongside text",
+      "required": false
+    },
+    "iconPosition": {
+      "type": "string",
+      "description": "Position of the icon",
+      "options": ["left", "right"],
+      "default": "left"
+    }
+  },
+  "defaultStyles": {
+    "padding": "8px 16px",
+    "borderRadius": "4px",
+    "fontWeight": "500",
+    "cursor": "pointer",
+    "display": "inline-flex",
+    "alignItems": "center",
+    "justifyContent": "center",
+    "transition": "background-color 0.2s, color 0.2s, border-color 0.2s",
+    "border": "none",
+    "outline": "none"
+  },
+  "variantStyles": {
+    "primary": {
+      "backgroundColor": "#1976d2",
+      "color": "#ffffff",
+      "hoverBackgroundColor": "#1565c0"
+    },
+    "secondary": {
+      "backgroundColor": "#9c27b0",
+      "color": "#ffffff",
+      "hoverBackgroundColor": "#7b1fa2"
+    },
+    "outlined": {
+      "backgroundColor": "transparent",
+      "color": "#1976d2",
+      "border": "1px solid #1976d2",
+      "hoverBackgroundColor": "rgba(25, 118, 210, 0.04)"
+    },
+    "text": {
+      "backgroundColor": "transparent",
+      "color": "#1976d2",
+      "hoverBackgroundColor": "rgba(25, 118, 210, 0.04)"
+    }
+  },
+  "sizeStyles": {
+    "small": {
+      "padding": "4px 8px",
+      "fontSize": "0.8125rem"
+    },
+    "medium": {
+      "padding": "8px 16px",
+      "fontSize": "0.875rem"
+    },
+    "large": {
+      "padding": "12px 24px",
+      "fontSize": "0.9375rem"
+    }
+  },
+  "events": {
+    "onClick": {
+      "description": "Triggered when the button is clicked",
+      "params": {}
+    }
+  },
+  "implementation": {
+    "react": "function Button(props) {\n  const { text, variant = 'primary', size = 'medium', disabled = false, fullWidth = false, icon, iconPosition = 'left', style = {}, onClick, ...rest } = props;\n  \n  // Combine styles\n  const buttonStyle = {\n    ...defaultStyles,\n    ...(variantStyles[variant] || variantStyles.primary),\n    ...(sizeStyles[size] || sizeStyles.medium),\n    ...(fullWidth ? { width: '100%' } : {}),\n    ...(disabled ? { opacity: 0.7, cursor: 'not-allowed' } : {}),\n    ...style\n  };\n  \n  return (\n    <button\n      style={buttonStyle}\n      disabled={disabled}\n      onClick={onClick}\n      {...rest}\n    >\n      {icon && iconPosition === 'left' && <span style={{ marginRight: '8px' }}>{icon}</span>}\n      {text}\n      {icon && iconPosition === 'right' && <span style={{ marginLeft: '8px' }}>{icon}</span>}\n    </button>\n  );\n}"
+  }
+} 

@@ -1,0 +1,141 @@
+{
+  "id": "text",
+  "name": "Text Display",
+  "description": "A component for displaying text content with various formatting options",
+  "type": "display",
+  "capabilities": ["content display", "formatting", "text styling"],
+  "propTypes": {
+    "content": {
+      "type": "string",
+      "description": "The text content to display",
+      "required": true
+    },
+    "variant": {
+      "type": "string",
+      "description": "The text variant/importance level",
+      "options": ["h1", "h2", "h3", "h4", "h5", "h6", "body1", "body2", "caption", "button", "overline"],
+      "default": "body1"
+    },
+    "align": {
+      "type": "string",
+      "description": "Text alignment",
+      "options": ["left", "center", "right", "justify"],
+      "default": "left"
+    },
+    "color": {
+      "type": "string",
+      "description": "Text color (CSS color value)",
+      "default": "inherit"
+    },
+    "noWrap": {
+      "type": "boolean",
+      "description": "Whether the text should wrap or not",
+      "default": false
+    },
+    "truncate": {
+      "type": "boolean",
+      "description": "Whether to truncate overflow text with an ellipsis",
+      "default": false
+    },
+    "gutterBottom": {
+      "type": "boolean",
+      "description": "Whether the text should have bottom margin",
+      "default": false
+    },
+    "italic": {
+      "type": "boolean",
+      "description": "Whether the text should be italic",
+      "default": false
+    },
+    "bold": {
+      "type": "boolean",
+      "description": "Whether the text should be bold (overrides variant defaults)",
+      "default": false
+    },
+    "paragraph": {
+      "type": "boolean",
+      "description": "Whether the text should be rendered as a paragraph element",
+      "default": false
+    }
+  },
+  "defaultStyles": {
+    "margin": "0",
+    "lineHeight": "1.5"
+  },
+  "variantStyles": {
+    "h1": {
+      "fontSize": "2.5rem",
+      "fontWeight": "500",
+      "lineHeight": "1.2",
+      "marginBottom": "0.5em"
+    },
+    "h2": {
+      "fontSize": "2rem",
+      "fontWeight": "500",
+      "lineHeight": "1.2",
+      "marginBottom": "0.5em"
+    },
+    "h3": {
+      "fontSize": "1.75rem",
+      "fontWeight": "500",
+      "lineHeight": "1.2",
+      "marginBottom": "0.5em"
+    },
+    "h4": {
+      "fontSize": "1.5rem",
+      "fontWeight": "500",
+      "lineHeight": "1.2",
+      "marginBottom": "0.5em"
+    },
+    "h5": {
+      "fontSize": "1.25rem",
+      "fontWeight": "500",
+      "lineHeight": "1.2",
+      "marginBottom": "0.5em"
+    },
+    "h6": {
+      "fontSize": "1rem",
+      "fontWeight": "500",
+      "lineHeight": "1.2",
+      "marginBottom": "0.5em"
+    },
+    "body1": {
+      "fontSize": "1rem",
+      "fontWeight": "400",
+      "lineHeight": "1.5"
+    },
+    "body2": {
+      "fontSize": "0.875rem",
+      "fontWeight": "400",
+      "lineHeight": "1.5"
+    },
+    "caption": {
+      "fontSize": "0.75rem",
+      "fontWeight": "400",
+      "lineHeight": "1.5",
+      "color": "#757575"
+    },
+    "button": {
+      "fontSize": "0.875rem",
+      "fontWeight": "500",
+      "lineHeight": "1.75",
+      "textTransform": "uppercase"
+    },
+    "overline": {
+      "fontSize": "0.75rem",
+      "fontWeight": "400",
+      "lineHeight": "2.5",
+      "textTransform": "uppercase",
+      "letterSpacing": "0.08em"
+    }
+  },
+  "events": {
+    "onClick": {
+      "description": "Triggered when the text is clicked",
+      "params": {}
+    }
+  },
+  "implementation": {
+    "react": "function Text(props) {\n  const {\n    content,\n    variant = 'body1',\n    align = 'left',\n    color = 'inherit',\n    noWrap = false,\n    truncate = false,\n    gutterBottom = false,\n    italic = false,\n    bold = false,\n    paragraph = false,\n    style = {},\n    onClick,\n    ...rest\n  } = props;\n\n  // Determine which HTML element to use based on variant and paragraph prop\n  const getComponent = () => {\n    if (paragraph) return 'p';\n    switch (variant) {\n      case 'h1': return 'h1';\n      case 'h2': return 'h2';\n      case 'h3': return 'h3';\n      case 'h4': return 'h4';\n      case 'h5': return 'h5';\n      case 'h6': return 'h6';\n      default: return 'span';\n    }\n  };\n  \n  const Component = getComponent();\n  \n  // Combine styles\n  const textStyle = {\n    ...defaultStyles,\n    ...(variantStyles[variant] || variantStyles.body1),\n    textAlign: align,\n    color,\n    fontStyle: italic ? 'italic' : 'normal',\n    // Bold overrides the variant's default font weight if specified\n    ...(bold ? { fontWeight: '700' } : {}),\n    ...(gutterBottom ? { marginBottom: '0.35em' } : {}),\n    ...(noWrap ? { \n      whiteSpace: 'nowrap',\n      overflow: 'hidden' \n    } : {}),\n    ...(truncate ? {\n      whiteSpace: 'nowrap',\n      overflow: 'hidden',\n      textOverflow: 'ellipsis'\n    } : {}),\n    ...style\n  };\n  \n  return (\n    <Component \n      style={textStyle} \n      onClick={onClick}\n      {...rest}\n    >\n      {content}\n    </Component>\n  );\n}"
+  }
+} 

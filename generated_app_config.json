@@ -1,0 +1,119 @@
+{
+  "type": "basic_list",
+  "version": "1.0.0",
+  "ui": {
+    "layout": "vertical",
+    "components": {
+      "header": {
+        "type": "header",
+        "title": "Task Manager",
+        "actions": [
+          "add",
+          "search"
+        ]
+      },
+      "main": {
+        "type": "list",
+        "itemTemplate": {
+          "type": "card",
+          "fields": [
+            "title",
+            "description"
+          ],
+          "actions": [
+            "edit",
+            "delete"
+          ]
+        },
+        "pagination": {
+          "enabled": true,
+          "itemsPerPage": 10
+        }
+      },
+      "footer": {
+        "type": "footer",
+        "content": [
+          "pagination",
+          "status"
+        ]
+      }
+    }
+  },
+  "styling": {
+    "theme": "dark",
+    "colors": {
+      "primary": "#007AFF",
+      "secondary": "#5856D6",
+      "background": "#F2F2F7",
+      "text": "#000000",
+      "border": "#C7C7CC"
+    },
+    "spacing": {
+      "unit": 8,
+      "padding": {
+        "small": 1,
+        "medium": 2,
+        "large": 3
+      }
+    },
+    "typography": {
+      "fontFamily": "Inter, system-ui, sans-serif",
+      "sizes": {
+        "small": 12,
+        "medium": 14,
+        "large": 16,
+        "title": 20
+      }
+    }
+  },
+  "features": {
+    "search": {
+      "enabled": true,
+      "type": "text",
+      "placeholder": "Search items..."
+    },
+    "sorting": {
+      "enabled": true,
+      "fields": [
+        "title",
+        "date"
+      ]
+    },
+    "filtering": {
+      "enabled": true,
+      "filters": [
+        "status",
+        "category"
+      ]
+    }
+  },
+  "data": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "required": true
+        },
+        "description": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "completed",
+            "archived"
+          ]
+        },
+        "category": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,164 @@
+{
+  "id": "local-storage",
+  "name": "Local Storage",
+  "description": "A service for persistent client-side storage using browser's localStorage API",
+  "type": "data",
+  "capabilities": ["data persistence", "client-side storage", "offline data access"],
+  "configOptions": {
+    "namespace": {
+      "type": "string",
+      "description": "Namespace prefix for all keys to avoid collisions",
+      "default": "app"
+    },
+    "useCompression": {
+      "type": "boolean",
+      "description": "Whether to compress data before storing",
+      "default": false
+    },
+    "useEncryption": {
+      "type": "boolean",
+      "description": "Whether to encrypt data before storing",
+      "default": false
+    },
+    "encryptionKey": {
+      "type": "string",
+      "description": "Key used for encryption (required if useEncryption is true)",
+      "required": false
+    },
+    "maxSize": {
+      "type": "number",
+      "description": "Maximum size in bytes for a single item (0 = no limit)",
+      "default": 0
+    },
+    "defaultExpiry": {
+      "type": "number",
+      "description": "Default expiration time in seconds (0 = no expiry)",
+      "default": 0
+    }
+  },
+  "methods": {
+    "setItem": {
+      "description": "Stores a value with the specified key",
+      "params": {
+        "key": {
+          "type": "string",
+          "description": "The key to store the value under",
+          "required": true
+        },
+        "value": {
+          "type": "any",
+          "description": "The value to store",
+          "required": true
+        },
+        "expirySeconds": {
+          "type": "number",
+          "description": "Time in seconds until this item expires",
+          "required": false
+        }
+      },
+      "returns": {
+        "type": "boolean",
+        "description": "Whether the operation was successful"
+      }
+    },
+    "getItem": {
+      "description": "Retrieves a value by key",
+      "params": {
+        "key": {
+          "type": "string",
+          "description": "The key to retrieve the value for",
+          "required": true
+        },
+        "defaultValue": {
+          "type": "any",
+          "description": "Value to return if key doesn't exist",
+          "required": false
+        }
+      },
+      "returns": {
+        "type": "any",
+        "description": "The stored value or defaultValue if not found"
+      }
+    },
+    "removeItem": {
+      "description": "Removes an item from storage",
+      "params": {
+        "key": {
+          "type": "string",
+          "description": "The key to remove",
+          "required": true
+        }
+      },
+      "returns": {
+        "type": "boolean",
+        "description": "Whether the operation was successful"
+      }
+    },
+    "clear": {
+      "description": "Clears all items in this namespace from storage",
+      "params": {},
+      "returns": {
+        "type": "boolean",
+        "description": "Whether the operation was successful"
+      }
+    },
+    "getAllKeys": {
+      "description": "Gets all keys in this namespace",
+      "params": {},
+      "returns": {
+        "type": "array",
+        "description": "Array of keys"
+      }
+    },
+    "getSize": {
+      "description": "Gets the total size used by this namespace in bytes",
+      "params": {},
+      "returns": {
+        "type": "number",
+        "description": "Size in bytes"
+      }
+    }
+  },
+  "events": {
+    "onItemSet": {
+      "description": "Triggered when an item is set in storage",
+      "params": {
+        "key": "string",
+        "size": "number"
+      }
+    },
+    "onItemGet": {
+      "description": "Triggered when an item is retrieved from storage",
+      "params": {
+        "key": "string",
+        "found": "boolean"
+      }
+    },
+    "onItemRemove": {
+      "description": "Triggered when an item is removed from storage",
+      "params": {
+        "key": "string"
+      }
+    },
+    "onStorageClear": {
+      "description": "Triggered when storage is cleared",
+      "params": {
+        "keysRemoved": "number"
+      }
+    },
+    "onStorageError": {
+      "description": "Triggered when a storage operation fails",
+      "params": {
+        "operation": "string",
+        "key": "string",
+        "error": "string"
+      }
+    }
+  },
+  "implementation": {
+    "javascript": "class LocalStorage {\n  constructor(config) {\n    this.namespace = config.namespace || 'app';\n    this.useCompression = config.useCompression || false;\n    this.useEncryption = config.useEncryption || false;\n    this.encryptionKey = config.encryptionKey;\n    this.maxSize = config.maxSize || 0;\n    this.defaultExpiry = config.defaultExpiry || 0;\n    \n    // Validate encryption config\n    if (this.useEncryption && !this.encryptionKey) {\n      console.warn('LocalStorage: Encryption enabled but no key provided. Disabling encryption.');\n      this.useEncryption = false;\n    }\n    \n    // Check if localStorage is available\n    this.isAvailable = this._checkAvailability();\n    if (!this.isAvailable) {\n      console.warn('LocalStorage: localStorage is not available in this environment');\n    }\n    \n    // Event callbacks\n    this.onItemSet = null;\n    this.onItemGet = null;\n    this.onItemRemove = null;\n    this.onStorageClear = null;\n    this.onStorageError = null;\n  }\n  \n  // Check if localStorage is available\n  _checkAvailability() {\n    try {\n      const testKey = '__storage_test__';\n      localStorage.setItem(testKey, testKey);\n      localStorage.removeItem(testKey);\n      return true;\n    } catch (e) {\n      return false;\n    }\n  }\n  \n  // Create namespaced key\n  _getNamespacedKey(key) {\n    return `${this.namespace}:${key}`;\n  }\n  \n  // Compress data using a simple technique\n  // In a real implementation, you would use a proper compression library\n  _compress(data) {\n    if (!this.useCompression) return data;\n    // Simple compression for demo purposes only\n    // In a real app, use a proper library like lz-string\n    return data;\n  }\n  \n  // Decompress data\n  _decompress(data) {\n    if (!this.useCompression) return data;\n    // Simple decompression for demo purposes only\n    return data;\n  }\n  \n  // Encrypt data\n  // In a real implementation, you would use a proper encryption library\n  _encrypt(data) {\n    if (!this.useEncryption) return data;\n    // Simple encryption for demo purposes only\n    // In a real app, use the Web Crypto API or a library like CryptoJS\n    return btoa(data);\n  }\n  \n  // Decrypt data\n  _decrypt(data) {\n    if (!this.useEncryption) return data;\n    // Simple decryption for demo purposes only\n    try {\n      return atob(data);\n    } catch (e) {\n      // If decryption fails, return the original data\n      return data;\n    }\n  }\n  \n  // Serialize data for storage\n  _serialize(value, expirySeconds) {\n    const expiry = expirySeconds || this.defaultExpiry;\n    const expiresAt = expiry > 0 ? Date.now() + (expiry * 1000) : 0;\n    \n    const dataToStore = {\n      value,\n      expiresAt\n    };\n    \n    let serialized = JSON.stringify(dataToStore);\n    serialized = this._compress(serialized);\n    serialized = this._encrypt(serialized);\n    \n    if (this.maxSize > 0 && serialized.length > this.maxSize) {\n      throw new Error(`Value exceeds maximum size (${serialized.length} > ${this.maxSize})`);\n    }\n    \n    return serialized;\n  }\n  \n  // Deserialize data from storage\n  _deserialize(data) {\n    if (!data) return null;\n    \n    let decrypted = this._decrypt(data);\n    let decompressed = this._decompress(decrypted);\n    \n    try {\n      const parsed = JSON.parse(decompressed);\n      \n      // Check expiration\n      if (parsed.expiresAt > 0 && Date.now() > parsed.expiresAt) {\n        // Item has expired\n        return null;\n      }\n      \n      return parsed.value;\n    } catch (e) {\n      console.error('LocalStorage: Failed to parse stored data', e);\n      return null;\n    }\n  }\n  \n  // Public methods\n  setItem(key, value, expirySeconds) {\n    if (!this.isAvailable) {\n      this._triggerError('set', key, 'localStorage not available');\n      return false;\n    }\n    \n    try {\n      const namespacedKey = this._getNamespacedKey(key);\n      const serialized = this._serialize(value, expirySeconds);\n      \n      localStorage.setItem(namespacedKey, serialized);\n      \n      if (this.onItemSet) {\n        this.onItemSet({\n          key,\n          size: serialized.length\n        });\n      }\n      \n      return true;\n    } catch (e) {\n      this._triggerError('set', key, e.message);\n      return false;\n    }\n  }\n  \n  getItem(key, defaultValue = null) {\n    if (!this.isAvailable) {\n      this._triggerError('get', key, 'localStorage not available');\n      return defaultValue;\n    }\n    \n    try {\n      const namespacedKey = this._getNamespacedKey(key);\n      const data = localStorage.getItem(namespacedKey);\n      \n      let result = this._deserialize(data);\n      const found = result !== null;\n      \n      if (!found) {\n        result = defaultValue;\n      }\n      \n      if (this.onItemGet) {\n        this.onItemGet({\n          key,\n          found\n        });\n      }\n      \n      return result;\n    } catch (e) {\n      this._triggerError('get', key, e.message);\n      return defaultValue;\n    }\n  }\n  \n  removeItem(key) {\n    if (!this.isAvailable) {\n      this._triggerError('remove', key, 'localStorage not available');\n      return false;\n    }\n    \n    try {\n      const namespacedKey = this._getNamespacedKey(key);\n      localStorage.removeItem(namespacedKey);\n      \n      if (this.onItemRemove) {\n        this.onItemRemove({ key });\n      }\n      \n      return true;\n    } catch (e) {\n      this._triggerError('remove', key, e.message);\n      return false;\n    }\n  }\n  \n  clear() {\n    if (!this.isAvailable) {\n      this._triggerError('clear', '', 'localStorage not available');\n      return false;\n    }\n    \n    try {\n      const keys = this.getAllKeys();\n      const keysRemoved = keys.length;\n      \n      keys.forEach(key => {\n        const namespacedKey = this._getNamespacedKey(key);\n        localStorage.removeItem(namespacedKey);\n      });\n      \n      if (this.onStorageClear) {\n        this.onStorageClear({ keysRemoved });\n      }\n      \n      return true;\n    } catch (e) {\n      this._triggerError('clear', '', e.message);\n      return false;\n    }\n  }\n  \n  getAllKeys() {\n    if (!this.isAvailable) {\n      this._triggerError('getAllKeys', '', 'localStorage not available');\n      return [];\n    }\n    \n    try {\n      const result = [];\n      const prefix = `${this.namespace}:`;\n      \n      for (let i = 0; i < localStorage.length; i++) {\n        const key = localStorage.key(i);\n        if (key.startsWith(prefix)) {\n          result.push(key.substring(prefix.length));\n        }\n      }\n      \n      return result;\n    } catch (e) {\n      this._triggerError('getAllKeys', '', e.message);\n      return [];\n    }\n  }\n  \n  getSize() {\n    if (!this.isAvailable) {\n      this._triggerError('getSize', '', 'localStorage not available');\n      return 0;\n    }\n    \n    try {\n      let totalSize = 0;\n      const prefix = `${this.namespace}:`;\n      \n      for (let i = 0; i < localStorage.length; i++) {\n        const key = localStorage.key(i);\n        if (key.startsWith(prefix)) {\n          totalSize += localStorage.getItem(key).length;\n        }\n      }\n      \n      return totalSize;\n    } catch (e) {\n      this._triggerError('getSize', '', e.message);\n      return 0;\n    }\n  }\n  \n  // Helper method to trigger error events\n  _triggerError(operation, key, errorMessage) {\n    if (this.onStorageError) {\n      this.onStorageError({\n        operation,\n        key,\n        error: errorMessage\n      });\n    }\n    \n    console.error(`LocalStorage error (${operation}): ${errorMessage}`);\n  }\n}\n\n// Factory function to create configured instance\nfunction createLocalStorage(config = {}) {\n  return new LocalStorage(config);\n}"
+  },
+  "usage": {
+    "javascript": "// Initialize local storage with a custom namespace\nconst storage = createLocalStorage({\n  namespace: 'myApp',\n  defaultExpiry: 86400 // 1 day in seconds\n});\n\n// Store user preferences\nstorage.setItem('theme', 'dark');\nstorage.setItem('language', 'en');\n\n// Store user data with custom expiration (7 days)\nconst userData = { id: 123, name: 'John Doe', email: 'john@example.com' };\nstorage.setItem('userData', userData, 7 * 86400);\n\n// Retrieve data\nconst theme = storage.getItem('theme', 'light'); // 'dark' (with 'light' as fallback)\nconst language = storage.getItem('language', 'en'); // 'en'\nconst user = storage.getItem('userData'); // {id: 123, name: 'John Doe', ...}\n\n// Check if data exists before using it\nif (user) {\n  console.log(`Welcome back, ${user.name}!`);\n}\n\n// Get all stored keys\nconst allKeys = storage.getAllKeys(); // ['theme', 'language', 'userData']\n\n// Get storage size\nconst storageSize = storage.getSize();\nconsole.log(`Storage using ${(storageSize / 1024).toFixed(2)} KB`);\n\n// Set up event handlers\nstorage.onStorageError = ({ operation, key, error }) => {\n  console.error(`Storage error during ${operation} of ${key}: ${error}`);\n};\n\n// Remove specific item\nstorage.removeItem('theme');\n\n// Clear all storage for this namespace\nstorage.clear();"
+  }
+} 

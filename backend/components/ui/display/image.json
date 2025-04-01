@@ -1,0 +1,276 @@
+{
+  "name": "Image",
+  "type": "image",
+  "description": "A component for displaying images with various loading strategies",
+  "category": "display",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the component",
+      "required": true
+    },
+    "region": {
+      "type": "string",
+      "description": "ID of the region where the component is placed",
+      "required": true
+    },
+    "properties": {
+      "type": "object",
+      "description": "Component properties",
+      "properties": {
+        "src": {
+          "type": "string",
+          "description": "URL of the image to display",
+          "default": ""
+        },
+        "alt": {
+          "type": "string",
+          "description": "Alternative text for the image for accessibility",
+          "default": ""
+        },
+        "objectFit": {
+          "type": "string",
+          "description": "How the image should be resized to fit its container",
+          "default": "cover",
+          "enum": ["fill", "contain", "cover", "none", "scale-down"]
+        },
+        "loading": {
+          "type": "string",
+          "description": "Loading strategy for the image (eager or lazy)",
+          "default": "lazy",
+          "enum": ["eager", "lazy"]
+        }
+      },
+      "required": ["src"]
+    },
+    "styles": {
+      "type": "object",
+      "description": "Component styles",
+      "properties": {
+        "width": {
+          "type": "string",
+          "description": "Width of the image container",
+          "default": "100%"
+        },
+        "height": {
+          "type": "string",
+          "description": "Height of the image container",
+          "default": "auto"
+        },
+        "minHeight": {
+          "type": "string",
+          "description": "Minimum height of the image container",
+          "default": "50px"
+        },
+        "maxHeight": {
+          "type": "string",
+          "description": "Maximum height of the image container",
+          "default": "none"
+        },
+        "maxWidth": {
+          "type": "string",
+          "description": "Maximum width of the image container",
+          "default": "100%"
+        },
+        "margin": {
+          "type": "string",
+          "description": "Margin around the image container",
+          "default": "0"
+        },
+        "padding": {
+          "type": "string",
+          "description": "Padding inside the image container",
+          "default": "0"
+        },
+        "borderRadius": {
+          "type": "string",
+          "description": "Border radius of the image container",
+          "default": "0"
+        },
+        "border": {
+          "type": "string",
+          "description": "Border of the image container",
+          "default": "none"
+        },
+        "boxShadow": {
+          "type": "string",
+          "description": "Box shadow of the image container",
+          "default": "none"
+        },
+        "backgroundColor": {
+          "type": "string",
+          "description": "Background color of the image container",
+          "default": "#f1f5f9"
+        },
+        "placeholderColor": {
+          "type": "string",
+          "description": "Color of the placeholder text",
+          "default": "#94a3b8"
+        },
+        "errorColor": {
+          "type": "string",
+          "description": "Color of the error text",
+          "default": "#ef4444"
+        },
+        "errorBackgroundColor": {
+          "type": "string",
+          "description": "Background color when image fails to load",
+          "default": "#fee2e2"
+        },
+        "aspectRatio": {
+          "type": "string",
+          "description": "Aspect ratio of the image container",
+          "default": "auto"
+        }
+      }
+    },
+    "events": {
+      "type": "object",
+      "description": "Component events",
+      "properties": {
+        "click": {
+          "type": "object",
+          "description": "Triggered when the image is clicked",
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "Action to perform when the image is clicked",
+              "default": "click"
+            },
+            "params": {
+              "type": "object",
+              "description": "Parameters for the action",
+              "default": {}
+            }
+          }
+        }
+      }
+    },
+    "connections": {
+      "type": "array",
+      "description": "Connections to other components",
+      "default": [],
+      "items": {
+        "type": "object",
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "description": "ID of the source component"
+          },
+          "sourceConnectionId": {
+            "type": "string",
+            "description": "ID of the connection point in the source component"
+          },
+          "targetId": {
+            "type": "string",
+            "description": "ID of the target component"
+          },
+          "targetConnectionId": {
+            "type": "string",
+            "description": "ID of the connection point in the target component"
+          },
+          "transform": {
+            "type": "object",
+            "description": "Optional transformation to apply to the value",
+            "default": null
+          }
+        },
+        "required": ["sourceId", "sourceConnectionId", "targetId", "targetConnectionId"]
+      }
+    }
+  },
+  "examples": [
+    {
+      "name": "Hero Image",
+      "config": {
+        "id": "heroImage",
+        "region": "header",
+        "properties": {
+          "src": "https://images.unsplash.com/photo-1501785888041-af3ef285b470",
+          "alt": "Mountain landscape with blue sky",
+          "objectFit": "cover",
+          "loading": "eager"
+        },
+        "styles": {
+          "height": "400px",
+          "width": "100%",
+          "borderRadius": "0.5rem",
+          "boxShadow": "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)"
+        },
+        "events": {
+          "click": {
+            "action": "navigate",
+            "params": {
+              "url": "/gallery"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Product Image",
+      "config": {
+        "id": "productImage",
+        "region": "productDetails",
+        "properties": {
+          "src": "https://example.com/products/headphones.jpg",
+          "alt": "Premium wireless headphones",
+          "objectFit": "contain",
+          "loading": "lazy"
+        },
+        "styles": {
+          "width": "100%",
+          "height": "300px",
+          "backgroundColor": "#ffffff",
+          "padding": "1rem",
+          "borderRadius": "0.25rem",
+          "border": "1px solid #e2e8f0"
+        },
+        "events": {
+          "click": {
+            "action": "openModal",
+            "params": {
+              "modalId": "productZoom"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "connectionPoints": {
+    "inputs": [
+      {
+        "id": "src",
+        "name": "Image Source",
+        "description": "URL of the image to display",
+        "type": "string"
+      },
+      {
+        "id": "alt",
+        "name": "Alternative Text",
+        "description": "Alternative text for the image for accessibility",
+        "type": "string"
+      },
+      {
+        "id": "objectFit",
+        "name": "Object Fit",
+        "description": "How the image should be resized to fit its container",
+        "type": "string"
+      },
+      {
+        "id": "loading",
+        "name": "Loading Strategy",
+        "description": "Loading strategy for the image (eager or lazy)",
+        "type": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "click",
+        "name": "Click Event",
+        "description": "Triggered when the image is clicked",
+        "type": "object"
+      }
+    ]
+  }
+} 

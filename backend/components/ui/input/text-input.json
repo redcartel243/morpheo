@@ -1,0 +1,166 @@
+{
+  "id": "text-input",
+  "name": "Text Input",
+  "description": "A text input field for user data entry",
+  "type": "input",
+  "capabilities": ["user input", "form data collection", "text entry"],
+  "propTypes": {
+    "placeholder": {
+      "type": "string",
+      "description": "Placeholder text displayed when empty",
+      "required": false
+    },
+    "value": {
+      "type": "string",
+      "description": "The current value of the input",
+      "required": false
+    },
+    "label": {
+      "type": "string",
+      "description": "Label text for the input",
+      "required": false
+    },
+    "type": {
+      "type": "string",
+      "description": "Input type attribute",
+      "options": ["text", "password", "email", "number", "tel", "url"],
+      "default": "text"
+    },
+    "required": {
+      "type": "boolean",
+      "description": "Whether the field is required",
+      "default": false
+    },
+    "disabled": {
+      "type": "boolean",
+      "description": "Whether the input is disabled",
+      "default": false
+    },
+    "fullWidth": {
+      "type": "boolean",
+      "description": "Whether the input should take full width",
+      "default": true
+    },
+    "autoFocus": {
+      "type": "boolean",
+      "description": "Whether the input should automatically get focus",
+      "default": false
+    },
+    "variant": {
+      "type": "string",
+      "description": "The input style variant",
+      "options": ["outlined", "filled", "standard"],
+      "default": "outlined"
+    },
+    "helperText": {
+      "type": "string",
+      "description": "Helper text displayed below the input",
+      "required": false
+    },
+    "error": {
+      "type": "boolean",
+      "description": "Whether to display the input in an error state",
+      "default": false
+    }
+  },
+  "defaultStyles": {
+    "fontFamily": "inherit",
+    "fontSize": "16px",
+    "lineHeight": "1.5",
+    "width": "100%",
+    "transition": "border-color 0.2s, box-shadow 0.2s",
+    "boxSizing": "border-box"
+  },
+  "variantStyles": {
+    "outlined": {
+      "padding": "10px 12px",
+      "border": "1px solid #cccccc",
+      "borderRadius": "4px",
+      "backgroundColor": "transparent"
+    },
+    "filled": {
+      "padding": "10px 12px",
+      "border": "none",
+      "borderRadius": "4px",
+      "backgroundColor": "#f5f5f5"
+    },
+    "standard": {
+      "padding": "10px 0",
+      "border": "none",
+      "borderBottom": "1px solid #cccccc",
+      "backgroundColor": "transparent"
+    }
+  },
+  "stateStyles": {
+    "focus": {
+      "outlined": {
+        "borderColor": "#1976d2",
+        "boxShadow": "0 0 0 2px rgba(25, 118, 210, 0.2)"
+      },
+      "filled": {
+        "backgroundColor": "#e6e6e6",
+        "boxShadow": "0 0 0 2px rgba(25, 118, 210, 0.2)"
+      },
+      "standard": {
+        "borderColor": "#1976d2",
+        "boxShadow": "0 1px 0 0 #1976d2"
+      }
+    },
+    "error": {
+      "borderColor": "#f44336",
+      "boxShadow": "0 0 0 2px rgba(244, 67, 54, 0.2)"
+    },
+    "disabled": {
+      "opacity": "0.7",
+      "cursor": "not-allowed",
+      "backgroundColor": "#f5f5f5"
+    }
+  },
+  "labelStyles": {
+    "display": "block",
+    "marginBottom": "8px",
+    "fontSize": "14px",
+    "fontWeight": "500",
+    "color": "#333333"
+  },
+  "helperTextStyles": {
+    "display": "block",
+    "marginTop": "4px",
+    "fontSize": "12px",
+    "color": "#666666"
+  },
+  "errorTextStyles": {
+    "color": "#f44336"
+  },
+  "events": {
+    "onChange": {
+      "description": "Triggered when the input value changes",
+      "params": {
+        "value": "string"
+      }
+    },
+    "onFocus": {
+      "description": "Triggered when the input gets focus",
+      "params": {}
+    },
+    "onBlur": {
+      "description": "Triggered when the input loses focus",
+      "params": {}
+    },
+    "onKeyDown": {
+      "description": "Triggered when a key is pressed down",
+      "params": {
+        "key": "string"
+      }
+    },
+    "onKeyUp": {
+      "description": "Triggered when a key is released",
+      "params": {
+        "key": "string"
+      }
+    }
+  },
+  "implementation": {
+    "react": "function TextInput(props) {\n  const { \n    placeholder, \n    value = '', \n    label, \n    type = 'text', \n    required = false, \n    disabled = false, \n    fullWidth = true, \n    autoFocus = false, \n    variant = 'outlined', \n    helperText, \n    error = false, \n    style = {}, \n    onChange, \n    onFocus, \n    onBlur, \n    onKeyDown, \n    onKeyUp, \n    ...rest \n  } = props;\n  \n  // Generate unique ID for label association\n  const inputId = React.useId();\n  \n  // Combine styles\n  const inputStyle = {\n    ...defaultStyles,\n    ...(variantStyles[variant] || variantStyles.outlined),\n    ...(error ? stateStyles.error : {}),\n    ...(disabled ? stateStyles.disabled : {}),\n    ...(fullWidth ? { width: '100%' } : {}),\n    ...style\n  };\n  \n  return (\n    <div style={{ marginBottom: '16px' }}>\n      {label && (\n        <label \n          htmlFor={inputId} \n          style={{\n            ...labelStyles,\n            ...(error ? errorTextStyles : {})\n          }}\n        >\n          {label}{required && <span style={{ color: error ? '#f44336' : '#1976d2' }}> *</span>}\n        </label>\n      )}\n      <input\n        id={inputId}\n        type={type}\n        placeholder={placeholder}\n        value={value}\n        disabled={disabled}\n        required={required}\n        autoFocus={autoFocus}\n        style={inputStyle}\n        onChange={(e) => onChange && onChange(e.target.value, e)}\n        onFocus={onFocus}\n        onBlur={onBlur}\n        onKeyDown={onKeyDown}\n        onKeyUp={onKeyUp}\n        {...rest}\n      />\n      {helperText && (\n        <span \n          style={{\n            ...helperTextStyles,\n            ...(error ? errorTextStyles : {})\n          }}\n        >\n          {helperText}\n        </span>\n      )}\n    </div>\n  );\n}"
+  }
+} 

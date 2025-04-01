@@ -1,0 +1,116 @@
+{
+  "id": "grid",
+  "name": "Grid Layout",
+  "description": "A responsive grid layout for organizing content in rows and columns",
+  "type": "layout",
+  "capabilities": ["responsive layout", "content organization", "multi-column display"],
+  "propTypes": {
+    "children": {
+      "type": "node",
+      "description": "Content to be displayed in the grid",
+      "required": true
+    },
+    "columns": {
+      "type": "number",
+      "description": "Number of columns in the grid",
+      "default": 12,
+      "min": 1,
+      "max": 24
+    },
+    "spacing": {
+      "type": "number",
+      "description": "Spacing between grid cells in pixels",
+      "default": 16,
+      "min": 0,
+      "max": 100
+    },
+    "container": {
+      "type": "boolean",
+      "description": "Whether this element is a grid container",
+      "default": true
+    },
+    "item": {
+      "type": "boolean",
+      "description": "Whether this element is a grid item",
+      "default": false
+    },
+    "xs": {
+      "type": "number",
+      "description": "Grid columns for extra small screens (< 600px)",
+      "required": false,
+      "min": 1,
+      "max": 24
+    },
+    "sm": {
+      "type": "number",
+      "description": "Grid columns for small screens (600px - 959px)",
+      "required": false,
+      "min": 1,
+      "max": 24
+    },
+    "md": {
+      "type": "number",
+      "description": "Grid columns for medium screens (960px - 1279px)",
+      "required": false,
+      "min": 1,
+      "max": 24
+    },
+    "lg": {
+      "type": "number",
+      "description": "Grid columns for large screens (1280px - 1919px)",
+      "required": false,
+      "min": 1,
+      "max": 24
+    },
+    "xl": {
+      "type": "number",
+      "description": "Grid columns for extra large screens (≥ 1920px)",
+      "required": false,
+      "min": 1,
+      "max": 24
+    },
+    "direction": {
+      "type": "string",
+      "description": "The grid direction flow",
+      "options": ["row", "column", "row-reverse", "column-reverse"],
+      "default": "row"
+    },
+    "justifyContent": {
+      "type": "string",
+      "description": "Defines the alignment along the main axis",
+      "options": ["flex-start", "center", "flex-end", "space-between", "space-around", "space-evenly"],
+      "default": "flex-start"
+    },
+    "alignItems": {
+      "type": "string",
+      "description": "Defines the alignment along the cross axis",
+      "options": ["flex-start", "center", "flex-end", "stretch", "baseline"],
+      "default": "stretch"
+    },
+    "wrap": {
+      "type": "string",
+      "description": "Controls whether the grid items wrap or not",
+      "options": ["nowrap", "wrap", "wrap-reverse"],
+      "default": "wrap"
+    }
+  },
+  "defaultStyles": {
+    "boxSizing": "border-box"
+  },
+  "containerStyles": {
+    "display": "flex",
+    "flexWrap": "wrap",
+    "width": "100%",
+    "margin": "0 auto"
+  },
+  "itemStyles": {
+    "boxSizing": "border-box",
+    "padding": "8px",
+    "display": "flex",
+    "flexDirection": "column"
+  },
+  "events": {},
+  "implementation": {
+    "react": "function Grid(props) {\n  const {\n    children,\n    columns = 12,\n    spacing = 16,\n    container = false,\n    item = false,\n    xs,\n    sm,\n    md,\n    lg,\n    xl,\n    direction = 'row',\n    justifyContent = 'flex-start',\n    alignItems = 'stretch',\n    wrap = 'wrap',\n    style = {},\n    ...rest\n  } = props;\n\n  // Helper function to calculate flex basis based on column count\n  const calculateWidth = (colSpan, totalColumns) => {\n    if (!colSpan) return undefined;\n    const width = (colSpan / totalColumns) * 100;\n    return `${width}%`;\n  };\n\n  // Default styles for the grid\n  const gridStyle = {\n    ...defaultStyles,\n    ...style\n  };\n\n  // Add container specific styles\n  if (container) {\n    gridStyle.display = 'flex';\n    gridStyle.flexDirection = direction;\n    gridStyle.flexWrap = wrap;\n    gridStyle.justifyContent = justifyContent;\n    gridStyle.alignItems = alignItems;\n    gridStyle.margin = `0 -${spacing / 2}px`;\n    gridStyle.width = `calc(100% + ${spacing}px)`;\n  }\n\n  // Add item specific styles\n  if (item) {\n    gridStyle.padding = `${spacing / 2}px`;\n    // Apply responsive widths\n    const mediaQueries = {\n      xs: { width: calculateWidth(xs, columns) },\n      sm: { width: calculateWidth(sm, columns) },\n      md: { width: calculateWidth(md, columns) },\n      lg: { width: calculateWidth(lg, columns) },\n      xl: { width: calculateWidth(xl, columns) }\n    };\n\n    // Apply the largest breakpoint that is defined\n    // This is a simplified approach - in a real implementation \n    // you would use media queries or a css-in-js library\n    if (xs !== undefined) gridStyle.flexBasis = mediaQueries.xs.width;\n    if (sm !== undefined) gridStyle.flexBasis = mediaQueries.sm.width;\n    if (md !== undefined) gridStyle.flexBasis = mediaQueries.md.width;\n    if (lg !== undefined) gridStyle.flexBasis = mediaQueries.lg.width;\n    if (xl !== undefined) gridStyle.flexBasis = mediaQueries.xl.width;\n\n    // If no breakpoints are specified, take full width\n    if (xs === undefined && sm === undefined && md === undefined && \n        lg === undefined && xl === undefined) {\n      gridStyle.flexBasis = '100%';\n    }\n\n    gridStyle.maxWidth = gridStyle.flexBasis;\n    gridStyle.flexGrow = 0;\n  }\n\n  return (\n    <div style={gridStyle} {...rest}>\n      {children}\n    </div>\n  );\n}"
+  }
+} 

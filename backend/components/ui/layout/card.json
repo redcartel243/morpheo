@@ -1,0 +1,123 @@
+{
+  "id": "card",
+  "name": "Card",
+  "description": "A container component with optional header, content, and footer sections",
+  "type": "layout",
+  "capabilities": ["content grouping", "visual separation", "component organization"],
+  "propTypes": {
+    "title": {
+      "type": "string",
+      "description": "Title displayed in the card header",
+      "required": false
+    },
+    "subtitle": {
+      "type": "string",
+      "description": "Subtitle displayed in the card header",
+      "required": false
+    },
+    "children": {
+      "type": "node",
+      "description": "Content to be displayed in the card body",
+      "required": true
+    },
+    "footer": {
+      "type": "node",
+      "description": "Content to be displayed in the card footer",
+      "required": false
+    },
+    "elevation": {
+      "type": "number",
+      "description": "Shadow depth, from 0 to 24",
+      "default": 1,
+      "min": 0,
+      "max": 24
+    },
+    "variant": {
+      "type": "string",
+      "description": "The card style variant",
+      "options": ["outlined", "elevated"],
+      "default": "elevated"
+    },
+    "width": {
+      "type": "string",
+      "description": "Width of the card",
+      "default": "100%"
+    },
+    "backgroundColor": {
+      "type": "string",
+      "description": "Background color of the card",
+      "default": "#ffffff"
+    },
+    "borderRadius": {
+      "type": "string",
+      "description": "Border radius of the card",
+      "default": "8px"
+    },
+    "padding": {
+      "type": "string",
+      "description": "Internal padding of the card",
+      "default": "16px"
+    }
+  },
+  "defaultStyles": {
+    "margin": "16px 0",
+    "overflow": "hidden",
+    "backgroundColor": "#ffffff",
+    "transition": "box-shadow 0.3s ease-in-out"
+  },
+  "variantStyles": {
+    "outlined": {
+      "border": "1px solid #e0e0e0",
+      "boxShadow": "none"
+    },
+    "elevated": {
+      "border": "none"
+    }
+  },
+  "elevationStyles": {
+    "0": { "boxShadow": "none" },
+    "1": { "boxShadow": "0 2px 1px -1px rgba(0,0,0,0.2), 0 1px 1px 0 rgba(0,0,0,0.14), 0 1px 3px 0 rgba(0,0,0,0.12)" },
+    "2": { "boxShadow": "0 3px 1px -2px rgba(0,0,0,0.2), 0 2px 2px 0 rgba(0,0,0,0.14), 0 1px 5px 0 rgba(0,0,0,0.12)" },
+    "3": { "boxShadow": "0 3px 3px -2px rgba(0,0,0,0.2), 0 3px 4px 0 rgba(0,0,0,0.14), 0 1px 8px 0 rgba(0,0,0,0.12)" },
+    "4": { "boxShadow": "0 2px 4px -1px rgba(0,0,0,0.2), 0 4px 5px 0 rgba(0,0,0,0.14), 0 1px 10px 0 rgba(0,0,0,0.12)" },
+    "8": { "boxShadow": "0 5px 5px -3px rgba(0,0,0,0.2), 0 8px 10px 1px rgba(0,0,0,0.14), 0 3px 14px 2px rgba(0,0,0,0.12)" },
+    "16": { "boxShadow": "0 8px 10px -5px rgba(0,0,0,0.2), 0 16px 24px 2px rgba(0,0,0,0.14), 0 6px 30px 5px rgba(0,0,0,0.12)" },
+    "24": { "boxShadow": "0 11px 15px -7px rgba(0,0,0,0.2), 0 24px 38px 3px rgba(0,0,0,0.14), 0 9px 46px 8px rgba(0,0,0,0.12)" }
+  },
+  "headerStyles": {
+    "padding": "16px",
+    "paddingBottom": "0",
+    "borderBottom": "none"
+  },
+  "contentStyles": {
+    "padding": "16px"
+  },
+  "footerStyles": {
+    "padding": "16px",
+    "paddingTop": "0",
+    "display": "flex",
+    "justifyContent": "flex-end",
+    "alignItems": "center"
+  },
+  "titleStyles": {
+    "fontSize": "18px",
+    "fontWeight": "500",
+    "margin": "0",
+    "marginBottom": "8px"
+  },
+  "subtitleStyles": {
+    "fontSize": "14px",
+    "color": "#757575",
+    "margin": "0",
+    "marginBottom": "8px"
+  },
+  "events": {
+    "onClick": {
+      "description": "Triggered when the card is clicked",
+      "params": {}
+    }
+  },
+  "implementation": {
+    "react": "function Card(props) {\n  const {\n    title,\n    subtitle,\n    children,\n    footer,\n    elevation = 1,\n    variant = 'elevated',\n    width = '100%',\n    backgroundColor = '#ffffff',\n    borderRadius = '8px',\n    padding,\n    style = {},\n    onClick,\n    ...rest\n  } = props;\n  \n  // Get the appropriate elevation style\n  const elevationStyle = elevationStyles[elevation] || elevationStyles[1];\n  \n  // Combine styles\n  const cardStyle = {\n    ...defaultStyles,\n    ...(variantStyles[variant] || variantStyles.elevated),\n    ...elevationStyle,\n    width,\n    backgroundColor,\n    borderRadius,\n    ...style\n  };\n  \n  // Determine if there's a header\n  const hasHeader = title || subtitle;\n  \n  // Calculate content padding if not explicitly provided\n  const contentPadding = padding || (hasHeader ? '0 16px 16px' : '16px');\n  \n  return (\n    <div \n      style={cardStyle} \n      onClick={onClick}\n      {...rest}\n    >\n      {hasHeader && (\n        <div style={headerStyles}>\n          {title && <h3 style={titleStyles}>{title}</h3>}\n          {subtitle && <h5 style={subtitleStyles}>{subtitle}</h5>}\n        </div>\n      )}\n      <div style={{ ...contentStyles, padding: contentPadding }}>\n        {children}\n      </div>\n      {footer && (\n        <div style={footerStyles}>\n          {footer}\n        </div>\n      )}\n    </div>\n  );\n}"
+  }
+} 

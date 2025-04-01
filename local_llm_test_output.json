@@ -1,0 +1,102 @@
+{
+  "components": [
+    {
+      "id": "error-container",
+      "type": "container",
+      "props": {},
+      "children": [
+        {
+          "id": "error-heading",
+          "type": "h2",
+          "props": {
+            "text": "Error Generating UI"
+          },
+          "children": [],
+          "styles": {
+            "color": "red",
+            "textAlign": "center",
+            "marginBottom": "16px"
+          },
+          "events": {}
+        },
+        {
+          "id": "error-message",
+          "type": "p",
+          "props": {
+            "text": "Error parsing JSON: Expecting value: line 1 column 1 (char 0)"
+          },
+          "children": [],
+          "styles": {
+            "marginBottom": "16px"
+          },
+          "events": {}
+        },
+        {
+          "id": "prompt-heading",
+          "type": "h3",
+          "props": {
+            "text": "Your Prompt:"
+          },
+          "children": [],
+          "styles": {
+            "marginTop": "24px",
+            "marginBottom": "8px"
+          },
+          "events": {}
+        },
+        {
+          "id": "prompt-text",
+          "type": "p",
+          "props": {
+            "text": "Create a simple calculator app with basic operations (add, subtract, multiply, divide)"
+          },
+          "children": [],
+          "styles": {
+            "padding": "12px",
+            "backgroundColor": "#f5f5f5",
+            "borderRadius": "4px"
+          },
+          "events": {}
+        }
+      ],
+      "styles": {
+        "padding": "24px",
+        "maxWidth": "800px",
+        "margin": "0 auto",
+        "backgroundColor": "white",
+        "borderRadius": "8px",
+        "boxShadow": "0 2px 10px rgba(0, 0, 0, 0.1)"
+      },
+      "events": {}
+    }
+  ],
+  "layout": {
+    "type": "flex",
+    "config": {
+      "direction": "column",
+      "justifyContent": "center",
+      "alignItems": "center"
+    }
+  },
+  "theme": {
+    "colors": {
+      "primary": "#ff0000",
+      "background": "#f8f8f8",
+      "text": "#333333"
+    },
+    "typography": {
+      "fontFamily": "Arial, sans-serif"
+    },
+    "spacing": {
+      "unit": "8px"
+    }
+  },
+  "functionality": {
+    "type": "error",
+    "config": {
+      "errorMessage": "Error parsing JSON: Expecting value: line 1 column 1 (char 0)",
+      "prompt": "Create a simple calculator app with basic operations (add, subtract, multiply, divide)"
+    }
+  },
+  "eventHandlers": {}
+}
