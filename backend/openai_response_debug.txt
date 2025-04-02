@@ -133,3 +133,976 @@ Raw response content:
 
 ===== END RESPONSE =====
 
+
+
+===== NEW RESPONSE =====
+Time: 2025-04-01T16:13:56.807537
+Raw response content:
+{
+  "app": {
+    "name": "Basic Calculator",
+    "description": "A simple calculator that performs basic arithmetic operations.",
+    "theme": "light"
+  },
+  "layout": {
+    "type": "singlepage",
+    "regions": ["header", "main", "footer"]
+  },
+  "components": [
+    {
+      "id": "header-title",
+      "type": "text",
+      "region": "header",
+      "properties": {
+        "content": "Basic Calculator"
+      },
+      "styles": {
+        "fontSize": "2rem",
+        "textAlign": "center",
+        "padding": "1rem",
+        "backgroundColor": "#f3f4f6",
+        "color": "#333"
+      },
+      "methods": {}
+    },
+    {
+      "id": "calculator-container",
+      "type": "container",
+      "region": "main",
+      "properties": {},
+      "styles": {
+        "display": "grid",
+        "gridTemplateColumns": "repeat(4, 1fr)",
+        "gap": "10px",
+        "padding": "20px",
+        "maxWidth": "400px",
+        "margin": "0 auto",
+        "backgroundColor": "#fff",
+        "boxShadow": "0 4px 6px rgba(0,0,0,0.1)",
+        "borderRadius": "8px"
+      },
+      "methods": {},
+      "children": [
+        {
+          "id": "display",
+          "type": "input",
+          "properties": {
+            "placeholder": "0",
+            "label": ""
+          },
+          "styles": {
+            "gridColumn": "span 4",
+            "padding": "10px",
+            "fontSize": "1.5rem",
+            "textAlign": "right",
+            "border": "1px solid #ddd",
+            "borderRadius": "4px"
+          },
+          "methods": {}
+        },
+        {
+          "id": "btn-7",
+          "type": "button",
+          "properties": {
+            "text": "7"
+          },
+          "styles": {
+            "padding": "20px",
+            "fontSize": "1.2rem",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "transition": "background-color 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '7'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#btn-7').setStyle('backgroundColor', '#d4d4d4'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#btn-7').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          }
+        },
+        {
+          "id": "btn-8",
+          "type": "button",
+          "properties": {
+            "text": "8"
+          },
+          "styles": {
+            "padding": "20px",
+            "fontSize": "1.2rem",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "transition": "background-color 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '8'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#btn-8').setStyle('backgroundColor', '#d4d4d4'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#btn-8').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          }
+        },
+        {
+          "id": "btn-9",
+          "type": "button",
+          "properties": {
+            "text": "9"
+          },
+          "styles": {
+            "padding": "20px",
+            "fontSize": "1.2rem",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "transition": "background-color 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '9'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#btn-9').setStyle('backgroundColor', '#d4d4d4'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#btn-9').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          }
+        },
+        {
+          "id": "btn-divide",
+          "type": "button",
+          "properties": {
+            "text": "÷"
+          },
+          "styles": {
+            "padding": "20px",
+            "fontSize": "1.2rem",
+            "backgroundColor": "#ffd700",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "transition": "background-color 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + ' / '); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#btn-divide').setStyle('backgroundColor', '#e6c200'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#btn-divide').setStyle('backgroundColor', '#ffd700'); }"
+            }
+          }
+        },
+        {
+          "id": "btn-4",
+          "type": "button",
+          "properties": {
+            "text": "4"
+          },
+          "styles": {
+            "padding": "20px",
+            "fontSize": "1.2rem",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "transition": "background-color 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '4'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#btn-4').setStyle('backgroundColor', '#d4d4d4'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#btn-4').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          }
+        },
+        {
+          "id": "btn-5",
+          "type": "button",
+          "properties": {
+            "text": "5"
+          },
+          "styles": {
+            "padding": "20px",
+            "fontSize": "1.2rem",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "transition": "background-color 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '5'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#btn-5').setStyle('backgroundColor', '#d4d4d4'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#btn-5').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          }
+        },
+        {
+          "id": "btn-6",
+          "type": "button",
+          "properties": {
+            "text": "6"
+          },
+          "styles": {
+            "padding": "20px",
+            "fontSize": "1.2rem",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "transition": "background-color 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '6'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#btn-6').setStyle('backgroundColor', '#d4d4d4'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#btn-6').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          }
+        },
+        {
+          "id": "btn-multiply",
+          "type": "button",
+          "properties": {
+            "text": "×"
+          },
+          "styles": {
+            "padding": "20px",
+            "fontSize": "1.2rem",
+            "backgroundColor": "#ffd700",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "transition": "background-color 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + ' * '); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#btn-multiply').setStyle('backgroundColor', '#e6c200'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#btn-multiply').setStyle('backgroundColor', '#ffd700'); }"
+            }
+          }
+        },
+        {
+          "id": "btn-1",
+          "type": "button",
+          "properties": {
+            "text": "1"
+          },
+          "styles": {
+            "padding": "20px",
+            "fontSize": "1.2rem",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "transition": "background-color 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '1'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#btn-1').setStyle('backgroundColor', '#d4d4d4'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#btn-1').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          }
+        },
+        {
+          "id": "btn-2",
+          "type": "button",
+          "properties": {
+            "text": "2"
+          },
+          "styles": {
+            "padding": "20px",
+            "fontSize": "1.2rem",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "transition": "background-color 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '2'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#btn-2').setStyle('backgroundColor', '#d4d4d4'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#btn-2').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          }
+        },
+        {
+          "id": "btn-3",
+          "type": "button",
+          "properties": {
+            "text": "3"
+          },
+          "styles": {
+            "padding": "20px",
+            "fontSize": "1.2rem",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "transition": "background-color 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '3'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#btn-3').setStyle('backgroundColor', '#d4d4d4'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#btn-3').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          }
+        },
+        {
+          "id": "btn-subtract",
+          "type": "button",
+          "properties": {
+            "text": "-"
+          },
+          "styles": {
+            "padding": "20px",
+            "fontSize": "1.2rem",
+            "backgroundColor": "#ffd700",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "transition": "background-color 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + ' - '); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#btn-subtract').setStyle('backgroundColor', '#e6c200'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#btn-subtract').setStyle('backgroundColor', '#ffd700'); }"
+            }
+          }
+        },
+        {
+          "id": "btn-0",
+          "type": "button",
+          "properties": {
+            "text": "0"
+          },
+          "styles": {
+            "padding": "20px",
+            "fontSize": "1.2rem",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "transition": "background-color 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '0'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#btn-0').setStyle('backgroundColor', '#d4d4d4'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#btn-0').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          }
+        },
+        {
+          "id": "btn-clear",
+          "type": "button",
+          "properties": {
+            "text": "C"
+          },
+          "styles": {
+            "padding": "20px",
+            "fontSize": "1.2rem",
+            "backgroundColor": "#ff4c4c",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "transition": "background-color 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { $m('#display').setValue(''); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#btn-clear').setStyle('backgroundColor', '#e64545'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#btn-clear').setStyle('backgroundColor', '#ff4c4c'); }"
+            }
+          }
+        },
+        {
+          "id": "btn-equals",
+          "type": "button",
+          "properties": {
+            "text": "="
+          },
+          "styles": {
+            "padding": "20px",
+            "gridColumn": "span 2",
+            "fontSize": "1.2rem",
+            "backgroundColor": "#4CAF50",
+            "color": "white",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "transition": "background-color 0.3s"
+          },
+          "methods": {
+            "onClick": {
+             
+===== END RESPONSE =====
+
+
+
+===== NEW RESPONSE =====
+Time: 2025-04-01T20:52:18.413969
+Raw response content:
+{
+  "app": {
+    "name": "Basic Calculator",
+    "description": "A simple calculator with basic arithmetic operations.",
+    "theme": "light"
+  },
+  "layout": {
+    "type": "singlepage",
+    "regions": ["header", "main", "footer"]
+  },
+  "components": [
+    {
+      "id": "header-text",
+      "type": "text",
+      "region": "header",
+      "properties": {
+        "content": "Basic Calculator"
+      },
+      "styles": {
+        "fontSize": "2rem",
+        "padding": "20px",
+        "textAlign": "center",
+        "backgroundColor": "#f0f0f0",
+        "color": "#333"
+      },
+      "methods": {},
+      "children": []
+    },
+    {
+      "id": "calculator-container",
+      "type": "container",
+      "region": "main",
+      "properties": {},
+      "styles": {
+        "display": "grid",
+        "gridTemplateColumns": "repeat(4, 1fr)",
+        "gap": "10px",
+        "padding": "20px"
+      },
+      "methods": {},
+      "children": [
+        {
+          "id": "display",
+          "type": "input",
+          "properties": {
+            "placeholder": "0",
+            "label": ""
+          },
+          "styles": {
+            "gridColumn": "span 4",
+            "height": "40px",
+            "fontSize": "1.5rem",
+            "padding": "10px",
+            "textAlign": "right",
+            "border": "1px solid #ccc",
+            "borderRadius": "4px"
+          },
+          "methods": {},
+          "children": []
+        },
+        {
+          "id": "button-7",
+          "type": "button",
+          "properties": {
+            "text": "7"
+          },
+          "styles": {
+            "padding": "20px",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "1.2rem",
+            "transition": "background 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '7'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#button-7').setStyle('backgroundColor', '#d0d0d0'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#button-7').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          },
+          "children": []
+        },
+        {
+          "id": "button-8",
+          "type": "button",
+          "properties": {
+            "text": "8"
+          },
+          "styles": {
+            "padding": "20px",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "1.2rem",
+            "transition": "background 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '8'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#button-8').setStyle('backgroundColor', '#d0d0d0'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#button-8').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          },
+          "children": []
+        },
+        {
+          "id": "button-9",
+          "type": "button",
+          "properties": {
+            "text": "9"
+          },
+          "styles": {
+            "padding": "20px",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "1.2rem",
+            "transition": "background 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '9'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#button-9').setStyle('backgroundColor', '#d0d0d0'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#button-9').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          },
+          "children": []
+        },
+        {
+          "id": "button-divide",
+          "type": "button",
+          "properties": {
+            "text": "÷"
+          },
+          "styles": {
+            "padding": "20px",
+            "backgroundColor": "#ffcc00",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "1.2rem",
+            "transition": "background 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '/'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#button-divide').setStyle('backgroundColor', '#e6b800'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#button-divide').setStyle('backgroundColor', '#ffcc00'); }"
+            }
+          },
+          "children": []
+        },
+        {
+          "id": "button-4",
+          "type": "button",
+          "properties": {
+            "text": "4"
+          },
+          "styles": {
+            "padding": "20px",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "1.2rem",
+            "transition": "background 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '4'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#button-4').setStyle('backgroundColor', '#d0d0d0'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#button-4').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          },
+          "children": []
+        },
+        {
+          "id": "button-5",
+          "type": "button",
+          "properties": {
+            "text": "5"
+          },
+          "styles": {
+            "padding": "20px",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "1.2rem",
+            "transition": "background 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '5'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#button-5').setStyle('backgroundColor', '#d0d0d0'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#button-5').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          },
+          "children": []
+        },
+        {
+          "id": "button-6",
+          "type": "button",
+          "properties": {
+            "text": "6"
+          },
+          "styles": {
+            "padding": "20px",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "1.2rem",
+            "transition": "background 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '6'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#button-6').setStyle('backgroundColor', '#d0d0d0'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#button-6').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          },
+          "children": []
+        },
+        {
+          "id": "button-multiply",
+          "type": "button",
+          "properties": {
+            "text": "×"
+          },
+          "styles": {
+            "padding": "20px",
+            "backgroundColor": "#ffcc00",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "1.2rem",
+            "transition": "background 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '*'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#button-multiply').setStyle('backgroundColor', '#e6b800'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#button-multiply').setStyle('backgroundColor', '#ffcc00'); }"
+            }
+          },
+          "children": []
+        },
+        {
+          "id": "button-1",
+          "type": "button",
+          "properties": {
+            "text": "1"
+          },
+          "styles": {
+            "padding": "20px",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "1.2rem",
+            "transition": "background 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '1'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#button-1').setStyle('backgroundColor', '#d0d0d0'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#button-1').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          },
+          "children": []
+        },
+        {
+          "id": "button-2",
+          "type": "button",
+          "properties": {
+            "text": "2"
+          },
+          "styles": {
+            "padding": "20px",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "1.2rem",
+            "transition": "background 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '2'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#button-2').setStyle('backgroundColor', '#d0d0d0'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#button-2').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          },
+          "children": []
+        },
+        {
+          "id": "button-3",
+          "type": "button",
+          "properties": {
+            "text": "3"
+          },
+          "styles": {
+            "padding": "20px",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "1.2rem",
+            "transition": "background 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '3'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#button-3').setStyle('backgroundColor', '#d0d0d0'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#button-3').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          },
+          "children": []
+        },
+        {
+          "id": "button-minus",
+          "type": "button",
+          "properties": {
+            "text": "−"
+          },
+          "styles": {
+            "padding": "20px",
+            "backgroundColor": "#ffcc00",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "1.2rem",
+            "transition": "background 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '-'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#button-minus').setStyle('backgroundColor', '#e6b800'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#button-minus').setStyle('backgroundColor', '#ffcc00'); }"
+            }
+          },
+          "children": []
+        },
+        {
+          "id": "button-0",
+          "type": "button",
+          "properties": {
+            "text": "0"
+          },
+          "styles": {
+            "padding": "20px",
+            "backgroundColor": "#e0e0e0",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "1.2rem",
+            "transition": "background 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '0'); }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#button-0').setStyle('backgroundColor', '#d0d0d0'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#button-0').setStyle('backgroundColor', '#e0e0e0'); }"
+            }
+          },
+          "children": []
+        },
+        {
+          "id": "button-equal",
+          "type": "button",
+          "properties": {
+            "text": "="
+          },
+          "styles": {
+            "padding": "20px",
+            "backgroundColor": "#4CAF50",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "1.2rem",
+            "gridColumn": "span 2",
+            "transition": "background 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { try { $m('#display').setValue(eval($m('#display').getValue())); } catch (e) { $m('#display').setValue('Error'); } }",
+              "affectedComponents": ["display"]
+            },
+            "onMouseEnter": {
+              "code": "function(event, $m) { $m('#button-equal').setStyle('backgroundColor', '#45a049'); }"
+            },
+            "onMouseLeave": {
+              "code": "function(event, $m) { $m('#button-equal').setStyle('backgroundColor', '#4CAF50'); }"
+            }
+          },
+          "children": []
+        },
+        {
+          "id": "button-plus",
+          "type": "button",
+          "properties": {
+            "text": "+"
+          },
+          "styles": {
+            "padding": "20px",
+            "backgroundColor": "#ffcc00",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "1.2rem",
+            "transition": "background 0.3s"
+          },
+          "methods": {
+            "onClick": {
+              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue
+===== END RESPONSE =====
+

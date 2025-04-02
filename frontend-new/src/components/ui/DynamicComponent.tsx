@@ -13,6 +13,9 @@ declare global {
   }
 }
 
+// Add a debug flag at the top of the file after the imports:
+const DEBUG_EVENT_HANDLING = true;
+
 /**
  * DynamicComponent is a generic component that can render any type of UI component
  * based on a JSON configuration. It supports various component types like buttons,
@@ -195,44 +198,59 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
         if (!selector) return null;
         const targetId = selector.startsWith('#') ? selector.substring(1) : selector;
         
+        // Create a component reference with utility methods
         return {
-          // Get element
+          // Element getter
           element: () => document.getElementById(targetId),
+          getElement: () => document.getElementById(targetId),
           
-          // Property getters and setters
+          // Property getters/setters
           getProperty: (propName: string) => {
-            const target = document.getElementById(targetId);
-            if (!target) return null;
+            const element = document.getElementById(targetId);
+            if (!element) return null;
             
             if (propName === 'content' || propName === 'text') {
-              return target.textContent;
+              return element.textContent;
             } else if (propName === 'value') {
-              return (target as HTMLInputElement).value;
+              return (element as HTMLInputElement).value;
             } else if (propName === 'checked') {
-              return (target as HTMLInputElement).checked;
+              return (element as HTMLInputElement).checked;
             } else {
-              return target.getAttribute(propName);
+              return element.getAttribute(propName);
             }
           },
           
-          setProperty: (propName: string, value: any) => {
-            const target = document.getElementById(targetId);
-            if (!target) return null;
-            
-            if (propName === 'content' || propName === 'text') {
-              target.textContent = value;
-            } else if (propName === 'value') {
-              (target as HTMLInputElement).value = value;
-            } else if (propName === 'checked') {
-              (target as HTMLInputElement).checked = value;
-            } else {
-              target.setAttribute(propName, value);
+          // Value getters/setters
+          getValue: () => {
+            const element = document.getElementById(targetId);
+            if (!element) {
+              console.warn(`getValue: Element not found for selector #${targetId}`);
+              return '';
             }
             
-            // Dispatch change event for inputs
-            if ((propName === 'value' || propName === 'checked') && 
-                (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')) {
-              target.dispatchEvent(new Event('change', { bubbles: true }));
+            if (element.tagName === 'INPUT' || element.tagName === 'SELECT' || element.tagName === 'TEXTAREA') {
+              console.log(`getValue: Getting value from ${targetId}:`, (element as HTMLInputElement).value);
+              return (element as HTMLInputElement).value;
+            } else {
+              console.log(`getValue: Getting text content from ${targetId}:`, element.textContent);
+              return element.textContent || '';
+            }
+          },
+          
+          setValue: (value: any) => {
+            const element = document.getElementById(targetId);
+            if (!element) {
+              console.warn(`setValue: Element not found for selector #${targetId}`);
+              return null;
+            }
+            
+            console.log(`setValue: Setting value for ${targetId} to:`, value);
+            
+            if (element.tagName === 'INPUT' || element.tagName === 'SELECT' || element.tagName === 'TEXTAREA') {
+              (element as HTMLInputElement).value = value;
+              element.dispatchEvent(new Event('change', { bubbles: true }));
+            } else {
+              element.textContent = value;
             }
             
             return value;
@@ -299,6 +317,30 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
               detail 
             }));
             return true;
+          },
+          
+          // Property setters
+          setProperty: (propName: string, value: any) => {
+            const target = document.getElementById(targetId);
+            if (!target) return null;
+            
+            if (propName === 'content' || propName === 'text') {
+              target.textContent = value;
+            } else if (propName === 'value') {
+              (target as HTMLInputElement).value = value;
+            } else if (propName === 'checked') {
+              (target as HTMLInputElement).checked = value;
+            } else {
+              target.setAttribute(propName, value);
+            }
+            
+            // Dispatch change event for inputs
+            if ((propName === 'value' || propName === 'checked') && 
+                (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')) {
+              target.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            
+            return value;
           }
         };
       };
@@ -307,18 +349,24 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
       const methodFunction = new Function('event', '$m',
         `"use strict";
         try {
-          ${typeof methodCode === 'string' && methodCode.trim().startsWith('function') 
-            ? `return (${methodCode})(event, $m);` 
-            : methodCode}
-          } catch (error) {
+          // Check if this is already a function declaration
+          const code = ${JSON.stringify(methodCode)};
+          if (typeof code === 'string' && code.trim().startsWith('function')) {
+            // Execute function style code
+            return (${methodCode})(event, $m);
+          } else {
+            // Execute plain code 
+            ${methodCode}
+          }
+        } catch (error) {
           console.error('Error executing component method:', error);
           return false;
-          }`
-        );
+        }`
+      );
       
       // Execute the method with DOM manipulation utilities
       return methodFunction(event, $m);
-      } catch (error) {
+    } catch (error) {
       console.error(`Error executing method ${methodName} for ${safeComponent.id}:`, error);
       return false;
     }
@@ -331,21 +379,71 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
       return;
     }
 
-    console.log(`Event '${eventType}' triggered on ${safeComponent.id}`, event);
+    if (DEBUG_EVENT_HANDLING) {
+      console.log(`Event '${eventType}' triggered on ${safeComponent.id}`, event);
+    }
 
-    // Get the component's methods from props
-    const componentMethods = safeComponent.props?.methods || {};
+    // Get the component's methods from safeComponent.methods or props.methods
+    const componentMethods = safeComponent.methods || safeComponent.props?.methods || {};
+    const componentEvents = safeComponent.events || {};
 
-    // Try both naming conventions (with and without 'on' prefix)
-    const methodName = eventType.toLowerCase().startsWith('on') ? 
-      eventType.toLowerCase() : 
-      'on' + eventType.charAt(0).toUpperCase() + eventType.slice(1);
+    if (DEBUG_EVENT_HANDLING) {
+      console.log(`Methods keys for ${safeComponent.id}:`, componentMethods ? Object.keys(componentMethods) : 'none');
+      if (componentMethods) {
+        // Log details of each method
+        Object.entries(componentMethods).forEach(([key, value]) => {
+          console.log(`Method ${key} is:`, value);
+        });
+      }
+      
+      console.log(`Available methods for ${safeComponent.id}:`, Object.keys(componentMethods));
+      console.log(`Available events for ${safeComponent.id}:`, Object.keys(componentEvents));
+    }
 
-    // Get the method - try both the original and transformed method names
-    const method = componentMethods[methodName] || componentMethods[eventType];
+    // Normalize the event type to the React-style 'on' prefix format
+    const normalizedEventType = `on${eventType.charAt(0).toUpperCase()}${eventType.slice(1)}`;
+
+    // Try multiple naming conventions for methods/events (in order of preference)
+    const methodNamesToTry = [
+      normalizedEventType,                                     // React style (e.g., "onClick")
+      eventType,                                               // direct match (e.g., "click")
+      eventType.toLowerCase(),                                 // lowercase (e.g., "click")
+      `on${eventType.toLowerCase()}`                           // lowercase with on prefix (e.g., "onclick")
+    ];
+    
+    // Add specific special-case mappings for common events
+    if (eventType === 'click') methodNamesToTry.push('onClick');
+    if (eventType === 'change') methodNamesToTry.push('onChange');
+    if (eventType === 'blur') methodNamesToTry.push('onBlur');
+    if (eventType === 'focus') methodNamesToTry.push('onFocus');
+    if (eventType === 'input') methodNamesToTry.push('onInput');
+
+    if (DEBUG_EVENT_HANDLING) {
+      console.log(`Looking for method names:`, methodNamesToTry);
+    }
+
+    // Look for a matching method in both methods and events
+    let method = null;
+    let methodName = '';
+    
+    for (const name of methodNamesToTry) {
+      if (componentMethods[name]) {
+        method = componentMethods[name];
+        methodName = name;
+        break;
+      }
+      
+      if (componentEvents[name]) {
+        method = componentEvents[name];
+        methodName = name;
+        break;
+      }
+    }
 
     if (method) {
-      console.log(`Executing method ${methodName} for ${safeComponent.id}`);
+      if (DEBUG_EVENT_HANDLING) {
+        console.log(`Found method ${methodName} for event ${eventType} on component ${safeComponent.id}`);
+      }
       
       try {
         // Get the method code
@@ -371,7 +469,10 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
         console.error('Error executing component method:', err);
       }
     } else {
-      console.log(`No method found for event ${eventType} on component ${safeComponent.id}`);
+      if (DEBUG_EVENT_HANDLING) {
+        console.log(`No method found for event ${eventType} on component ${safeComponent.id}`);
+        console.log(`Tried method names:`, methodNamesToTry);
+      }
     }
   }, [safeComponent, executeComponentMethod]);
 
@@ -505,6 +606,7 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
         };
         break;
       case 'input':
+      case 'text-input':
         defaultStyles = {
           padding: '8px 12px',
           borderRadius: '4px',
@@ -566,15 +668,6 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
     });
   };
 
-  // Define the button click handler function
-  const handleButtonClick = (event: React.MouseEvent<HTMLButtonElement>) => {
-    // Log the click for debugging
-    console.log(`Button clicked: ${safeComponent.id}`);
-    
-    // Call the direct event handler
-    handleEvent('click', event);
-  };
-
   /**
    * Renders a component based on its type.
    * This function is completely generic and can render any type of component
@@ -583,7 +676,7 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
   const renderComponent = () => {
     // Apply all styles from the component styles object
     const componentStyles = {
-            ...getStyle(),
+      ...getStyle(),
       // Add a default style to ensure the component is visible
       boxSizing: 'border-box',
     } as React.CSSProperties;
@@ -607,14 +700,14 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
           </div>
         );
 
-        case 'button':
+      case 'button':
         // Button component - interactive element with click handler
           return (
             <button
             id={safeComponent.id}
             className={`morpheo-component morpheo-button`}
             style={componentStyles}
-            onClick={handleButtonClick}
+            onClick={(e) => handleEvent('click', e)}
             disabled={getPropertyValue('disabled', false)}
             data-component-type="button"
           >
@@ -622,6 +715,7 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
             </button>
           );
 
+      case 'input':
       case 'text-input':
         // Text input component
         return (
@@ -638,20 +732,14 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
               id={safeComponent.id}
               className={`morpheo-component morpheo-input`}
               type={getPropertyValue('inputType', 'text')}
-              value={getPropertyValue('value', '')}
+              defaultValue={getPropertyValue('value', '')}
               placeholder={getPropertyValue('placeholder', '')}
-              onChange={(e) => {
-                // Update the local component state
-                setComponentState(prevState => ({
-                  ...prevState,
-                  value: e.target.value
-                }));
-                
-                // Call the direct event handler
-                handleEvent('change', e);
-              }}
+              onChange={(e) => handleEvent('change', e)}
               onFocus={(e) => handleEvent('focus', e)}
               onBlur={(e) => handleEvent('blur', e)}
+              onInput={(e) => handleEvent('input', e)}
+              onKeyDown={(e) => handleEvent('keyDown', e)}
+              onKeyUp={(e) => handleEvent('keyUp', e)}
               style={componentStyles}
               disabled={getPropertyValue('disabled', false)}
               readOnly={getPropertyValue('readOnly', false)}
@@ -690,6 +778,8 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
               src={getPropertyValue('src', '')}
               alt={getPropertyValue('alt', 'Image')}
               onClick={(e) => handleEvent('click', e)}
+              onLoad={(e) => handleEvent('load', e)}
+              onError={(e) => handleEvent('error', e)}
               style={{
                 maxWidth: '100%',
                 height: 'auto',
@@ -704,21 +794,12 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
         // Checkbox component
         return (
           <div className="morpheo-checkbox-container" style={{ display: 'flex', alignItems: 'center' }}>
-                        <input
+            <input
               id={safeComponent.id}
               className={`morpheo-component morpheo-checkbox`}
-                          type="checkbox"
+              type="checkbox"
               checked={getPropertyValue('checked', false)}
-              onChange={(e) => {
-                // Update the local component state
-                setComponentState(prevState => ({
-                  ...prevState,
-                  checked: e.target.checked
-                }));
-                
-                // Call the direct event handler
-                handleEvent('change', e);
-              }}
+              onChange={(e) => handleEvent('change', e)}
               style={{ marginRight: '0.5rem', ...componentStyles }}
               disabled={getPropertyValue('disabled', false)}
               data-component-type="checkbox"
@@ -735,7 +816,7 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
 
       // Handle all other component types as generic div containers
       default:
-                return (
+        return (
           <div
             id={safeComponent.id}
             className={`morpheo-component morpheo-${safeComponent.type}`}

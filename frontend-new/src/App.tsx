@@ -20,6 +20,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import StateManagementDemoWithProvider from './components/ui/examples/StateManagementDemo';
 import { IntelligentComponentsDemoWithProvider } from './components/ui/examples/IntelligentComponentsDemo';
 import { AppProvider } from './components/ui/state/Store';
+import TestPage from './pages/TestPage';
 
 // Set up axios defaults
 axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -111,6 +112,7 @@ function App() {
               } />
               <Route path="/state-management-demo" element={<StateManagementDemoWithProvider />} />
               <Route path="/intelligent-components-demo" element={<IntelligentComponentsDemoWithProvider />} />
+              <Route path="/test" element={<TestPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </main>

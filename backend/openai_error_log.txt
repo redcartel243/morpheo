@@ -1,0 +1,1 @@
+Error processing response: 'ComponentService' object has no attribute '_log_response'

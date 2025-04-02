@@ -1,0 +1,15 @@
+{
+  "app": {
+    "name": "Unclosed App",
+    "description": "An app with unclosed braces"
+  },
+  "layout": {
+    "type": "singlepage",
+    "regions": [
+      "header",
+      "main",
+      "footer"
+    ]
+  },
+  "components": []
+}

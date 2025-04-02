@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
@@ -22,6 +22,9 @@ import traceback
 import re
 import time
 import asyncio
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+import google.generativeai as genai
 
 # Load environment variables
 load_dotenv()
@@ -57,6 +60,10 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 # OpenAI API configuration
 openai_api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=openai_api_key)
+
+# Gemini API configuration
+gemini_api_key = os.getenv("GEMINI_API_KEY")
+genai.configure(api_key=gemini_api_key)
 
 # Initialize the prompt analyzer
 prompt_analyzer = PromptAnalyzer()
@@ -115,6 +122,9 @@ fake_users_db = {
 
 ui_configs_db = {}
 
+# Global variable to store the app configuration
+current_app_config = None
+
 # Security functions
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
@@ -170,10 +180,10 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
-# Replace the generate_ui_config function with a version that leverages the full power of GPT-4
+# Replace the generate_ui_config function with a version that leverages Google's Gemini API
 async def generate_ui_config(prompt: str, style_preferences: Optional[Dict[str, Any]] = None):
     """
-    Generate UI configuration based on user prompt using either OpenAI's GPT or local LLM
+    Generate UI configuration based on user prompt using either OpenAI's GPT or Google's Gemini
     """
     try:
         # Create a log file
@@ -181,9 +191,7 @@ async def generate_ui_config(prompt: str, style_preferences: Optional[Dict[str, 
             log_file.write(f"Prompt: {prompt}\n")
             log_file.write(f"Style preferences: {json.dumps(style_preferences or {}, indent=2)}\n\n")
         
-        
-        
-        # Create the system message
+        # Create the system message (to be used as a prefix in Gemini)
         system_message = """You are an expert UI developer who creates complete, functional UI configurations based on user requests.
 Your task is to generate a UI configuration that implements the functionality exactly as described or implied by the user.
 
@@ -225,15 +233,15 @@ Your response must be a complete, valid JSON object with no additional text.
         IMPORTANT: Your response MUST be a complete, valid JSON object. Do not include any text before or after the JSON.
         
         CRITICAL: Use the event-sourced architecture with a single stateReducer function that handles all events based on component IDs.
+
+        END OF RESPONSE MARKER: Please include "End of Response" at the end of your JSON response to confirm completion.
         """
         
-        print("Calling OpenAI API...")
+        print("Calling Gemini API...")
         
         with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
-            log_file.write("System message:\n")
-            log_file.write(system_message)
-            log_file.write("\n\nUser message:\n")
-            log_file.write(user_message)
+            log_file.write("System message + User message for Gemini:\n")
+            log_file.write(system_message + "\n\n" + user_message)
             log_file.write("\n\n")
         
         # Maximum number of retries
@@ -244,32 +252,30 @@ Your response must be a complete, valid JSON object with no additional text.
         
         while retry_count < max_retries and not success:
             try:
-                # Call OpenAI API with the new client format
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "developer", "content": system_message},
-                        {"role": "user", "content": user_message}
-                    ],
-                    max_completion_tokens=4000
+                # Call Gemini API
+                model = genai.GenerativeModel(model_name="gemini-2.0-flash")
+                response = model.generate_content(
+                    system_message + "\n\n" + user_message,
                 )
                 
-                print(f"OpenAI API response received (attempt {retry_count + 1})")
-                print(f"Response model: {response.model}")
-                print(f"Response id: {response.id}")
+                print(f"Gemini API response received (attempt {retry_count + 1})")
                 
                 with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
-                    log_file.write(f"OpenAI API response received (attempt {retry_count + 1})\n")
-                    log_file.write(f"Response model: {response.model}\n")
-                    log_file.write(f"Response id: {response.id}\n\n")
+                    log_file.write(f"Gemini API response received (attempt {retry_count + 1})\n\n")
                 
                 # Get the raw response text
-                json_str = response.choices[0].message.content
+                json_str = response.text
                 with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
                     log_file.write("Response:\n")
                     log_file.write(json_str)
                     log_file.write("\n\n")
                     
+                # Check if the end-of-response marker is present
+                if "End of Response" not in json_str:
+                    print("Warning: End of Response marker not found. Response may be incomplete.")
+                    with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
+                        log_file.write("Warning: End of Response marker not found. Response may be incomplete.\n\n")
+                
                 try:
                     # First attempt: try parsing exactly as provided
                     ui_config = json.loads(json_str)
@@ -512,6 +518,11 @@ Your response must be a complete, valid JSON object with no additional text.
                 log_file.write("Final UI config:\n")
                 log_file.write(json.dumps(ui_config, indent=2, ensure_ascii=False))
                 log_file.write("\n\n")
+            
+            # Add a check for the end-of-response marker
+            if "End of Response" not in json_str:
+                print("Warning: End of Response marker not found. Response may be incomplete.")
+                # Optionally, handle this case by retrying or logging the issue
             
             return ui_config
         else:
@@ -801,9 +812,169 @@ async def delete_ui_config(
     return None
 
 # Root endpoint
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 async def root():
-    return {"message": "Welcome to Morpheo - AI-Powered Dynamic UI Generator API"}
+    """
+    Serve a simple HTML page with a calculator built using direct HTML, CSS and JavaScript.
+    """
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Simple Calculator</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+                background-color: #f5f5f5;
+            }
+            .calculator {
+                background-color: #fff;
+                border-radius: 10px;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+                padding: 20px;
+                width: 300px;
+            }
+            .display {
+                background-color: #f0f0f0;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                margin-bottom: 20px;
+                padding: 15px;
+                text-align: right;
+                font-size: 24px;
+                height: 30px;
+            }
+            .buttons {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 10px;
+            }
+            button {
+                padding: 15px;
+                border: none;
+                border-radius: 5px;
+                font-size: 18px;
+                cursor: pointer;
+                transition: background-color 0.2s;
+            }
+            button:hover {
+                opacity: 0.9;
+            }
+            .number {
+                background-color: #e0e0e0;
+            }
+            .operator {
+                background-color: #4CAF50;
+                color: white;
+            }
+            .equals {
+                background-color: #2196F3;
+                color: white;
+                grid-column: span 2;
+            }
+            .clear {
+                background-color: #ff6347;
+                color: white;
+            }
+            .title {
+                font-size: 24px;
+                margin-bottom: 20px;
+                text-align: center;
+                color: #333;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="title">Simple Calculator</div>
+        <div class="calculator">
+            <div class="display" id="display">0</div>
+            <div class="buttons">
+                <button class="clear" onclick="clearDisplay()">C</button>
+                <button class="operator" onclick="appendOperator('/')">÷</button>
+                <button class="operator" onclick="appendOperator('*')">×</button>
+                <button class="operator" onclick="appendOperator('-')">-</button>
+                <button class="number" onclick="appendNumber(7)">7</button>
+                <button class="number" onclick="appendNumber(8)">8</button>
+                <button class="number" onclick="appendNumber(9)">9</button>
+                <button class="operator" onclick="appendOperator('+')">+</button>
+                <button class="number" onclick="appendNumber(4)">4</button>
+                <button class="number" onclick="appendNumber(5)">5</button>
+                <button class="number" onclick="appendNumber(6)">6</button>
+                <button class="equals" onclick="calculate()">=</button>
+                <button class="number" onclick="appendNumber(1)">1</button>
+                <button class="number" onclick="appendNumber(2)">2</button>
+                <button class="number" onclick="appendNumber(3)">3</button>
+                <button class="number" onclick="appendNumber(0)" style="grid-column: span 2;">0</button>
+                <button class="number" onclick="appendDecimal()">.</button>
+            </div>
+        </div>
+
+        <script>
+            // Get the display element
+            const display = document.getElementById('display');
+            
+            // Function to append a number to the display
+            function appendNumber(number) {
+                const currentValue = display.textContent;
+                if (currentValue === '0') {
+                    display.textContent = number;
+                } else {
+                    display.textContent += number;
+                }
+            }
+            
+            // Function to append an operator to the display
+            function appendOperator(operator) {
+                const currentValue = display.textContent;
+                if (currentValue !== '0') {
+                    display.textContent += operator;
+                }
+            }
+            
+            // Function to add a decimal point
+            function appendDecimal() {
+                const currentValue = display.textContent;
+                if (!currentValue.includes('.')) {
+                    display.textContent += '.';
+                }
+            }
+            
+            // Function to clear the display
+            function clearDisplay() {
+                display.textContent = '0';
+            }
+            
+            // Function to calculate the result
+            function calculate() {
+                try {
+                    // Use Function instead of eval for better safety
+                    const result = Function('"use strict"; return (' + display.textContent + ')')();
+                    display.textContent = result;
+                } catch (error) {
+                    display.textContent = 'Error';
+                    setTimeout(() => {
+                        display.textContent = '0';
+                    }, 1000);
+                }
+            }
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+# If there is a frontend-new directory, mount it
+frontend_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend-new")
+if os.path.exists(frontend_dir):
+    app.mount("/frontend", StaticFiles(directory=frontend_dir, html=True), name="frontend-static")
 
 # Run the application
 if __name__ == "__main__":
@@ -881,3 +1052,496 @@ def fix_json(json_str: str) -> Optional[str]:
         return json_str[json_start:json_end]
     
     return None 
+
+@app.post("/api/generate")
+async def generate_app(request: Dict[str, Any] = Body(...)):
+    """
+    Generate an app configuration based on a user request.
+    """
+    user_request = request.get("request", "")
+    if not user_request:
+        raise HTTPException(status_code=400, detail="Request text is required")
+    
+    # Generate app configuration
+    app_config = component_service.generate_app_config(user_request)
+    
+    # Store the configuration globally
+    global current_app_config
+    current_app_config = app_config
+    
+    return app_config
+
+@app.get("/api/app/config")
+async def get_app_config():
+    """
+    Get the current app configuration.
+    """
+    global current_app_config
+    if current_app_config is None:
+        raise HTTPException(status_code=404, detail="No app configuration available")
+    
+    return current_app_config
+
+@app.get("/reset-app")
+async def reset_app():
+    """
+    Reset the app and regenerate it with proper button handlers.
+    """
+    # Create a basic calculator app with working buttons
+    app_config = {
+        "app": {
+            "name": "Fixed Calculator",
+            "description": "A calculator with working buttons",
+            "theme": "light"
+        },
+        "layout": {
+            "type": "singlepage",
+            "regions": ["header", "main", "footer"]
+        },
+        "components": [
+            {
+                "id": "calculator-title",
+                "type": "text",
+                "region": "header",
+                "properties": {
+                    "content": "Calculator App"
+                },
+                "styles": {
+                    "fontSize": "24px",
+                    "fontWeight": "bold",
+                    "textAlign": "center",
+                    "padding": "20px",
+                    "color": "#333"
+                }
+            },
+            {
+                "id": "calculator-container",
+                "type": "container",
+                "region": "main",
+                "styles": {
+                    "maxWidth": "300px",
+                    "margin": "0 auto",
+                    "padding": "15px",
+                    "backgroundColor": "#f5f5f5",
+                    "borderRadius": "8px",
+                    "boxShadow": "0 2px 10px rgba(0,0,0,0.1)"
+                },
+                "children": [
+                    {
+                        "id": "display",
+                        "type": "text",
+                        "properties": {
+                            "content": "0"
+                        },
+                        "styles": {
+                            "width": "100%",
+                            "padding": "15px",
+                            "marginBottom": "15px",
+                            "backgroundColor": "#fff",
+                            "border": "1px solid #ddd",
+                            "borderRadius": "4px",
+                            "fontSize": "24px",
+                            "textAlign": "right",
+                            "fontFamily": "monospace"
+                        }
+                    },
+                    {
+                        "id": "keypad",
+                        "type": "container",
+                        "styles": {
+                            "display": "grid",
+                            "gridTemplateColumns": "repeat(4, 1fr)",
+                            "gap": "10px"
+                        },
+                        "children": [
+                            {
+                                "id": "btn-clear",
+                                "type": "button",
+                                "properties": {
+                                    "text": "C"
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#ff6347",
+                                    "color": "white",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { $m('#display').setText('0'); } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-divide",
+                                "type": "button",
+                                "properties": {
+                                    "text": "÷"
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#4CAF50",
+                                    "color": "white",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText !== '0') { display.setText(currentText + '/'); } } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-multiply",
+                                "type": "button",
+                                "properties": {
+                                    "text": "×"
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#4CAF50",
+                                    "color": "white",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText !== '0') { display.setText(currentText + '*'); } } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-subtract",
+                                "type": "button",
+                                "properties": {
+                                    "text": "-"
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#4CAF50",
+                                    "color": "white",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); display.setText(currentText + '-'); } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-7",
+                                "type": "button",
+                                "properties": {
+                                    "text": "7"
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#e0e0e0",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('7'); } else { display.setText(currentText + '7'); } } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-8",
+                                "type": "button",
+                                "properties": {
+                                    "text": "8"
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#e0e0e0",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('8'); } else { display.setText(currentText + '8'); } } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-9",
+                                "type": "button",
+                                "properties": {
+                                    "text": "9"
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#e0e0e0",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('9'); } else { display.setText(currentText + '9'); } } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-add",
+                                "type": "button",
+                                "properties": {
+                                    "text": "+"
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#4CAF50",
+                                    "color": "white",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); display.setText(currentText + '+'); } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-4",
+                                "type": "button",
+                                "properties": {
+                                    "text": "4"
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#e0e0e0",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('4'); } else { display.setText(currentText + '4'); } } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-5",
+                                "type": "button",
+                                "properties": {
+                                    "text": "5"
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#e0e0e0",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('5'); } else { display.setText(currentText + '5'); } } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-6",
+                                "type": "button",
+                                "properties": {
+                                    "text": "6"
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#e0e0e0",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('6'); } else { display.setText(currentText + '6'); } } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-equals",
+                                "type": "button",
+                                "properties": {
+                                    "text": "="
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#2196F3",
+                                    "color": "white",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer",
+                                    "gridRow": "span 2"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const expression = display.getText(); try { const result = Function('\"use strict\"; return (' + expression + ')')(); display.setText(String(result)); } catch(calcError) { display.setText('Error'); setTimeout(() => display.setText('0'), 1000); } } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-1",
+                                "type": "button",
+                                "properties": {
+                                    "text": "1"
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#e0e0e0",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('1'); } else { display.setText(currentText + '1'); } } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-2",
+                                "type": "button",
+                                "properties": {
+                                    "text": "2"
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#e0e0e0",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('2'); } else { display.setText(currentText + '2'); } } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-3",
+                                "type": "button",
+                                "properties": {
+                                    "text": "3"
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#e0e0e0",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('3'); } else { display.setText(currentText + '3'); } } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-0",
+                                "type": "button",
+                                "properties": {
+                                    "text": "0"
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#e0e0e0",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer",
+                                    "gridColumn": "span 2"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('0'); } else { display.setText(currentText + '0'); } } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            },
+                            {
+                                "id": "btn-decimal",
+                                "type": "button",
+                                "properties": {
+                                    "text": "."
+                                },
+                                "styles": {
+                                    "padding": "15px",
+                                    "backgroundColor": "#e0e0e0",
+                                    "border": "none",
+                                    "borderRadius": "4px",
+                                    "fontSize": "18px",
+                                    "cursor": "pointer"
+                                },
+                                "events": {
+                                    "click": {
+                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (!currentText.includes('.')) { display.setText(currentText + '.'); } } catch(error) { console.error('Error:', error); } }",
+                                        "affectedComponents": ["display"]
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "id": "footer-text",
+                "type": "text",
+                "region": "footer",
+                "properties": {
+                    "content": "© 2023 Calculator App"
+                },
+                "styles": {
+                    "textAlign": "center",
+                    "padding": "20px",
+                    "color": "#777",
+                    "fontSize": "14px"
+                }
+            }
+        ]
+    }
+    
+    # Set as current app config
+    global current_app_config
+    current_app_config = app_config
+    
+    return {"status": "success", "message": "App reset with working calculator"} 

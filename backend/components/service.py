@@ -16,12 +16,16 @@ from typing import Dict, List, Any, Optional, Tuple, Union
 from openai import OpenAI
 from dotenv import load_dotenv
 import traceback
+import requests
+from uuid import uuid4
+import google.generativeai as genai
 
 from .registry import component_registry
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.tools.registry import tool_registry
-from .response_validator import response_validator
+from .response_validator import response_validator, ResponseValidator
+from .response_handler import ResponseHandler
 
 # Load environment variables
 load_dotenv()
@@ -43,11 +47,17 @@ class ComponentService:
         self.component_registry = component_registry
         self.tool_registry = tool_registry
         self._component_connections = []  # Initialize connections list
+        self.response_handler = ResponseHandler()  # Add the response handler instance
+        
+        # Configure Gemini API
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
+        if gemini_api_key:
+            genai.configure(api_key=gemini_api_key)
     
     def generate_app_config(self, user_request: str) -> Dict[str, Any]:
         """
         Generate an app configuration based on a user request.
-        This method extracts a valid JSON response from OpenAI for creating the application.
+        This method extracts a valid JSON response from Gemini or OpenAI for creating the application.
         
         Args:
             user_request: The user's request description
@@ -97,115 +107,42 @@ class ComponentService:
             # Generate prompt for app
             prompt = self._create_app_generation_prompt(user_request, ui_components, app_configs)
             
-            # Make the API call using the JSON mode for structured outputs
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            # Check if Gemini API key is available
+            gemini_api_key = os.getenv("GEMINI_API_KEY")
+            if gemini_api_key:
+                try:
+                    # Make API call to Gemini
+                    print("Using Gemini API for app configuration generation")
+                    response_text = self._call_gemini_api(prompt)
+                except Exception as gemini_error:
+                    print(f"Error with Gemini API: {str(gemini_error)}. Falling back to OpenAI.")
+                    # Fall back to OpenAI
+                    response_text = self._call_openai_api(prompt)
+            else:
+                # Fall back to OpenAI
+                response_text = self._call_openai_api(prompt)
             
-            # Define the JSON schema for the app configuration
-            json_schema = {
-                "type": "object",
-                "properties": {
-                    "app": {
-                        "type": "object",
-                        "properties": {
-                            "name": {"type": "string"},
-                            "description": {"type": "string"},
-                            "theme": {"type": "string"}
-                        },
-                        "required": ["name", "description"]
-                    },
-                    "layout": {
-                        "type": "object",
-                        "properties": {
-                            "type": {"type": "string"},
-                            "regions": {
-                                "type": "array",
-                                "items": {"type": "string"}
-                            }
-                        },
-                        "required": ["type", "regions"]
-                    },
-                    "components": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id": {"type": "string"},
-                                "type": {"type": "string"},
-                                "region": {"type": "string"},
-                                "properties": {"type": "object"},
-                                "styles": {"type": "object"},
-                                "methods": {"type": "object"},
-                                "children": {"type": "array"}
-                            },
-                            "required": ["id", "type", "region"]
-                        }
-                    }
-                },
-                "required": ["app", "layout", "components"]
-            }
+            # Process the API response using our enhanced handler
+            app_config = self._process_api_response({
+                "choices": [{"message": {"content": response_text}}]
+            })
             
-            # Make API call with the structured output parameter
-            response = client.chat.completions.create(
-                model="gpt-4o",  # or another suitable model
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": "You are a UI generator that creates complete, valid JSON configurations for web applications."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=4096
-            )
-            
-            # Extract and parse the JSON response
-            response_text = response.choices[0].message.content
-            
-            # Log the response for debugging
-            print("Received response from OpenAI")
-            with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
-                log_file.write("\nResponse:\n")
-                log_file.write(response_text)
-                log_file.write("\n--- End of Component-Based UI Generation Response ---\n\n")
-            
-            # Parse the JSON response
-            try:
-                app_config = json.loads(response_text)
-                print("Successfully parsed JSON response")
-            except json.JSONDecodeError as e:
-                print(f"Error parsing JSON response: {e}")
-                app_config = self._clean_openai_response(response_text)
-                if isinstance(app_config, str):
-                    try:
-                        app_config = json.loads(app_config)
-                    except:
-                        print("Failed to parse cleaned response, using fallback")
-                        return self._create_ai_fallback_app_config(user_request)
-            
-            # Log the extracted JSON
-            with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
-                log_file.write(f"Extracted JSON:\n{json.dumps(app_config)}\n\n")
-            
-            # Process the app configuration
+            # Process the app configuration further if needed
             app_config = self._process_app_config(app_config, user_request)
             
-            # Log the repaired JSON
-            with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
-                log_file.write(f"Repaired JSON:\n{json.dumps(app_config)}\n\n")
-            
-            # Validate and post-process the configuration
+            # Validate and post-process the configuration 
             self._process_app_config_imports(app_config)
             self._normalize_component_ids(app_config)
             self._normalize_component_properties(app_config.get("components", []))
-            self._validate_action_handlers(app_config)
-            
-            # Process AI methods
-            if app_config.get("components"):
-                self._process_ai_methods(app_config["components"])
             
             # Log the validated response
             with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
                 log_file.write("Validated Response:\n")
                 log_file.write(json.dumps(app_config, indent=2))
                 log_file.write("\n--- End of Validated Response ---\n\n")
+            
+            # After processing the app configuration, normalize methods to events
+            self._normalize_methods_to_events(app_config.get("components", []))
             
             return app_config
             
@@ -215,6 +152,165 @@ class ComponentService:
             
             # Create a fallback app configuration that shows error info
             return self._create_ai_fallback_app_config(user_request)
+    
+    def _call_gemini_api(self, prompt: str) -> str:
+        """
+        Make an API call to Gemini to generate a response.
+        
+        Args:
+            prompt: The prompt to send to Gemini
+            
+        Returns:
+            The text response from Gemini
+        """
+        try:
+            # Log the prompt
+            with open("gemini_request_log.txt", "a", encoding="utf-8") as log_file:
+                log_file.write(f"=== Gemini API Request ===\n")
+                log_file.write(f"Time: {datetime.datetime.now().isoformat()}\n")
+                log_file.write(f"Prompt:\n{prompt}\n\n")
+            
+            # Call Gemini API
+            model = genai.GenerativeModel(model_name="gemini-2.0-flash")
+            system_message = "You are an expert UI generator that creates complete, valid JSON configurations for web applications. Return ONLY valid JSON."
+            
+            response = model.generate_content(
+                system_message + "\n\n" + prompt
+            )
+            
+            response_text = response.text
+            
+            # Log the response
+            with open("gemini_request_log.txt", "a", encoding="utf-8") as log_file:
+                log_file.write(f"=== Gemini API Response ===\n")
+                log_file.write(f"Time: {datetime.datetime.now().isoformat()}\n")
+                log_file.write(f"Response:\n{response_text}\n\n")
+            
+            return response_text
+            
+        except Exception as e:
+            print(f"Error calling Gemini API: {str(e)}")
+            traceback.print_exc()
+            
+            # Log the error
+            with open("gemini_error_log.txt", "a", encoding="utf-8") as log_file:
+                log_file.write(f"Error calling Gemini API: {str(e)}\n")
+                log_file.write(traceback.format_exc())
+                log_file.write("\n\n")
+            
+            # Re-raise the exception to be handled by the caller
+            raise
+    
+    def _call_openai_api(self, prompt: str) -> str:
+        """
+        Make an API call to OpenAI to generate a response.
+        
+        Args:
+            prompt: The prompt to send to OpenAI
+            
+        Returns:
+            The text response from OpenAI
+        """
+        # Make the API call using the JSON mode for structured outputs
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        # Make API call with the structured output parameter
+        response = client.chat.completions.create(
+            model="gpt-4o",  # or another suitable model
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": "You are a UI generator that creates complete, valid JSON configurations for web applications."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=4096
+        )
+        
+        # Extract and parse the JSON response
+        response_text = response.choices[0].message.content
+        
+        # Log the response
+        with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
+            log_file.write(f"=== OpenAI API Response ===\n")
+            log_file.write(f"Time: {datetime.datetime.now().isoformat()}\n")
+            log_file.write(f"Response:\n{response_text}\n\n")
+        
+        return response_text
+    
+    def _process_api_response(self, response: Dict[str, Any], is_streaming: bool = False) -> Dict[str, Any]:
+        """
+        Process the API response to extract the UI configuration.
+        
+        Args:
+            response: The API response
+            is_streaming: Whether this was a streaming request
+            
+        Returns:
+            The extracted UI configuration
+        """
+        try:
+            # First, log the response for debugging
+            self._log_response(response)
+            
+            # Use the ResponseHandler to process the response
+            processed_response = self.response_handler.handle_response(response, is_streaming)
+            
+            # Validate the processed response
+            if processed_response:
+                # Further process the response if needed
+                self._validate_action_handlers(processed_response)
+                
+                # Process methods and update component connections
+                if "components" in processed_response:
+                    self._process_ai_methods(processed_response["components"])
+                    
+                return processed_response
+            else:
+                # If response processing failed, return error recovery
+                print("Failed to process API response")
+                return self.response_handler._create_error_recovery_response()
+                
+        except Exception as e:
+            # Log the error and return error recovery response
+            print(f"Error processing API response: {str(e)}")
+            with open("api_error_log.txt", "a") as f:
+                f.write(f"Error processing response: {str(e)}\n")
+                
+            return self.response_handler._create_error_recovery_response()
+    
+    def _log_response(self, response: Dict[str, Any]) -> None:
+        """
+        Log the API response for debugging purposes.
+        
+        Args:
+            response: The API response
+        """
+        try:
+            # Create a log entry with timestamp
+            log_entry = f"\n\n===== API RESPONSE LOG =====\n"
+            log_entry += f"Time: {datetime.datetime.now().isoformat()}\n"
+            
+            # Add the response content if available
+            if response and "choices" in response and len(response["choices"]) > 0:
+                if "message" in response["choices"][0] and "content" in response["choices"][0]["message"]:
+                    content = response["choices"][0]["message"]["content"]
+                    log_entry += f"Response content:\n{content}\n"
+                else:
+                    log_entry += "No content found in response choices.\n"
+            else:
+                log_entry += "No choices found in response.\n"
+                
+            log_entry += "===== END RESPONSE LOG =====\n\n"
+            
+            # Write to the log file
+            with open("api_request_log.txt", "a", encoding="utf-8") as log_file:
+                log_file.write(log_entry)
+                
+        except Exception as e:
+            print(f"Error logging API response: {str(e)}")
+            # Create a simple error log if the detailed logging fails
+            with open("api_error_log.txt", "a") as f:
+                f.write(f"Error logging response: {str(e)}\n")
     
     def _extract_components_from_raw_json(self, raw_json: dict) -> list:
         """
@@ -894,6 +990,12 @@ class ComponentService:
         """
         Validate and standardize action handlers in components.
         
+        Enhanced to:
+        1. Use pattern recognition to identify common event handler structures
+        2. Check for missing error handling in try/catch blocks
+        3. Verify initialization of component values
+        4. Augment code with missing validations, initializations, and safety measures
+        
         Args:
             app_config: The app configuration to validate
         """
@@ -904,25 +1006,21 @@ class ComponentService:
         
         # Validate and correct component actions
         for component in components:
+            # Check for and add default initializations if needed
+            self._ensure_component_initialization(component)
+            
             if "events" in component:
                 for event_type, event_handler in component["events"].items():
-                    if isinstance(event_handler, dict) and "action" in event_handler:
-                        action = event_handler["action"]
-                        
-                        # Handle legacy actions here if needed
-                        if action == "changeButtonPosition":
-                            # This action was for state management
-                            # Now replace with direct DOM manipulation method
-                            component["events"][event_type] = {
-                                "code": "function(event, $m) { $m('#' + event.target.id).setStyle('transform', 'translate(' + Math.random() * 20 + 'px, ' + Math.random() * 20 + 'px)'); }"
-                            }
-                        elif action == "toggleVisibility":
-                            # Replace with DOM manipulation for toggling visibility
-                            target_id = event_handler.get("targetId", "content")
-                            component["events"][event_type] = {
-                                "code": f"function(event, $m) {{ const elem = $m('#{target_id}'); if (elem.getProperty('display') === 'none') {{ elem.show(); }} else {{ elem.hide(); }} }}",
-                                "affectedComponents": [target_id]
-                            }
+                    if isinstance(event_handler, dict):
+                        if "action" in event_handler:
+                            # Handle legacy actions using pattern recognition
+                            self._transform_legacy_action(component, event_type, event_handler)
+                        elif "code" in event_handler:
+                            # Validate and augment event handler code
+                            code = event_handler["code"]
+                            augmented_code = self._augment_handler_code(code, component.get("id", "unknown"), 
+                                                                       event_type, event_handler.get("affectedComponents", []))
+                            event_handler["code"] = augmented_code
             
             # Process nested components
             if component.get("children") and isinstance(component["children"], list):
@@ -935,6 +1033,231 @@ class ComponentService:
                 # Recursive processing with temporary config
                 temp_config = {"components": component["properties"]["children"]}
                 self._validate_action_handlers(temp_config)
+
+    def _transform_legacy_action(self, component: Dict[str, Any], event_type: str, event_handler: Dict[str, Any]) -> None:
+        """
+        Transform legacy action-based handlers to modern code-based handlers using pattern recognition.
+        
+        Args:
+            component: The component containing the event handler
+            event_type: The type of event (e.g., "click", "change")
+            event_handler: The event handler configuration
+        """
+        action = event_handler["action"]
+                        
+        # Pattern recognition for common legacy actions
+        if action == "changeButtonPosition":
+            # This action was for state management
+            # Now replace with direct DOM manipulation method
+            component["events"][event_type] = {
+                "code": "function(event, $m) { $m('#' + event.target.id).setStyle('transform', 'translate(' + Math.random() * 20 + 'px, ' + Math.random() * 20 + 'px)'); }"
+            }
+        elif action == "toggleVisibility":
+            # Replace with DOM manipulation for toggling visibility
+            target_id = event_handler.get("targetId", "content")
+            component["events"][event_type] = {
+                "code": f"function(event, $m) {{ const elem = $m('#{target_id}'); if (elem.getProperty('display') === 'none') {{ elem.show(); }} else {{ elem.hide(); }} }}",
+                "affectedComponents": [target_id]
+            }
+        elif action == "increment" or action == "add" or action.startswith("add") or action.startswith("increment"):
+            # Numerical increment pattern
+            target_id = event_handler.get("targetId")
+            value = event_handler.get("value", 1)
+            if target_id:
+                component["events"][event_type] = {
+                    "code": f"""function(event, $m) {{ 
+                        try {{
+                            const elem = $m('#{target_id}');
+                            const currentValue = parseFloat(elem.getText()) || 0;
+                            elem.setText(String(currentValue + {value}));
+                        }} catch (error) {{
+                            console.error('Error incrementing value:', error);
+                        }}
+                    }}""",
+                    "affectedComponents": [target_id]
+                }
+        elif action == "decrement" or action == "subtract" or action.startswith("subtract") or action.startswith("decrement"):
+            # Numerical decrement pattern
+            target_id = event_handler.get("targetId")
+            value = event_handler.get("value", 1)
+            if target_id:
+                component["events"][event_type] = {
+                    "code": f"""function(event, $m) {{ 
+                        try {{
+                            const elem = $m('#{target_id}');
+                            const currentValue = parseFloat(elem.getText()) || 0;
+                            elem.setText(String(currentValue - {value}));
+                        }} catch (error) {{
+                            console.error('Error decrementing value:', error);
+                        }}
+                    }}""",
+                    "affectedComponents": [target_id]
+                }
+        elif action == "setText" or action == "updateText":
+            # Text update pattern
+            target_id = event_handler.get("targetId")
+            text = event_handler.get("text", "")
+            if target_id:
+                component["events"][event_type] = {
+                    "code": f"""function(event, $m) {{ 
+                        try {{
+                            $m('#{target_id}').setText("{text}");
+                        }} catch (error) {{
+                            console.error('Error setting text:', error);
+                        }}
+                    }}""",
+                    "affectedComponents": [target_id]
+                }
+
+    def _ensure_component_initialization(self, component: Dict[str, Any]) -> None:
+        """
+        Ensure a component has proper initialization values.
+        
+        Args:
+            component: The component to check and augment
+        """
+        # Add default initialization method if needed
+        component_id = component.get("id")
+        component_type = component.get("type")
+        
+        if not component_id:
+            return
+            
+        # Add initialization method if not present
+        if not component.get("methods") or "initialize" not in component.get("methods", {}):
+            if not component.get("methods"):
+                component["methods"] = {}
+                
+            # Create appropriate initializer based on component type
+            if component_type == "input" or component_type == "textfield":
+                # Initialize input components with validation
+                component["methods"]["initialize"] = {
+                    "code": f"""function(event, $m) {{
+                        try {{
+                            const input = $m('#{component_id}');
+                            input.addEventListener('input', function(e) {{
+                                // Basic input validation
+                                if (input.getAttribute('data-type') === 'number') {{
+                                    const value = input.getValue();
+                                    if (value && isNaN(parseFloat(value))) {{
+                                        input.setStyle('border', '1px solid red');
+                                    }} else {{
+                                        input.setStyle('border', '');
+                                    }}
+                                }}
+                            }});
+                        }} catch (error) {{
+                            console.error('Error initializing input component:', error);
+                        }}
+                    }}"""
+                }
+            elif component_type == "button":
+                # Add default button initialization if it has events
+                if component.get("events") and any(event_type != "initialize" for event_type in component.get("events", {})):
+                    component["methods"]["initialize"] = {
+                        "code": f"""function(event, $m) {{
+                            try {{
+                                const button = $m('#{component_id}');
+                                button.setProperty('initialized', true);
+                            }} catch (error) {{
+                                console.error('Error initializing button component:', error);
+                            }}
+                        }}"""
+                    }
+            elif component_type in ["select", "dropdown"]:
+                # Initialize select components
+                component["methods"]["initialize"] = {
+                    "code": f"""function(event, $m) {{
+                        try {{
+                            const select = $m('#{component_id}');
+                            select.addEventListener('change', function(e) {{
+                                const selectedOption = select.getValue();
+                                select.setProperty('selectedOption', selectedOption);
+                            }});
+                        }} catch (error) {{
+                            console.error('Error initializing select component:', error);
+                        }}
+                    }}"""
+                }
+
+    def _augment_handler_code(self, code: str, component_id: str, event_type: str, affected_components: List[str]) -> str:
+        """
+        Augment handler code with error handling, validation, and safer eval alternatives.
+        
+        Args:
+            code: The original handler code
+            component_id: ID of the component
+            event_type: The event type (click, change, etc.)
+            affected_components: List of components affected by this handler
+            
+        Returns:
+            Augmented handler code
+        """
+        # Skip if already a function with try/catch
+        if "try {" in code and "catch" in code:
+            return code
+            
+        # Extract code body from function if it exists
+        code_body = code
+        function_match = re.search(r'function\s*\([^)]*\)\s*{([\s\S]*)}', code)
+        if function_match:
+            code_body = function_match.group(1).strip()
+            
+        # Check for eval usage and replace with safer alternative
+        if "eval(" in code_body:
+            code_body = code_body.replace("eval(", "Function('return ' + ")
+            code_body = code_body.replace(")", ")()")
+            
+        # Pattern recognition for form validation
+        if event_type == "submit" and any(re.search(r'form|submit|input', code_body, re.IGNORECASE)):
+            # Add form validation wrapper
+            validation_code = f"""
+                // Form validation
+                const form = event.target.closest('form');
+                if (form) {{
+                    const inputs = form.querySelectorAll('input[required], select[required], textarea[required]');
+                    let isValid = true;
+                    
+                    inputs.forEach(input => {{
+                        if (!input.value.trim()) {{
+                            isValid = false;
+                            $m('#' + input.id).setStyle('border', '1px solid red');
+                        }} else {{
+                            $m('#' + input.id).setStyle('border', '');
+                        }}
+                    }});
+                    
+                    if (!isValid) {{
+                        event.preventDefault();
+                        return;
+                    }}
+                }}
+            """
+            code_body = validation_code + code_body
+        
+        # Pattern recognition for calculation operations
+        if any(re.search(r'Math\.|parseFloat|parseInt|\+|-|\*|/', code_body)) and any(affected_components):
+            # Ensure there's validation for numerical operations
+            for target_id in affected_components:
+                if f"$m('#{target_id}')" in code_body or f'$m("#{target_id}")' in code_body:
+                    # Add validation for affected numeric components if not present
+                    if not re.search(r'(parseFloat|parseInt|Number)\s*\(', code_body):
+                        code_body = re.sub(
+                            r'(\$m\([\'"]#' + re.escape(target_id) + r'[\'"]\)\.getText\(\))',
+                            r'parseFloat(\1) || 0',
+                            code_body
+                        )
+        
+        # Wrap code with try-catch for error handling
+        augmented_code = f"""function(event, $m) {{
+            try {{
+                {code_body}
+            }} catch (error) {{
+                console.error('Error in {event_type} handler for component {component_id}:', error);
+            }}
+        }}"""
+        
+        return augmented_code
 
     def _process_ai_methods(self, components: List[Dict[str, Any]]) -> None:
         """
@@ -1864,6 +2187,133 @@ class ComponentService:
         
         # Start the normalization
         normalize_ids(app_config["components"])
+
+    def _process_openai_response(self, response: Dict[str, Any], is_streaming: bool = False) -> Dict[str, Any]:
+        """
+        Process the OpenAI API response to extract the UI configuration.
+        
+        Args:
+            response: The OpenAI API response
+            is_streaming: Whether this was a streaming request
+            
+        Returns:
+            The extracted UI configuration
+        """
+        try:
+            # First, log the response for debugging
+            self._log_response(response)
+            
+            # Use the ResponseHandler to process the response
+            processed_response = self.response_handler.handle_response(response, is_streaming)
+            
+            # Validate the processed response
+            if processed_response:
+                # Further process the response if needed
+                self._validate_action_handlers(processed_response)
+                
+                # Process methods and update component connections
+                if "components" in processed_response:
+                    self._process_ai_methods(processed_response["components"])
+                    
+                return processed_response
+            else:
+                # If response processing failed, return error recovery
+                print("Failed to process OpenAI response")
+                return self.response_handler._create_error_recovery_response()
+                
+        except Exception as e:
+            # Log the error and return error recovery response
+            print(f"Error processing OpenAI response: {str(e)}")
+            with open("openai_error_log.txt", "a") as f:
+                f.write(f"Error processing response: {str(e)}\n")
+                
+            return self.response_handler._create_error_recovery_response()
+
+    def _log_response(self, response: Dict[str, Any]) -> None:
+        """
+        Log the OpenAI API response for debugging purposes.
+        
+        Args:
+            response: The OpenAI API response
+        """
+        try:
+            # Create a log entry with timestamp
+            log_entry = f"\n\n===== OPENAI RESPONSE LOG =====\n"
+            log_entry += f"Time: {datetime.datetime.now().isoformat()}\n"
+            
+            # Add the response content if available
+            if response and "choices" in response and len(response["choices"]) > 0:
+                if "message" in response["choices"][0] and "content" in response["choices"][0]["message"]:
+                    content = response["choices"][0]["message"]["content"]
+                    log_entry += f"Response content:\n{content}\n"
+                else:
+                    log_entry += "No content found in response choices.\n"
+            else:
+                log_entry += "No choices found in response.\n"
+                
+            log_entry += "===== END RESPONSE LOG =====\n\n"
+            
+            # Write to the log file
+            with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
+                log_file.write(log_entry)
+                
+        except Exception as e:
+            print(f"Error logging OpenAI response: {str(e)}")
+            # Create a simple error log if the detailed logging fails
+            with open("openai_error_log.txt", "a") as f:
+                f.write(f"Error logging response: {str(e)}\n")
+
+    def _normalize_methods_to_events(self, components: List[Dict[str, Any]]) -> None:
+        """
+        Normalize methods to events for proper frontend handling.
+        This ensures that methods like 'onClick' are properly mapped to events like 'click'.
+        
+        Args:
+            components: List of component definitions to normalize
+        """
+        if not isinstance(components, list):
+            return
+        
+        for component in components:
+            if not isinstance(component, dict):
+                continue
+            
+            # Initialize events dictionary if needed
+            if "events" not in component:
+                component["events"] = {}
+            
+            # Check if there are methods to convert
+            if "methods" in component and isinstance(component["methods"], dict):
+                methods = component["methods"]
+                
+                # Convert onClick to click
+                if "onClick" in methods:
+                    # Copy the onClick method to the click event
+                    component["events"]["click"] = methods["onClick"]
+                
+                # Convert other common method names
+                method_to_event_map = {
+                    "onChange": "change",
+                    "onSubmit": "submit",
+                    "onBlur": "blur",
+                    "onFocus": "focus",
+                    "onMouseEnter": "mouseenter",
+                    "onMouseLeave": "mouseleave",
+                    "onKeyDown": "keydown",
+                    "onKeyUp": "keyup"
+                }
+                
+                for method_name, event_name in method_to_event_map.items():
+                    if method_name in methods:
+                        component["events"][event_name] = methods[method_name]
+            
+            # Process nested components
+            if "children" in component and isinstance(component["children"], list):
+                self._normalize_methods_to_events(component["children"])
+            
+            # Process components in properties.children as well
+            if "properties" in component and "children" in component["properties"] and isinstance(component["properties"]["children"], list):
+                self._normalize_methods_to_events(component["properties"]["children"])
 
 # Create a singleton instance of the component service
 component_service = ComponentService() 

@@ -1,0 +1,9 @@
+Error processing response: 're.Match' object is not iterable
+Error processing response: 're.Match' object is not iterable
+Error processing response: 're.Match' object is not iterable
+Error processing response: 're.Match' object is not iterable
+Error processing response: 're.Match' object is not iterable
+Error processing response: 're.Match' object is not iterable
+Error processing response: 're.Match' object is not iterable
+Error processing response: 're.Match' object is not iterable
+Error processing response: 're.Match' object is not iterable
