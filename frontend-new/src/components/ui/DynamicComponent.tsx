@@ -115,6 +115,20 @@ const mapComponentType = (type: string): string => {
     case 'picture':
       return 'image';
     
+    // Visualization types
+    case 'map':
+    case 'mapview':
+    case 'mapcomponent':
+      return 'map';
+    
+    case 'chart':
+    case 'graph':
+      return 'chart';
+    
+    case 'datatable':
+    case 'table':
+      return 'datatable';
+    
     // Default to the original type
     default:
       return normalizedType;
@@ -813,6 +827,103 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
             )}
           </div>
         );
+
+      case 'map':
+        // Map component for visualizing geographical data
+        try {
+          let mapCenter = getPropertyValue('center', { lat: 41.3851, lng: 2.1734 }); // Default to Barcelona
+          
+          // Convert array format to object if needed
+          if (Array.isArray(mapCenter) && mapCenter.length >= 2) {
+            mapCenter = { lat: mapCenter[0], lng: mapCenter[1] };
+          }
+          
+          // Final validation to ensure mapCenter is properly formatted
+          if (!mapCenter || typeof mapCenter !== 'object' || mapCenter.lat === undefined || mapCenter.lng === undefined) {
+            mapCenter = { lat: 41.3851, lng: 2.1734 }; // Fallback to Barcelona
+          }
+          
+          const mapZoom = getPropertyValue('zoom', 13);
+          let mapMarkers = getPropertyValue('markers', []);
+          
+          if (!Array.isArray(mapMarkers)) mapMarkers = [];
+          
+          // Ensure each marker has valid position
+          mapMarkers = mapMarkers.map((marker: any) => {
+            if (!marker || typeof marker !== 'object') {
+              return { position: { lat: mapCenter.lat, lng: mapCenter.lng } };
+            }
+            
+            let position = marker.position;
+            // Convert array position to object if needed
+            if (Array.isArray(position) && position.length >= 2) {
+              position = { lat: position[0], lng: position[1] };
+            }
+            
+            // Final validation
+            if (!position || typeof position !== 'object' || position.lat === undefined || position.lng === undefined) {
+              position = { lat: mapCenter.lat, lng: mapCenter.lng };
+            }
+            
+            return {
+              ...marker,
+              position
+            };
+          });
+          
+          const mapInteractive = getPropertyValue('interactive', true);
+          
+          console.log("Rendering map component with props:", { 
+            id: safeComponent.id, 
+            center: mapCenter, 
+            zoom: mapZoom, 
+            markers: mapMarkers 
+          });
+          
+          return (
+            <div
+              className="morpheo-map-container"
+              style={{ position: 'relative', ...componentStyles }}
+            >
+              <Map
+                testId={safeComponent.id}
+                center={mapCenter}
+                zoom={mapZoom}
+                markers={mapMarkers}
+                style={componentStyles}
+                interactive={mapInteractive}
+                handleEvent={(eventType, payload) => {
+                  // Forward map events to our event handler
+                  const event = {
+                    target: { id: safeComponent.id },
+                    type: eventType,
+                    detail: payload
+                  };
+                  handleEvent(eventType, event);
+                }}
+              />
+            </div>
+          );
+        } catch (error) {
+          console.error("Error rendering map component:", error);
+          return (
+            <div
+              id={safeComponent.id}
+              className="morpheo-component morpheo-map-error"
+              style={{
+                padding: '20px',
+                backgroundColor: '#ffebee',
+                color: '#d32f2f',
+                textAlign: 'center',
+                border: '1px solid #ffcdd2',
+                borderRadius: '4px',
+                ...componentStyles
+              }}
+            >
+              Error loading map component. Please check the console for details.
+            </div>
+          );
+        }
 
       // Handle all other component types as generic div containers
       default:

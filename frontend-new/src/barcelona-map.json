@@ -1,0 +1,273 @@
+{
+  "app": {
+    "name": "Barcelona Map",
+    "description": "An interactive map of Barcelona with state persistence.",
+    "theme": "light"
+  },
+  "layout": {
+    "type": "singlepage",
+    "regions": [
+      "header",
+      "main",
+      "footer"
+    ]
+  },
+  "components": [
+    {
+      "id": "header-container",
+      "type": "container",
+      "region": "header",
+      "properties": {},
+      "styles": {
+        "backgroundColor": "#f8f8f8",
+        "padding": "16px",
+        "borderBottom": "1px solid #eee",
+        "display": "flex",
+        "justifyContent": "space-between",
+        "alignItems": "center"
+      },
+      "children": [
+        {
+          "id": "app-title",
+          "type": "text",
+          "properties": {
+            "content": "Barcelona Map"
+          },
+          "styles": {
+            "fontSize": "24px",
+            "fontWeight": "bold",
+            "color": "#333"
+          }
+        }
+      ]
+    },
+    {
+      "id": "map-container",
+      "type": "container",
+      "region": "main",
+      "properties": {
+        "stateKey": "map-state"
+      },
+      "styles": {
+        "width": "100%",
+        "height": "calc(100vh - 150px)",
+        "position": "relative"
+      },
+      "children": [
+        {
+          "id": "barcelona-map",
+          "type": "map",
+          "properties": {
+            "center": { "lat": 41.3851, "lng": 2.1734 },
+            "zoom": 13,
+            "markers": [
+              {
+                "position": { "lat": 41.3851, "lng": 2.1734 },
+                "title": "Barcelona Center"
+              },
+              {
+                "position": { "lat": 41.4036, "lng": 2.1744 },
+                "title": "Sagrada Familia"
+              },
+              {
+                "position": { "lat": 41.3851, "lng": 2.1676 },
+                "title": "La Rambla"
+              }
+            ],
+            "interactive": true
+          },
+          "styles": {
+            "width": "100%", 
+            "height": "100%",
+            "borderRadius": "8px"
+          }
+        }
+      ]
+    },
+    {
+      "id": "controls-container",
+      "type": "container",
+      "region": "main",
+      "properties": {},
+      "styles": {
+        "position": "absolute",
+        "top": "100px",
+        "right": "20px",
+        "zIndex": "1000",
+        "display": "flex",
+        "flexDirection": "column",
+        "gap": "10px"
+      },
+      "children": [
+        {
+          "id": "zoom-in-button",
+          "type": "button",
+          "properties": {
+            "text": "+"
+          },
+          "styles": {
+            "backgroundColor": "#2196F3",
+            "color": "white",
+            "border": "none",
+            "borderRadius": "50%",
+            "width": "40px",
+            "height": "40px",
+            "fontSize": "20px",
+            "cursor": "pointer",
+            "boxShadow": "0 2px 4px rgba(0,0,0,0.2)",
+            "transition": "all 0.2s ease"
+          },
+          "methods": {
+            "onClick": "try { window.morpheoMapZoomIn(); } catch(error) { console.error('Error zooming in:', error); }"
+          }
+        },
+        {
+          "id": "zoom-out-button",
+          "type": "button",
+          "properties": {
+            "text": "-"
+          },
+          "styles": {
+            "backgroundColor": "#2196F3",
+            "color": "white",
+            "border": "none",
+            "borderRadius": "50%",
+            "width": "40px",
+            "height": "40px",
+            "fontSize": "20px",
+            "cursor": "pointer",
+            "boxShadow": "0 2px 4px rgba(0,0,0,0.2)",
+            "transition": "all 0.2s ease"
+          },
+          "methods": {
+            "onClick": "try { window.morpheoMapZoomOut(); } catch(error) { console.error('Error zooming out:', error); }"
+          }
+        },
+        {
+          "id": "add-marker-button",
+          "type": "button",
+          "properties": {
+            "text": "📍"
+          },
+          "styles": {
+            "backgroundColor": "#4CAF50",
+            "color": "white",
+            "border": "none",
+            "borderRadius": "50%",
+            "width": "40px",
+            "height": "40px",
+            "fontSize": "20px",
+            "cursor": "pointer",
+            "boxShadow": "0 2px 4px rgba(0,0,0,0.2)",
+            "transition": "all 0.2s ease"
+          },
+          "methods": {
+            "onClick": "try { window.morpheoToggleMarkerMode(); } catch(error) { console.error('Error toggling marker mode:', error); }"
+          }
+        },
+        {
+          "id": "reset-view-button",
+          "type": "button",
+          "properties": {
+            "text": "🏠"
+          },
+          "styles": {
+            "backgroundColor": "#FF9800",
+            "color": "white",
+            "border": "none",
+            "borderRadius": "50%",
+            "width": "40px",
+            "height": "40px",
+            "fontSize": "20px",
+            "cursor": "pointer",
+            "boxShadow": "0 2px 4px rgba(0,0,0,0.2)",
+            "transition": "all 0.2s ease"
+          },
+          "methods": {
+            "onClick": "try { window.morpheoResetMapView(); } catch(error) { console.error('Error resetting view:', error); }"
+          }
+        },
+        {
+          "id": "clear-markers-button",
+          "type": "button",
+          "properties": {
+            "text": "🗑️"
+          },
+          "styles": {
+            "backgroundColor": "#F44336",
+            "color": "white",
+            "border": "none",
+            "borderRadius": "50%",
+            "width": "40px",
+            "height": "40px",
+            "fontSize": "20px",
+            "cursor": "pointer",
+            "boxShadow": "0 2px 4px rgba(0,0,0,0.2)",
+            "transition": "all 0.2s ease"
+          },
+          "methods": {
+            "onClick": "try { window.morpheoClearMarkers(); } catch(error) { console.error('Error clearing markers:', error); }"
+          }
+        }
+      ]
+    },
+    {
+      "id": "state-info-container",
+      "type": "container",
+      "region": "main",
+      "properties": {},
+      "styles": {
+        "position": "absolute",
+        "bottom": "10px",
+        "left": "10px",
+        "backgroundColor": "rgba(255, 255, 255, 0.8)",
+        "padding": "8px",
+        "borderRadius": "4px",
+        "fontSize": "12px",
+        "boxShadow": "0 1px 3px rgba(0,0,0,0.2)",
+        "zIndex": "1000",
+        "maxWidth": "200px"
+      },
+      "children": [
+        {
+          "id": "map-state-info",
+          "type": "text",
+          "properties": {
+            "content": "Map state will appear here"
+          },
+          "styles": {
+            "fontSize": "12px",
+            "color": "#333"
+          }
+        }
+      ]
+    },
+    {
+      "id": "footer-container",
+      "type": "container",
+      "region": "footer",
+      "properties": {},
+      "styles": {
+        "backgroundColor": "#f8f8f8",
+        "padding": "16px",
+        "borderTop": "1px solid #eee",
+        "textAlign": "center",
+        "fontSize": "12px",
+        "color": "#777"
+      },
+      "children": [
+        {
+          "id": "copyright-text",
+          "type": "text",
+          "properties": {
+            "content": "© 2024 Barcelona Map. Map data © OpenStreetMap contributors"
+          },
+          "styles": {}
+        }
+      ]
+    }
+  ],
+  "methods": {
+    "initialize": "function(event) { try { console.log('Initializing Barcelona Map application...'); // ===== Load Leaflet CSS and JS dependencies ===== // Add Leaflet CSS const leafletCss = document.createElement('link'); leafletCss.rel = 'stylesheet'; leafletCss.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; leafletCss.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY='; leafletCss.crossOrigin = ''; document.head.appendChild(leafletCss); // Load Leaflet JS const loadLeaflet = () => { return new Promise((resolve, reject) => { const leafletJs = document.createElement('script'); leafletJs.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; leafletJs.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo='; leafletJs.crossOrigin = ''; leafletJs.onload = resolve; leafletJs.onerror = reject; document.head.appendChild(leafletJs); }); }; // Initialize map function after dependencies are loaded const initMap = async () => { try { await loadLeaflet(); // Wait to ensure Leaflet is loaded // Default Barcelona coordinates const defaultPosition = { lat: 41.3851, lng: 2.1734, zoom: 13 }; // Initialize leaflet map window.morpheoMap = L.map('leaflet-map'); // Initialize markers array window.morpheoMarkers = []; window.morpheoMarkerMode = false; // Load previously saved state or use defaults const loadMapState = () => { try { const savedState = localStorage.getItem('morpheo-map-state'); if (savedState) { const state = JSON.parse(savedState); return { lat: state.lat || defaultPosition.lat, lng: state.lng || defaultPosition.lng, zoom: state.zoom || defaultPosition.zoom, markers: state.markers || [] }; } } catch (error) { console.error('Error loading map state:', error); } return defaultPosition; }; // Save map state to localStorage window.morpheoSaveMapState = () => { try { const center = window.morpheoMap.getCenter(); const zoom = window.morpheoMap.getZoom(); const markerData = window.morpheoMarkers.map(marker => ({ lat: marker.getLatLng().lat, lng: marker.getLatLng().lng, popup: marker.getPopup() ? marker.getPopup().getContent() : '' })); const state = { lat: center.lat, lng: center.lng, zoom: zoom, markers: markerData }; localStorage.setItem('morpheo-map-state', JSON.stringify(state)); updateMapStateInfo(state); } catch (error) { console.error('Error saving map state:', error); } }; // Update map state info display const updateMapStateInfo = (state) => { try { const stateInfo = document.getElementById('map-state-info'); if (!stateInfo) return; const markerCount = state.markers ? state.markers.length : 0; stateInfo.textContent = `Position: [${state.lat.toFixed(4)}, ${state.lng.toFixed(4)}]\nZoom: ${state.zoom}\nMarkers: ${markerCount}`; } catch (error) { console.error('Error updating map state info:', error); } }; // Initialize map with stored state or defaults const state = loadMapState(); window.morpheoMap.setView([state.lat, state.lng], state.zoom); // Add tile layer (OpenStreetMap) L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors', maxZoom: 19 }).addTo(window.morpheoMap); // Load saved markers if available if (state.markers && state.markers.length > 0) { state.markers.forEach(markerData => { const marker = L.marker([markerData.lat, markerData.lng]).addTo(window.morpheoMap); if (markerData.popup) { marker.bindPopup(markerData.popup); } window.morpheoMarkers.push(marker); }); } // Update state when map moves or zooms window.morpheoMap.on('moveend', window.morpheoSaveMapState); window.morpheoMap.on('zoomend', window.morpheoSaveMapState); // Initialize map control functions window.morpheoMapZoomIn = () => { window.morpheoMap.zoomIn(); }; window.morpheoMapZoomOut = () => { window.morpheoMap.zoomOut(); }; window.morpheoResetMapView = () => { window.morpheoMap.setView([defaultPosition.lat, defaultPosition.lng], defaultPosition.zoom); }; window.morpheoToggleMarkerMode = () => { window.morpheoMarkerMode = !window.morpheoMarkerMode; const addMarkerButton = document.getElementById('add-marker-button'); if (addMarkerButton) { addMarkerButton.style.backgroundColor = window.morpheoMarkerMode ? '#FF5722' : '#4CAF50'; } console.log('Marker mode ' + (window.morpheoMarkerMode ? 'enabled' : 'disabled')); }; window.morpheoClearMarkers = () => { window.morpheoMarkers.forEach(marker => { window.morpheoMap.removeLayer(marker); }); window.morpheoMarkers = []; window.morpheoSaveMapState(); }; // Click handler for adding markers window.morpheoMap.on('click', (e) => { if (window.morpheoMarkerMode) { const marker = L.marker(e.latlng).addTo(window.morpheoMap); // Prompt for popup content const popupContent = prompt('Enter description for this location (optional):', ''); if (popupContent) { marker.bindPopup(popupContent); } window.morpheoMarkers.push(marker); window.morpheoSaveMapState(); } }); // Initialize state display updateMapStateInfo(state); console.log('Map initialized successfully'); } catch (error) { console.error('Error initializing map:', error); const mapContainer = document.getElementById('leaflet-map'); if (mapContainer) { mapContainer.innerHTML = '<div style=\"padding: 20px; color: red;\">Error loading map. Please try again later.</div>'; } } }; // Start initialization process initMap(); } catch(error) { console.error('Error in initialize method:', error); } }"
+  }
+} 

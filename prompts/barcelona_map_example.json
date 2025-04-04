@@ -1,0 +1,185 @@
+{
+  "app": {
+    "name": "Barcelona Explorer",
+    "description": "Interactive map of Barcelona with key landmarks and attractions",
+    "theme": "light"
+  },
+  "layout": {
+    "type": "singlepage",
+    "regions": ["header", "main", "footer"]
+  },
+  "components": [
+    {
+      "id": "header-container",
+      "type": "container",
+      "region": "header",
+      "properties": {},
+      "styles": {
+        "backgroundColor": "#1E88E5",
+        "color": "white",
+        "padding": "16px",
+        "textAlign": "center",
+        "boxShadow": "0 2px 4px rgba(0,0,0,0.2)"
+      },
+      "children": [
+        {
+          "id": "app-title",
+          "type": "text",
+          "properties": {
+            "content": "Barcelona Explorer"
+          },
+          "styles": {
+            "fontSize": "28px",
+            "fontWeight": "bold",
+            "margin": "0"
+          }
+        },
+        {
+          "id": "app-description",
+          "type": "text",
+          "properties": {
+            "content": "Discover the beautiful city of Barcelona"
+          },
+          "styles": {
+            "fontSize": "16px",
+            "fontWeight": "normal",
+            "marginTop": "8px"
+          }
+        }
+      ]
+    },
+    {
+      "id": "barcelona-map",
+      "type": "map",
+      "region": "main",
+      "properties": {
+        "center": { "lat": 41.3851, "lng": 2.1734 },
+        "zoom": 13,
+        "markers": [
+          {
+            "position": { "lat": 41.3851, "lng": 2.1734 },
+            "title": "Barcelona City Center"
+          },
+          {
+            "position": { "lat": 41.4036, "lng": 2.1744 },
+            "title": "Sagrada Familia"
+          },
+          {
+            "position": { "lat": 41.3814, "lng": 2.1231 },
+            "title": "Camp Nou"
+          },
+          {
+            "position": { "lat": 41.3792, "lng": 2.1700 },
+            "title": "La Rambla"
+          },
+          {
+            "position": { "lat": 41.3821, "lng": 2.1769 },
+            "title": "Gothic Quarter"
+          }
+        ],
+        "interactive": true
+      },
+      "styles": {
+        "height": "500px",
+        "width": "100%",
+        "borderRadius": "8px",
+        "boxShadow": "0 4px 8px rgba(0,0,0,0.1)",
+        "marginBottom": "20px"
+      },
+      "methods": {
+        "onMarkerClick": "function(event, $m) { console.log('Marker clicked:', event.detail); $m('#info-panel').setValue(event.detail.title + ': A beautiful location in Barcelona.'); }"
+      }
+    },
+    {
+      "id": "controls-container",
+      "type": "container",
+      "region": "main",
+      "properties": {},
+      "styles": {
+        "display": "flex",
+        "justifyContent": "space-between",
+        "marginBottom": "20px"
+      },
+      "children": [
+        {
+          "id": "search-input",
+          "type": "input",
+          "properties": {
+            "placeholder": "Search locations in Barcelona..."
+          },
+          "styles": {
+            "padding": "10px",
+            "borderRadius": "4px",
+            "border": "1px solid #ccc",
+            "flex": "1",
+            "marginRight": "10px",
+            "fontSize": "14px"
+          },
+          "methods": {
+            "onKeyUp": "function(event, $m) { if(event.key === 'Enter') { console.log('Searching for:', $m('#search-input').getValue()); } }"
+          }
+        },
+        {
+          "id": "search-button",
+          "type": "button",
+          "properties": {
+            "text": "Search"
+          },
+          "styles": {
+            "padding": "10px 20px",
+            "backgroundColor": "#1E88E5",
+            "color": "white",
+            "border": "none",
+            "borderRadius": "4px",
+            "cursor": "pointer",
+            "fontSize": "14px"
+          },
+          "methods": {
+            "onClick": "function(event, $m) { console.log('Search button clicked, searching for:', $m('#search-input').getValue()); }"
+          }
+        }
+      ]
+    },
+    {
+      "id": "info-panel",
+      "type": "text",
+      "region": "main",
+      "properties": {
+        "content": "Click on a marker to see information about the location."
+      },
+      "styles": {
+        "padding": "15px",
+        "backgroundColor": "#f8f9fa",
+        "borderRadius": "4px",
+        "border": "1px solid #e9ecef",
+        "fontSize": "14px",
+        "marginBottom": "20px"
+      }
+    },
+    {
+      "id": "footer-container",
+      "type": "container",
+      "region": "footer",
+      "properties": {},
+      "styles": {
+        "backgroundColor": "#f8f9fa",
+        "padding": "16px",
+        "textAlign": "center",
+        "borderTop": "1px solid #e9ecef"
+      },
+      "children": [
+        {
+          "id": "footer-text",
+          "type": "text",
+          "properties": {
+            "content": "© 2024 Barcelona Explorer | Map data © OpenStreetMap contributors"
+          },
+          "styles": {
+            "fontSize": "14px",
+            "color": "#6c757d"
+          }
+        }
+      ]
+    }
+  ]
+} 

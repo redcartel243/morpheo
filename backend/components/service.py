@@ -27,6 +27,26 @@ from modules.tools.registry import tool_registry
 from .response_validator import response_validator, ResponseValidator
 from .response_handler import ResponseHandler
 
+# Import map processing if available
+try:
+    # Add the root directory to the path to find the prompts folder
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sys.path.append(root_dir)
+    from prompts.preprocess_map_prompt import preprocess_map_request
+    from prompts.map_post_processor import fix_map_configuration
+    MAP_PROCESSORS_AVAILABLE = True
+    print("Map processing functions successfully imported from", os.path.join(root_dir, "prompts"))
+except ImportError:
+    print("Warning: Map processors not available. Map component fixes will be disabled.")
+    MAP_PROCESSORS_AVAILABLE = False
+    
+    # Define dummy functions
+    def preprocess_map_request(request_text):
+        return request_text
+        
+    def fix_map_configuration(config_json):
+        return config_json
+
 # Load environment variables
 load_dotenv()
 
@@ -66,6 +86,13 @@ class ComponentService:
             App configuration dictionary
         """
         try:
+            # Apply map preprocessing if available
+            original_request = user_request
+            if MAP_PROCESSORS_AVAILABLE:
+                user_request = preprocess_map_request(user_request)
+                if user_request != original_request:
+                    print("Map preprocessing applied to user request")
+
             # Try to match a template first - Inline the template matching logic
             template_match = None
             
@@ -126,6 +153,14 @@ class ComponentService:
             app_config = self._process_api_response({
                 "choices": [{"message": {"content": response_text}}]
             })
+            
+            # Apply map post-processing if available
+            if MAP_PROCESSORS_AVAILABLE:
+                app_config_json = json.dumps(app_config)
+                processed_config_json = fix_map_configuration(app_config_json)
+                if processed_config_json != app_config_json:
+                    print("Map post-processing applied to response")
+                    app_config = json.loads(processed_config_json)
             
             # Process the app configuration further if needed
             app_config = self._process_app_config(app_config, user_request)

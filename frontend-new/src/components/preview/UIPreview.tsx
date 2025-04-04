@@ -21,8 +21,39 @@ const UIPreview: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [componentStats, setComponentStats] = useState<Record<string, number>>({});
   
   const { currentConfig, savedConfigs, loading } = useSelector((state: RootState) => state.ui);
+  
+  // Calculate component statistics
+  const calculateComponentStats = (config: any) => {
+    if (!config || !config.components) return {};
+    
+    const stats: Record<string, number> = {};
+    
+    // Function to count components recursively
+    const countComponents = (component: any) => {
+      // Count the component type
+      const type = component.type?.toLowerCase() || 'unknown';
+      stats[type] = (stats[type] || 0) + 1;
+      
+      // Count children recursively
+      if (Array.isArray(component.children)) {
+        component.children.forEach((child: any) => {
+          if (typeof child === 'object') {
+            countComponents(child);
+          }
+        });
+      }
+    };
+    
+    // Process all top-level components
+    config.components.forEach((component: any) => {
+      countComponents(component);
+    });
+    
+    return stats;
+  };
   
   // Load the correct configuration based on the query param
   useEffect(() => {
@@ -31,6 +62,9 @@ const UIPreview: React.FC = () => {
       const savedConfig = savedConfigs.find(config => config.id === configId);
       if (savedConfig) {
         setActiveConfig(savedConfig);
+        // Calculate component statistics
+        setComponentStats(calculateComponentStats(savedConfig));
+        console.log('Loaded saved config:', savedConfig.name || 'Unnamed Config');
       } else if (!loading) {
         // If we couldn't find it and we're not loading, redirect to dashboard
         navigate('/');
@@ -38,6 +72,9 @@ const UIPreview: React.FC = () => {
     } else if (currentConfig) {
       // Use the current config from the generator
       setActiveConfig(currentConfig);
+      // Calculate component statistics
+      setComponentStats(calculateComponentStats(currentConfig));
+      console.log('Loaded current config from generator');
     } else if (!loading) {
       // If no config ID and no current config, redirect to generator
       navigate('/generate');
@@ -223,7 +260,7 @@ const UIPreview: React.FC = () => {
               Components
             </h3>
             <p className="text-gray-600 dark:text-gray-400">
-              {activeConfig && Array.isArray(activeConfig.components) ? activeConfig.components.length : 0} components
+              {activeConfig && Array.isArray(activeConfig.components) ? activeConfig.components.length : 0} top-level components
             </p>
           </div>
           
@@ -246,6 +283,33 @@ const UIPreview: React.FC = () => {
           </div>
         </div>
         
+        {/* Component Type Statistics */}
+        <div className="mt-6 border-t dark:border-gray-700 pt-4">
+          <h3 className="text-md font-medium text-gray-900 dark:text-white mb-4">
+            Component Types Used
+          </h3>
+          
+          {Object.keys(componentStats).length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {Object.entries(componentStats)
+                .sort(([, countA], [, countB]) => countB - countA)
+                .map(([type, count]) => (
+                  <div 
+                    key={type} 
+                    className="bg-gray-50 dark:bg-gray-900 p-3 rounded border dark:border-gray-700 flex justify-between items-center"
+                  >
+                    <span className="font-medium capitalize">{type}</span>
+                    <span className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded text-sm">
+                      {count}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          ) : (
+            <p className="text-gray-500 dark:text-gray-400">No component statistics available</p>
+          )}
+        </div>
+
         <div className="mt-6">
           <h3 className="text-md font-medium text-gray-900 dark:text-white mb-2">
             JSON Configuration

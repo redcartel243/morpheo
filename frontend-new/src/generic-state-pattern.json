@@ -1,0 +1,198 @@
+{
+  "app": {
+    "name": "Generic State Pattern",
+    "description": "A pattern demonstrating generic state persistence for any component type",
+    "theme": "light"
+  },
+  "layout": {
+    "type": "singlepage",
+    "regions": [
+      "header",
+      "main",
+      "footer"
+    ]
+  },
+  "components": [
+    {
+      "id": "header-container",
+      "type": "container",
+      "region": "header",
+      "properties": {},
+      "styles": {
+        "backgroundColor": "#1976d2",
+        "color": "white",
+        "padding": "16px",
+        "textAlign": "center"
+      },
+      "children": [
+        {
+          "id": "app-title",
+          "type": "text",
+          "properties": {
+            "content": "Generic State Persistence Pattern"
+          },
+          "styles": {
+            "fontSize": "24px",
+            "fontWeight": "bold"
+          }
+        }
+      ]
+    },
+    {
+      "id": "main-container",
+      "type": "container",
+      "region": "main",
+      "properties": {},
+      "styles": {
+        "padding": "20px",
+        "maxWidth": "800px",
+        "margin": "0 auto"
+      },
+      "children": [
+        {
+          "id": "state-demo-container",
+          "type": "container",
+          "properties": {
+            "stateKey": "demo-container-state"
+          },
+          "styles": {
+            "border": "1px solid #e0e0e0",
+            "borderRadius": "8px",
+            "padding": "20px",
+            "marginBottom": "20px"
+          },
+          "children": [
+            {
+              "id": "persistence-description",
+              "type": "text",
+              "properties": {
+                "content": "This component demonstrates a generic state persistence pattern."
+              },
+              "styles": {
+                "marginBottom": "16px"
+              }
+            },
+            {
+              "id": "dynamic-content-container",
+              "type": "container",
+              "properties": {},
+              "styles": {
+                "marginBottom": "16px",
+                "minHeight": "50px",
+                "border": "1px dashed #ccc",
+                "borderRadius": "4px",
+                "padding": "8px"
+              },
+              "children": []
+            },
+            {
+              "id": "item-input",
+              "type": "input",
+              "properties": {
+                "placeholder": "Enter content",
+                "value": ""
+              },
+              "styles": {
+                "padding": "8px",
+                "borderRadius": "4px",
+                "border": "1px solid #ccc",
+                "width": "70%",
+                "marginRight": "8px"
+              },
+              "methods": {
+                "onChange": "console.log('Input changed:', event.target.value);"
+              }
+            },
+            {
+              "id": "add-item-button",
+              "type": "button",
+              "properties": {
+                "text": "Add Item"
+              },
+              "styles": {
+                "padding": "8px 16px",
+                "backgroundColor": "#1976d2",
+                "color": "white",
+                "border": "none",
+                "borderRadius": "4px",
+                "cursor": "pointer"
+              },
+              "methods": {
+                "onClick": "try { const input = document.getElementById('item-input'); if (!input) return; const content = input.value; if (!content || content.trim() === '') return; const containerId = 'dynamic-content-container'; window.morpheoAddElement(containerId, content); input.value = ''; } catch(error) { console.error('Error adding element:', error); }"
+              }
+            },
+            {
+              "id": "clear-state-button",
+              "type": "button",
+              "properties": {
+                "text": "Clear State"
+              },
+              "styles": {
+                "padding": "8px 16px",
+                "backgroundColor": "#f44336",
+                "color": "white",
+                "border": "none",
+                "borderRadius": "4px",
+                "cursor": "pointer",
+                "marginLeft": "8px"
+              },
+              "methods": {
+                "onClick": "try { const containerId = 'dynamic-content-container'; window.morpheoClearState(containerId); } catch(error) { console.error('Error clearing state:', error); }"
+              }
+            }
+          ]
+        },
+        {
+          "id": "metadata-container",
+          "type": "container",
+          "properties": {},
+          "styles": {
+            "marginTop": "20px"
+          },
+          "children": [
+            {
+              "id": "state-info",
+              "type": "text",
+              "properties": {
+                "content": "Current state info will appear here"
+              },
+              "styles": {
+                "fontSize": "14px",
+                "color": "#666"
+              }
+            }
+          ]
+        }
+      ],
+      "methods": {
+        "initialize": "function(event) { try { // Define generic state management functions that can work with any component type // ========================================================================================= // Add element to a container and persist state window.morpheoAddElement = function(containerId, content) { const container = document.getElementById(containerId); if (!container) { console.error('Container not found:', containerId); return; } // Create a generic element with a unique ID const elementId = 'element-' + Date.now(); const element = document.createElement('div'); element.id = elementId; element.className = 'morpheo-stateful-element'; element.style.display = 'flex'; element.style.justifyContent = 'space-between'; element.style.alignItems = 'center'; element.style.padding = '8px'; element.style.marginBottom = '8px'; element.style.backgroundColor = '#f5f5f5'; element.style.borderRadius = '4px'; element.dataset.content = content; // Store any metadata in data attributes const contentSpan = document.createElement('span'); contentSpan.textContent = content; contentSpan.style.flexGrow = '1'; const deleteBtn = document.createElement('button'); deleteBtn.textContent = 'Remove'; deleteBtn.style.padding = '4px 8px'; deleteBtn.style.backgroundColor = '#f44336'; deleteBtn.style.color = 'white'; deleteBtn.style.border = 'none'; deleteBtn.style.borderRadius = '4px'; deleteBtn.style.cursor = 'pointer'; deleteBtn.style.fontSize = '12px'; // Use generic event handler with element ID reference deleteBtn.onclick = function() { window.morpheoRemoveElement(containerId, elementId); }; element.appendChild(contentSpan); element.appendChild(deleteBtn); container.appendChild(element); // Persist the updated state window.morpheoPersistState(containerId); window.morpheoUpdateStateInfo(); }; // Remove element and update persisted state window.morpheoRemoveElement = function(containerId, elementId) { const container = document.getElementById(containerId); const element = document.getElementById(elementId); if (!container || !element) return; container.removeChild(element); window.morpheoPersistState(containerId); window.morpheoUpdateStateInfo(); }; // Save container state to localStorage window.morpheoPersistState = function(containerId) { const container = document.getElementById(containerId); if (!container) return; const elements = container.querySelectorAll('.morpheo-stateful-element'); // Extract state from DOM elements into a generic format const state = Array.from(elements).map(el => ({ id: el.id, content: el.dataset.content })); // Store with container ID as key for context localStorage.setItem('morpheo-state-' + containerId, JSON.stringify(state)); return state; }; // Restore persisted state for a container window.morpheoRestoreState = function(containerId) { try { const container = document.getElementById(containerId); if (!container) return false; // Retrieve state by container ID const stateData = localStorage.getItem('morpheo-state-' + containerId); if (!stateData) return false; const state = JSON.parse(stateData); // Clear existing content container.innerHTML = ''; // Reconstruct elements from persisted state state.forEach(item => { const element = document.createElement('div'); element.id = item.id; element.className = 'morpheo-stateful-element'; element.style.display = 'flex'; element.style.justifyContent = 'space-between'; element.style.alignItems = 'center'; element.style.padding = '8px'; element.style.marginBottom = '8px'; element.style.backgroundColor = '#f5f5f5'; element.style.borderRadius = '4px'; element.dataset.content = item.content; const contentSpan = document.createElement('span'); contentSpan.textContent = item.content; contentSpan.style.flexGrow = '1'; const deleteBtn = document.createElement('button'); deleteBtn.textContent = 'Remove'; deleteBtn.style.padding = '4px 8px'; deleteBtn.style.backgroundColor = '#f44336'; deleteBtn.style.color = 'white'; deleteBtn.style.border = 'none'; deleteBtn.style.borderRadius = '4px'; deleteBtn.style.cursor = 'pointer'; deleteBtn.style.fontSize = '12px'; deleteBtn.onclick = function() { window.morpheoRemoveElement(containerId, item.id); }; element.appendChild(contentSpan); element.appendChild(deleteBtn); container.appendChild(element); }); window.morpheoUpdateStateInfo(); return true; } catch (error) { console.error('Error restoring state:', error); return false; } }; // Clear state for a container window.morpheoClearState = function(containerId) { const container = document.getElementById(containerId); if (!container) return; container.innerHTML = ''; localStorage.removeItem('morpheo-state-' + containerId); window.morpheoUpdateStateInfo(); }; // Update the state information display window.morpheoUpdateStateInfo = function() { const stateInfo = document.getElementById('state-info'); if (!stateInfo) return; const allStates = {}; // List all stored keys for object.keys(localStorage) - use a safe fallback for IE const keys = []; for (let i = 0; i < localStorage.length; i++) { const key = localStorage.key(i); if (key && key.startsWith('morpheo-state-')) { keys.push(key); } } // Build state summary keys.forEach(key => { try { const stateData = localStorage.getItem(key); const state = JSON.parse(stateData); const containerId = key.replace('morpheo-state-', ''); allStates[containerId] = { items: state.length, data: state }; } catch (e) { console.error('Error parsing state data:', e); } }); // Create a pretty display of current state const stateDisplay = Object.keys(allStates).length > 0 ? 'Persisted states:<br>' + Object.entries(allStates).map(([id, info]) => `${id}: ${info.items} items`).join('<br>') : 'No state data found in localStorage'; stateInfo.innerHTML = stateDisplay; }; // Initialize by restoring state setTimeout(function() { window.morpheoRestoreState('dynamic-content-container'); window.morpheoUpdateStateInfo(); }, 200); console.log('Generic state persistence pattern initialized'); } catch(error) { console.error('Error initializing state pattern:', error); } }"
+      }
+    },
+    {
+      "id": "footer-container",
+      "type": "container",
+      "region": "footer",
+      "properties": {},
+      "styles": {
+        "backgroundColor": "#f5f5f5",
+        "padding": "16px",
+        "textAlign": "center",
+        "borderTop": "1px solid #e0e0e0",
+        "marginTop": "20px"
+      },
+      "children": [
+        {
+          "id": "footer-text",
+          "type": "text",
+          "properties": {
+            "content": "Generic State Pattern Example - Can be applied to any component type"
+          },
+          "styles": {
+            "fontSize": "14px",
+            "color": "#666"
+          }
+        }
+      ]
+    }
+  ]
+} 

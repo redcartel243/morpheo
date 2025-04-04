@@ -459,6 +459,13 @@ Be creative and generate a solution that precisely matches the user's request. A
       case 'div':
       case 'box':
         return ComponentType.CONTAINER;
+      case 'map-component':
+      case 'mapview':
+      case 'mapbox':
+      case 'osm-map':
+      case 'leaflet-map':
+      case 'location-map':
+        return ComponentType.MAP;
       default:
         console.warn(`Unknown component type: ${type}, defaulting to TEXT`);
         return ComponentType.TEXT;

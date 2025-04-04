@@ -1,0 +1,214 @@
+{
+  "app": {
+    "name": "Barcelona Explorer",
+    "description": "Interactive map of Barcelona's main attractions",
+    "version": "1.0"
+  },
+  "layout": {
+    "type": "singlepage",
+    "regions": ["header", "content", "footer"]
+  },
+  "components": [
+    {
+      "id": "header-section",
+      "type": "container",
+      "region": "header",
+      "style": {
+        "padding": "1rem",
+        "backgroundColor": "#f8f9fa",
+        "borderBottom": "1px solid #dee2e6"
+      },
+      "children": [
+        {
+          "id": "app-title",
+          "type": "text",
+          "properties": {
+            "content": "Barcelona Explorer",
+            "variant": "h1"
+          },
+          "style": {
+            "color": "#0056b3",
+            "marginBottom": "0.5rem"
+          }
+        },
+        {
+          "id": "app-subtitle",
+          "type": "text",
+          "properties": {
+            "content": "Discover the beautiful city of Barcelona",
+            "variant": "p"
+          },
+          "style": {
+            "color": "#6c757d",
+            "fontSize": "1.1rem"
+          }
+        }
+      ]
+    },
+    {
+      "id": "barcelona-map",
+      "type": "Map",
+      "region": "content",
+      "properties": {
+        "center": [41.3851, 2.1734],
+        "zoom": 13,
+        "markers": [
+          {
+            "position": [41.3851, 2.1734],
+            "title": "City Center"
+          },
+          {
+            "position": [41.4036, 2.1744],
+            "title": "Sagrada Familia"
+          },
+          {
+            "position": [41.4145, 2.1527],
+            "title": "Park Güell"
+          },
+          {
+            "position": [41.3917, 2.1650],
+            "title": "Casa Batlló"
+          },
+          {
+            "position": [41.3968, 2.2023],
+            "title": "Barceloneta Beach"
+          }
+        ],
+        "interactive": true
+      },
+      "style": {
+        "height": "500px",
+        "width": "100%",
+        "borderRadius": "8px",
+        "boxShadow": "0 4px 8px rgba(0,0,0,0.1)"
+      },
+      "events": {
+        "onMarkerClick": "function(marker) { showAttractionInfo(marker.title); }"
+      }
+    },
+    {
+      "id": "attraction-info",
+      "type": "container",
+      "region": "content",
+      "style": {
+        "padding": "1rem",
+        "marginTop": "1rem",
+        "backgroundColor": "#f8f9fa",
+        "borderRadius": "8px"
+      },
+      "children": [
+        {
+          "id": "attraction-title",
+          "type": "text",
+          "properties": {
+            "content": "Select a marker to view attraction details",
+            "variant": "h3"
+          },
+          "style": {
+            "color": "#343a40"
+          }
+        },
+        {
+          "id": "attraction-description",
+          "type": "text",
+          "properties": {
+            "content": "Click on any marker on the map to learn more about Barcelona's famous attractions.",
+            "variant": "p"
+          },
+          "style": {
+            "color": "#6c757d"
+          }
+        }
+      ]
+    },
+    {
+      "id": "controls-section",
+      "type": "container",
+      "region": "content",
+      "style": {
+        "display": "flex",
+        "justifyContent": "space-between",
+        "marginTop": "1rem",
+        "padding": "0.5rem"
+      },
+      "children": [
+        {
+          "id": "zoom-in-button",
+          "type": "button",
+          "properties": {
+            "label": "Zoom In",
+            "variant": "contained"
+          },
+          "style": {
+            "backgroundColor": "#007bff",
+            "color": "white"
+          },
+          "events": {
+            "onClick": "function() { zoomMap(1); }"
+          }
+        },
+        {
+          "id": "zoom-out-button",
+          "type": "button",
+          "properties": {
+            "label": "Zoom Out",
+            "variant": "contained"
+          },
+          "style": {
+            "backgroundColor": "#6c757d",
+            "color": "white"
+          },
+          "events": {
+            "onClick": "function() { zoomMap(-1); }"
+          }
+        },
+        {
+          "id": "reset-button",
+          "type": "button",
+          "properties": {
+            "label": "Reset View",
+            "variant": "outlined"
+          },
+          "style": {
+            "borderColor": "#dc3545",
+            "color": "#dc3545"
+          },
+          "events": {
+            "onClick": "function() { resetMapView(); }"
+          }
+        }
+      ]
+    },
+    {
+      "id": "footer-section",
+      "type": "container",
+      "region": "footer",
+      "style": {
+        "padding": "1rem",
+        "backgroundColor": "#f8f9fa",
+        "borderTop": "1px solid #dee2e6",
+        "marginTop": "1rem",
+        "textAlign": "center"
+      },
+      "children": [
+        {
+          "id": "footer-text",
+          "type": "text",
+          "properties": {
+            "content": "© 2023 Barcelona Explorer App - Created with Morpheo",
+            "variant": "p"
+          },
+          "style": {
+            "color": "#6c757d",
+            "fontSize": "0.9rem"
+          }
+        }
+      ]
+    }
+  ],
+  "methods": {
+    "showAttractionInfo": "function(title) {\n  const descriptions = {\n    'City Center': 'The heart of Barcelona with many historical sites and shopping areas.',\n    'Sagrada Familia': 'Antoni Gaudí\\'s masterpiece and Barcelona\\'s most iconic landmark.',\n    'Park Güell': 'A public park system with gardens and architectural elements designed by Gaudí.',\n    'Casa Batlló': 'A renowned building designed by Antoni Gaudí, known for its colorful facade.',\n    'Barceloneta Beach': 'A popular urban beach with numerous seafood restaurants and bars.'\n  };\n  \n  document.getElementById('attraction-title').textContent = title;\n  document.getElementById('attraction-description').textContent = descriptions[title] || 'No information available.';\n}",
+    "zoomMap": "function(delta) {\n  const map = window.$morpheo.getComponentById('barcelona-map');\n  if (map && map.leafletMap) {\n    const currentZoom = map.leafletMap.getZoom();\n    map.leafletMap.setZoom(currentZoom + delta);\n  }\n}",
+    "resetMapView": "function() {\n  const map = window.$morpheo.getComponentById('barcelona-map');\n  if (map && map.leafletMap) {\n    map.leafletMap.setView([41.3851, 2.1734], 13);\n    document.getElementById('attraction-title').textContent = 'Select a marker to view attraction details';\n    document.getElementById('attraction-description').textContent = 'Click on any marker on the map to learn more about Barcelona\\'s famous attractions.';\n  }\n}"
+  }
+} 

@@ -1,0 +1,38 @@
+{
+  "type": "map",
+  "example": {
+    "id": "location-map",
+    "type": "map",
+    "region": "main",
+    "properties": {
+      "center": { "lat": 41.3851, "lng": 2.1734 },
+      "zoom": 13,
+      "markers": [
+        {
+          "position": { "lat": 41.3851, "lng": 2.1734 },
+          "title": "Barcelona Center"
+        },
+        {
+          "position": { "lat": 41.4036, "lng": 2.1744 },
+          "title": "Sagrada Familia"
+        }
+      ],
+      "interactive": true
+    },
+    "styles": {
+      "height": "500px",
+      "width": "100%",
+      "borderRadius": "8px"
+    },
+    "methods": {
+      "onMarkerClick": "function(event, $m) { console.log('Marker clicked:', event.detail); }"
+    }
+  },
+  "documentation": "The map component displays interactive geographical maps using OpenStreetMap/Leaflet. It supports markers, zoom controls, and interactive events. Required properties include 'center' (with lat/lng coordinates) and 'zoom' level. The optional 'markers' array allows placing points of interest on the map, each with a position and optional title.",
+  "defaultProperties": {
+    "center": { "lat": 0, "lng": 0 },
+    "zoom": 12,
+    "markers": [],
+    "interactive": true
+  }
+} 

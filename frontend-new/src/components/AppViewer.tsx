@@ -56,43 +56,51 @@ const EnhancedProcessAppConfig = withMethodsAdapter(ProcessAppConfig);
  * Validates method code and returns a clean version for execution
  * This ensures that method code is properly formatted and safe to execute
  */
-function validateAndCleanMethodCode(code: string): string {
-  try {
-    // If empty, return a safe empty function
-    if (!code || code.trim() === '') {
-      return 'function(event, $m) { console.error("Empty method code"); }';
-    }
+function validateAndCleanMethodCode(methodCode: string): string {
+  if (!methodCode || methodCode.trim() === '') {
+    return 'function(event, $m) { console.error("Empty method code provided"); }';
+  }
 
-    // Check if it's already a function declaration
-    const trimmedCode = code.trim();
-    if (trimmedCode.startsWith('function(')) {
-      // Test if it's valid by creating a function (but don't execute it)
+  try {
+    // If the code is already a valid function declaration, return it as is
+    if (methodCode.trim().startsWith('function(')) {
+      // Test if we can create a function with this code
       try {
-        // eslint-disable-next-line no-new-func
-        new Function('return ' + trimmedCode);
-        return trimmedCode; // It's valid function code
-      } catch (e) {
-        console.error('Invalid function code, will try to repair:', e);
+        new Function('event', '$m', methodCode.replace('function(event, $m)', ''));
+        return methodCode;
+      } catch (innerError) {
+        console.error('Invalid method code:', innerError);
       }
     }
     
-    // If we're here, it's either not a function or the function has syntax errors
-    // Try to wrap it in a proper function
-    try {
-      const wrappedCode = `function(event, $m) { ${code} }`;
-      // Test if valid
-      // eslint-disable-next-line no-new-func
-      new Function('return ' + wrappedCode);
-      return wrappedCode;
-    } catch (e) {
-      console.error('Failed to wrap code in function:', e);
-      
-      // Last resort: return a safe empty function with error logging
-      return 'function(event, $m) { console.error("Invalid method code could not be executed: ' + String(e).replace(/"/g, '\\"') + '"); }';
+    // If it's an object with a code property, extract the code
+    if (methodCode.includes('"code":')) {
+      try {
+        const methodObj = JSON.parse(methodCode);
+        if (methodObj && methodObj.code) {
+          return validateAndCleanMethodCode(methodObj.code);
+        }
+      } catch (parseError) {
+        // Not a JSON object, continue with other approaches
+      }
     }
-  } catch (e) {
-    console.error('Error validating method code:', e);
-    return 'function(event, $m) { console.error("Invalid method code could not be processed"); }';
+
+    // If we're here, we need to wrap the code
+    let wrappedCode = `function(event, $m) { ${methodCode} }`;
+    
+    // Test the wrapped code
+    try {
+      new Function('event', '$m', wrappedCode.replace('function(event, $m)', ''));
+      return wrappedCode;
+    } catch (wrapError) {
+      console.error('Failed to wrap method code:', wrapError);
+    }
+
+    // If all else fails, return a safe empty function that logs the error
+    return `function(event, $m) { console.error("Invalid method code could not be executed:", ${JSON.stringify(methodCode)}); }`;
+  } catch (error) {
+    console.error('Error validating method code:', error);
+    return `function(event, $m) { console.error("Error in method code:", "Method validation failed"); }`;
   }
 }
 
@@ -103,6 +111,68 @@ const AppViewer: React.FC<AppViewerProps> = ({ appConfig: propAppConfig, height,
   const { appId } = useParams<{ appId: string }>();
   const appContainerRef = useRef<HTMLDivElement>(null);
   const [componentsAnalyzed, setComponentsAnalyzed] = useState<boolean>(false);
+  const [componentUsageStats, setComponentUsageStats] = useState<Record<string, number>>({});
+
+  // Log component usage statistics
+  const logComponentUsage = (config: any) => {
+    if (!config || !config.components) return;
+    
+    // Track component types
+    const stats: Record<string, number> = {};
+    
+    // Recursive function to count component types
+    const countComponentTypes = (component: any) => {
+      if (!component) return;
+      
+      // Count the component type
+      const type = component.type?.toLowerCase() || 'unknown';
+      stats[type] = (stats[type] || 0) + 1;
+      
+      // Recursively process children
+      if (Array.isArray(component.children)) {
+        component.children.forEach((child: any) => {
+          if (typeof child === 'object') {
+            countComponentTypes(child);
+          }
+        });
+      }
+    };
+    
+    // Process all top-level components
+    config.components.forEach((component: any) => {
+      countComponentTypes(component);
+    });
+    
+    // Store and log the stats
+    setComponentUsageStats(stats);
+    
+    console.log('Component Usage Statistics:');
+    console.table(stats);
+    
+    // Log detailed component structure
+    console.log('Component Hierarchy:');
+    config.components.forEach((component: any, index: number) => {
+      console.group(`Root Component ${index + 1}: ${component.type} (${component.id || 'no-id'})`);
+      
+      if (component.children && component.children.length > 0) {
+        console.log(`Contains ${component.children.length} children`);
+      }
+      
+      // Log methods if available
+      if (component.methods && Object.keys(component.methods).length > 0) {
+        console.log(`Has ${Object.keys(component.methods).length} methods:`, 
+          Object.keys(component.methods).join(', '));
+      }
+      
+      console.groupEnd();
+    });
+    
+    // Log if any map components are detected
+    if (stats['map']) {
+      console.log(`%cMap component detected! (${stats['map']} instances)`, 
+        'background: #4CAF50; color: white; padding: 2px 5px; border-radius: 3px;');
+    }
+  };
 
   // Initialize the global DOM manipulation object
   useEffect(() => {
@@ -357,48 +427,36 @@ const AppViewer: React.FC<AppViewerProps> = ({ appConfig: propAppConfig, height,
     };
   }, []);
 
-  // Process any incoming app configuration
+  // Load the app configuration if not provided as a prop
   useEffect(() => {
     if (propAppConfig) {
-      try {
-        // Use the adapter directly without deep copying first
-        setAppConfig(propAppConfig);
-      } catch (error) {
-        console.error("Error processing app config:", error);
-        // Fall back to original config
-        setAppConfig(propAppConfig);
-      }
-    }
-  }, [propAppConfig]);
-
-  // Load app configuration from API only if not provided via props
-  const loadAppConfig = useCallback(async () => {
-    if (propAppConfig || !appId) return; // Skip if config is provided via props
-    
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      // Use the getConfigById function from the API service
-      const data = await apiService.getConfigById(appId);
-      
-      if (data) {
-        // Don't try to pre-adapt the data - let the adapter HOC handle it
-        setAppConfig(data);
-      } else {
-        setError('No app configuration found');
-      }
-    } catch (err) {
-      console.error('Error loading app:', err);
-      setError('Failed to load app configuration');
-    } finally {
+      setAppConfig(propAppConfig);
       setIsLoading(false);
+      
+      // Log component usage statistics
+      logComponentUsage(propAppConfig);
+      console.log('App configuration loaded from props');
+    } else if (appId) {
+      setIsLoading(true);
+      
+      // Fetch the app configuration from the API
+      apiService.getConfigById(appId)
+        .then(data => {
+          setAppConfig(data);
+          setIsLoading(false);
+          setError(null);
+          
+          // Log component usage statistics
+          logComponentUsage(data);
+          console.log('App configuration loaded from API');
+        })
+        .catch(err => {
+          console.error('Failed to load app configuration:', err);
+          setError('Failed to load app configuration. Please try again later.');
+      setIsLoading(false);
+        });
     }
-  }, [appId, propAppConfig]);
-
-  useEffect(() => {
-    loadAppConfig();
-  }, [loadAppConfig]);
+  }, [propAppConfig, appId]);
 
   // Analyze component relationships after app is loaded
   useEffect(() => {

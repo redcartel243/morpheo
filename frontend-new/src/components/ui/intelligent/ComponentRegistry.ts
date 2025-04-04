@@ -7,6 +7,9 @@ import {
   ComponentInstance 
 } from './ComponentTypes';
 
+// Import map component for registration
+import Map from '../components/visualization/Map';
+
 /**
  * Implementation of the component registry service
  */
@@ -171,4 +174,90 @@ export function renderComponent(id: ComponentId): React.ReactElement | null {
 
   // Render using the component's renderer
   return definition.renderer(instance);
-} 
+}
+
+// Register Map component
+componentRegistry.registerComponent({
+  meta: {
+    type: ComponentType.MAP,
+    name: 'Map',
+    description: 'Displays interactive geographical maps with markers',
+    capabilities: [],
+    defaultProps: {
+      center: { lat: 0, lng: 0 },
+      zoom: 12,
+      markers: [],
+      interactive: true
+    }
+  },
+  initializer: (props) => ({
+    id: props.id,
+    type: ComponentType.MAP,
+    properties: {
+      center: props.center || { lat: 0, lng: 0 },
+      zoom: props.zoom || 12,
+      markers: props.markers || [],
+      interactive: props.interactive !== undefined ? props.interactive : true
+    },
+    component: Map
+  }),
+  renderer: (instance: ComponentInstance) => {
+    // Extract the required props from the instance properties
+    const properties = instance.properties || {};
+    
+    // Handle center coordinates with better validation
+    let center = properties.center || { lat: 41.3851, lng: 2.1734 }; // Default to Barcelona
+    // Convert array format to object if needed
+    if (Array.isArray(center) && center.length >= 2) {
+      center = { lat: center[0], lng: center[1] };
+    }
+    // Final validation to ensure center is properly formatted
+    if (!center || typeof center !== 'object' || center.lat === undefined || center.lng === undefined) {
+      center = { lat: 41.3851, lng: 2.1734 }; // Fallback to Barcelona
+    }
+    
+    const zoom = typeof properties.zoom === 'number' ? properties.zoom : 12;
+    
+    // Handle markers with better validation
+    let markers = properties.markers || [];
+    if (!Array.isArray(markers)) markers = [];
+    
+    // Ensure each marker has valid position
+    markers = markers.map((marker: any) => {
+      if (!marker || typeof marker !== 'object') {
+        return { position: { lat: center.lat, lng: center.lng } };
+      }
+      
+      let position = marker.position;
+      // Convert array position to object if needed
+      if (Array.isArray(position) && position.length >= 2) {
+        position = { lat: position[0], lng: position[1] };
+      }
+      
+      // Final validation
+      if (!position || typeof position !== 'object' || position.lat === undefined || position.lng === undefined) {
+        position = { lat: center.lat, lng: center.lng };
+      }
+      
+      return {
+        ...marker,
+        position
+      };
+    });
+    
+    const interactive = properties.interactive !== undefined ? properties.interactive : true;
+    
+    // Return the Map component with properly mapped props
+    return React.createElement(Map, {
+      testId: instance.id,
+      center,
+      zoom,
+      markers,
+      interactive,
+      handleEvent: (eventType, payload) => {
+        console.log(`Map event: ${eventType}`, payload);
+        // Here you would typically dispatch an event to your event system
+      }
+    });
+  }
+}); 
