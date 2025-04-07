@@ -13,7 +13,14 @@ import time
 import random
 import logging
 from typing import Dict, List, Any, Optional, Tuple, Union
-from openai import OpenAI
+
+# Import OpenAI correctly
+import openai
+try:
+    from openai import OpenAI  # For newer OpenAI version
+except ImportError:
+    OpenAI = None  # We'll handle this in the init method
+
 from dotenv import load_dotenv
 import traceback
 import requests
@@ -62,9 +69,85 @@ class ComponentService:
     Service for component-based UI generation.
     """
     
-    def __init__(self):
-        """Initialize the component service."""
-        self.component_registry = component_registry
+    def __init__(self, component_registry=None):
+        """
+        Initialize the ComponentService.
+        
+        Args:
+            component_registry: Optional component registry instance. 
+                               If not provided, the default registry will be used.
+        """
+        # Initialize the OpenAI client with API key from environment variable
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if openai_api_key:
+            # Set up the OpenAI client based on available package
+            if OpenAI is not None:
+                # New OpenAI client style (v1.0.0+)
+                self.client = OpenAI(api_key=openai_api_key)
+                self.openai_version = "new"
+            else:
+                # Old OpenAI module style (v0.x)
+                openai.api_key = openai_api_key
+                self.client = None  # Don't store the module
+                self.openai_version = "old"
+        else:
+            logger.warning("OpenAI API key not found. Some features may not work.")
+            self.client = None
+            self.openai_version = None
+        
+        # Use the provided component registry or get the default one
+        from .registry import component_registry as default_registry
+        self.component_registry = component_registry or default_registry
+        
+        # Define the template for app generation prompts
+        self.app_generation_prompt_template = """
+        Generate a modern, interactive UI application configuration based on this request:
+        
+        "{user_request}"
+        
+        IMPORTANT: RESPOND WITH VALID JSON ONLY. NO EXPLANATIONS, MARKDOWN, OR TEXT OUTSIDE THE JSON OBJECT.
+        
+        Available Components:
+        {ui_components}
+        
+        Available App Templates:
+        {app_configs}
+        
+        Your response should be a complete JSON object with the following structure:
+        {{
+          "app": {{
+            "name": "App Name",
+            "description": "App Description",
+            "theme": "light" or "dark" or custom color scheme
+          }},
+          "layout": {{
+            "type": "singlepage",
+            "regions": ["header", "main", "footer"] // or custom regions
+          }},
+          "components": [
+            // Array of component objects
+          ]
+        }}
+        
+        Each component in the 'components' array should follow this structure:
+        {{
+          "id": "unique-id", // Must be unique across all components
+          "type": "component-type", // One of the valid types listed above
+          "region": "region-name", // Region where this component appears
+          "properties": {{ /* Component properties */ }},
+          "styles": {{ /* CSS-compatible styles */ }},
+          "methods": {{ /* Event handlers and functions */ }},
+          "children": [ /* For container components: nested components */ ]
+        }}
+        
+        FINAL REMINDERS:
+        1. YOUR RESPONSE MUST BE ONLY VALID JSON, NO TEXT OUTSIDE THE JSON OBJECT
+        2. ALL COMPONENT IDs MUST BE UNIQUE
+        3. USE ONLY COMPONENT TYPES THAT ARE PROVIDED IN THE AVAILABLE COMPONENTS LIST
+        4. USE DIRECT DOM MANIPULATION ($m() SELECTOR) IN ALL METHOD CODE
+        5. ENSURE THE JSON IS COMPLETE, WELL-FORMED AND READY TO USE
+        """
+        
         self.tool_registry = tool_registry
         self._component_connections = []  # Initialize connections list
         self.response_handler = ResponseHandler()  # Add the response handler instance
@@ -74,6 +157,60 @@ class ComponentService:
         if gemini_api_key:
             genai.configure(api_key=gemini_api_key)
     
+    def _get_matching_template(self, user_request: str) -> Optional[Dict[str, Any]]:
+        """
+        Find a matching template for a user request based on keywords and similarity.
+        Prioritizes certain known templates for specific request types.
+        
+        Args:
+            user_request: The user's request description
+            
+        Returns:
+            Matching template or None if no match found
+        """
+        # Convert request to lowercase for case-insensitive matching
+        request_lower = user_request.lower()
+        app_configs = self.component_registry.get_all_app_configs()
+        
+        # Special handling for population comparison charts - direct match for "population comparison" terms
+        if any(term in request_lower for term in ["population comparison", "population chart", 
+                                                  "compare population", "us vs europe", 
+                                                  "comparing population", "population size"]):
+            population_templates = {
+                template_id: template for template_id, template in app_configs.items() 
+                if template_id == "population-chart" or "population" in template.get("keywords", [])
+            }
+            
+            if population_templates:
+                # Return the first population template found (prioritize population-chart)
+                if "population-chart" in population_templates:
+                    print("Using exact population chart template match")
+                    return population_templates["population-chart"]
+                else:
+                    template_id, template = next(iter(population_templates.items()))
+                    print(f"Using population template match: {template_id}")
+                    return template
+        
+        # Try to match by keywords first (most specific)
+        for config_id, template in app_configs.items():
+            keywords = [k.lower() for k in template.get("keywords", [])]
+            if keywords and any(keyword in request_lower for keyword in keywords):
+                print(f"Matched template by keyword: {config_id}")
+                return template
+        
+        # Try to match by type/name (less specific)
+        for config_id, template in app_configs.items():
+            template_type = template.get("type", "").lower()
+            template_name = template.get("name", "").lower()
+            
+            if (template_type and template_type in request_lower) or \
+               (template_name and template_name in request_lower):
+                print(f"Matched template by type/name: {config_id}")
+                return template
+        
+        # No match found
+        return None
+
     def generate_app_config(self, user_request: str) -> Dict[str, Any]:
         """
         Generate an app configuration based on a user request.
@@ -93,47 +230,23 @@ class ComponentService:
                 if user_request != original_request:
                     print("Map preprocessing applied to user request")
 
-            # Try to match a template first - Inline the template matching logic
-            template_match = None
-            
-            # Get available templates from the registry
-            app_configs = self.component_registry.get_all_app_configs()
-            
-            if app_configs:
-                # Convert request to lowercase for case-insensitive matching
-                request_lower = user_request.lower()
+            # Try to match a template first using our improved matching function
+            template_match = self._get_matching_template(user_request)
                 
-                # Try to find a matching template based on keywords
-                for config_id, template in app_configs.items():
-                    # Check if any keywords match in the user request
-                    keywords = [k.lower() for k in template.get("keywords", [])]
-                    if keywords and any(keyword in request_lower for keyword in keywords):
-                        template_match = template
-                        break
-                
-                # If no keyword match, try to find a matching template based on type/name
-                if template_match is None:
-                    for config_id, template in app_configs.items():
-                        template_type = template.get("type", "").lower()
-                        template_name = template.get("name", "").lower()
-                        
-                        # Check if the template type or name appears in the request
-                        if (template_type and template_type in request_lower) or \
-                           (template_name and template_name in request_lower):
-                            template_match = template
-                            break
-            
             if template_match is not None:
                 print(f"Using matching template: {template_match.get('name')}")
                 return self._create_template_app_config(template_match, user_request)
-            
+                
             # Get the active UI components from config
             ui_components = self._get_ui_components_list()
-            app_configs = []
             
+            # Get all available app configs
+            app_configs_dict = self.component_registry.get_all_app_configs()
+            app_configs = list(app_configs_dict.values())
+                
             # Generate prompt for app
             prompt = self._create_app_generation_prompt(user_request, ui_components, app_configs)
-            
+                
             # Check if Gemini API key is available
             gemini_api_key = os.getenv("GEMINI_API_KEY")
             if gemini_api_key:
@@ -148,12 +261,12 @@ class ComponentService:
             else:
                 # Fall back to OpenAI
                 response_text = self._call_openai_api(prompt)
-            
+                
             # Process the API response using our enhanced handler
             app_config = self._process_api_response({
                 "choices": [{"message": {"content": response_text}}]
             })
-            
+                
             # Apply map post-processing if available
             if MAP_PROCESSORS_AVAILABLE:
                 app_config_json = json.dumps(app_config)
@@ -161,116 +274,204 @@ class ComponentService:
                 if processed_config_json != app_config_json:
                     print("Map post-processing applied to response")
                     app_config = json.loads(processed_config_json)
-            
+                
             # Process the app configuration further if needed
             app_config = self._process_app_config(app_config, user_request)
-            
+                
             # Validate and post-process the configuration 
             self._process_app_config_imports(app_config)
             self._normalize_component_ids(app_config)
             self._normalize_component_properties(app_config.get("components", []))
-            
+                
             # Log the validated response
             with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
                 log_file.write("Validated Response:\n")
                 log_file.write(json.dumps(app_config, indent=2))
                 log_file.write("\n--- End of Validated Response ---\n\n")
-            
+                
             # After processing the app configuration, normalize methods to events
             self._normalize_methods_to_events(app_config.get("components", []))
-            
+                
             return app_config
-            
+                
         except Exception as e:
             print(f"Error generating app config: {str(e)}")
             traceback.print_exc()
-            
+                
             # Create a fallback app configuration that shows error info
             return self._create_ai_fallback_app_config(user_request)
     
     def _call_gemini_api(self, prompt: str) -> str:
         """
-        Make an API call to Gemini to generate a response.
+        Make an API call to Google's Gemini API.
         
         Args:
             prompt: The prompt to send to Gemini
             
         Returns:
-            The text response from Gemini
+            Response text from Gemini
         """
         try:
-            # Log the prompt
+            # Log the request
             with open("gemini_request_log.txt", "a", encoding="utf-8") as log_file:
-                log_file.write(f"=== Gemini API Request ===\n")
-                log_file.write(f"Time: {datetime.datetime.now().isoformat()}\n")
-                log_file.write(f"Prompt:\n{prompt}\n\n")
+                log_file.write(f"Request Time: {datetime.datetime.now()}\n")
+                log_file.write("Prompt:\n")
+                log_file.write(prompt)
+                log_file.write("\n--- End of Prompt ---\n\n")
             
-            # Call Gemini API
-            model = genai.GenerativeModel(model_name="gemini-2.0-flash")
-            system_message = "You are an expert UI generator that creates complete, valid JSON configurations for web applications. Return ONLY valid JSON."
+            # Configure the generation model
+            generation_config = {
+                "temperature": 0.9,
+                "top_p": 1,
+                "top_k": 1,
+                "max_output_tokens": 8192,
+            }
             
-            response = model.generate_content(
-                system_message + "\n\n" + prompt
+            # Safety settings - adjust as needed
+            safety_settings = [
+                {
+                    "category": "HARM_CATEGORY_HARASSMENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+            ]
+            
+            # Initialize the model with the correct model name: gemini-2.0-flash
+            model = genai.GenerativeModel(
+                model_name="gemini-2.0-flash",
+                generation_config=generation_config,
+                safety_settings=safety_settings
             )
             
+            # Generate content
+            response = model.generate_content(prompt)
+            
+            # Extract the response text
             response_text = response.text
             
             # Log the response
             with open("gemini_request_log.txt", "a", encoding="utf-8") as log_file:
-                log_file.write(f"=== Gemini API Response ===\n")
-                log_file.write(f"Time: {datetime.datetime.now().isoformat()}\n")
-                log_file.write(f"Response:\n{response_text}\n\n")
+                log_file.write("Response:\n")
+                log_file.write(response_text)
+                log_file.write("\n--- End of Response ---\n\n")
             
             return response_text
             
         except Exception as e:
             print(f"Error calling Gemini API: {str(e)}")
             traceback.print_exc()
-            
-            # Log the error
-            with open("gemini_error_log.txt", "a", encoding="utf-8") as log_file:
-                log_file.write(f"Error calling Gemini API: {str(e)}\n")
-                log_file.write(traceback.format_exc())
-                log_file.write("\n\n")
-            
-            # Re-raise the exception to be handled by the caller
             raise
     
     def _call_openai_api(self, prompt: str) -> str:
         """
-        Make an API call to OpenAI to generate a response.
+        Make an API call to OpenAI with robust handling for different API versions.
         
         Args:
             prompt: The prompt to send to OpenAI
             
         Returns:
-            The text response from OpenAI
+            Response text from OpenAI
         """
-        # Make the API call using the JSON mode for structured outputs
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        
-        # Make API call with the structured output parameter
-        response = client.chat.completions.create(
-            model="gpt-4o",  # or another suitable model
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": "You are a UI generator that creates complete, valid JSON configurations for web applications."},
+        try:
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            if not openai_api_key:
+                raise ValueError("OpenAI API key not found")
+                
+            # Log the request
+            with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
+                log_file.write(f"Request Time: {datetime.datetime.now()}\n")
+                log_file.write("Prompt:\n")
+                log_file.write(prompt)
+                log_file.write("\n--- End of Prompt ---\n\n")
+            
+            messages = [
+                {"role": "system", "content": "You are a UI configuration generator assistant. Respond with valid JSON only."},
                 {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=4096
-        )
-        
-        # Extract and parse the JSON response
-        response_text = response.choices[0].message.content
-        
-        # Log the response
-        with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
-            log_file.write(f"=== OpenAI API Response ===\n")
-            log_file.write(f"Time: {datetime.datetime.now().isoformat()}\n")
-            log_file.write(f"Response:\n{response_text}\n\n")
-        
-        return response_text
+            ]
+            
+            response_text = None
+            
+            # Try different API calling patterns based on OpenAI version
+            if self.openai_version == "new" and self.client:
+                # OpenAI Python v1.0+ with client object
+                try:
+                    response = self.client.chat.completions.create(
+                        model="gpt-4-turbo",
+                        messages=messages,
+                        temperature=0.7,
+                        max_tokens=4000
+                    )
+                    response_text = response.choices[0].message.content
+                except Exception as e:
+                    print(f"Error with new OpenAI client: {str(e)}")
+            
+            # If response_text is still None, try alternative methods
+            if response_text is None:
+                try:
+                    # Try modern openai module method
+                    response = openai.chat.completions.create(
+                        model="gpt-4-turbo",
+                        messages=messages,
+                        temperature=0.7,
+                        max_tokens=4000
+                    )
+                    if hasattr(response.choices[0].message, 'content'):
+                        response_text = response.choices[0].message.content
+                    else:
+                        response_text = response.choices[0].message["content"]
+                except Exception as e1:
+                    print(f"Error with chat.completions: {str(e1)}")
+                    try:
+                        # Try older openai.ChatCompletion
+                        if hasattr(openai, 'ChatCompletion'):
+                            response = openai.ChatCompletion.create(
+                                model="gpt-4-turbo",
+                                messages=messages,
+                                temperature=0.7,
+                                max_tokens=4000
+                            )
+                            response_text = response.choices[0].message["content"]
+                    except Exception as e2:
+                        print(f"Error with ChatCompletion: {str(e2)}")
+                        try:
+                            # Try the oldest openai.Completion
+                            response = openai.Completion.create(
+                                engine="gpt-4-turbo",
+                                prompt=f"System: You are a UI configuration generator assistant. Respond with valid JSON only.\n\nUser: {prompt}",
+                                temperature=0.7,
+                                max_tokens=4000
+                            )
+                            response_text = response.choices[0].text
+                        except Exception as e3:
+                            print(f"Error with all OpenAI methods: {str(e3)}")
+                            raise ValueError(f"All OpenAI API methods failed. Latest error: {str(e3)}")
+            
+            if response_text is None:
+                raise ValueError("Failed to get response from OpenAI API")
+            
+            # Log the response
+            with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
+                log_file.write("Response:\n")
+                log_file.write(response_text)
+                log_file.write("\n--- End of Response ---\n\n")
+                
+            return response_text
+                
+        except Exception as e:
+            print(f"Error calling OpenAI API: {str(e)}")
+            traceback.print_exc()
+            raise
     
     def _process_api_response(self, response: Dict[str, Any], is_streaming: bool = False) -> Dict[str, Any]:
         """
@@ -406,149 +607,24 @@ class ComponentService:
         
         return [error_component]
     
-    def _create_app_generation_prompt(self, user_request: str, ui_components: List[Dict[str, Any]], app_configs: List[Dict[str, Any]], matching_template: Optional[Dict[str, Any]] = None) -> str:
+    def _create_app_generation_prompt(self, user_request: str, ui_components: List[Dict[str, Any]], app_configs: List[Dict[str, Any]]) -> str:
         """
-        Create a prompt for app configuration generation.
+        Create a prompt for generating an app configuration.
+        Formats the prompt with information about available UI components and existing app configurations.
         
         Args:
             user_request: The user's request description
-            ui_components: Available UI components
-            app_configs: Available app configurations
-            matching_template: Optional template info (deprecated, kept for backward compatibility)
+            ui_components: List of available UI components
+            app_configs: List of available app configurations
             
         Returns:
-            A prompt string
+            Formatted prompt for the AI model
         """
-        # Build a comprehensive prompt with all required information
-        prompt = f"Generate a modern, interactive UI application configuration based on this request:\n\n\"{user_request}\"\n\n"
-        prompt += "IMPORTANT: RESPOND WITH VALID JSON ONLY. NO EXPLANATIONS, MARKDOWN, OR TEXT OUTSIDE THE JSON OBJECT.\n\n"
-        
-        prompt += "===== APPLICATION STRUCTURE =====\n"
-        prompt += "Your response should be a complete JSON object with this structure:\n\n"
-        prompt += "{\n"
-        prompt += '  "app": {\n'
-        prompt += '    "name": "App Name",\n'
-        prompt += '    "description": "App Description",\n'
-        prompt += '    "theme": "light" or "dark" or custom color scheme\n'
-        prompt += "  },\n"
-        prompt += '  "layout": {\n'
-        prompt += '    "type": "singlepage",\n'
-        prompt += '    "regions": ["header", "main", "footer"] // or custom regions\n'
-        prompt += "  },\n"
-        prompt += '  "components": [\n'
-        prompt += "    /* Array of component objects */\n"
-        prompt += "  ]\n"
-        prompt += "}\n\n"
-        
-        prompt += "===== COMPONENT DEFINITION =====\n"
-        prompt += "Each component in the 'components' array should follow this structure:\n\n"
-        prompt += "{\n"
-        prompt += '  "id": "unique-id", // Must be unique across all components\n'
-        prompt += '  "type": "component-type", // One of the valid types listed below\n'
-        prompt += '  "region": "region-name", // Region where this component appears\n'
-        prompt += '  "properties": { /* Component properties */ },\n'
-        prompt += '  "styles": { /* CSS-compatible styles */ },\n'
-        prompt += '  "methods": { /* Event handlers and functions */ },\n'
-        prompt += '  "children": [ /* For container components: nested components */ ]\n'
-        prompt += "}\n\n"
-        
-        prompt += "===== AVAILABLE COMPONENT TYPES =====\n"
-        prompt += "- text: For displaying text with properties like 'content'\n"
-        prompt += "- button: Interactive buttons with properties like 'text'\n"
-        prompt += "- input: Text input fields with properties like 'placeholder', 'label'\n"
-        prompt += "- checkbox: Toggle elements with properties like 'label', 'checked'\n"
-        prompt += "- container: Grouping element that can contain child components\n"
-        prompt += "- image: Visual elements with properties like 'alt'\n\n"
-        
-        prompt += "===== DETAILED STYLING =====\n"
-        prompt += "Be creative with styles! You can use:\n"
-        prompt += "- All modern CSS properties (camelCase format, e.g., 'backgroundColor' not 'background-color')\n"
-        prompt += "- CSS gradients (e.g., 'background: linear-gradient(135deg, #6e8efb, #a777e3)')\n"
-        prompt += "- Box shadows for depth (e.g., 'boxShadow: 0 4px 6px rgba(0,0,0,0.1)')\n"
-        prompt += "- Border radius for rounded corners (e.g., 'borderRadius: '8px')\n"
-        prompt += "- Responsive units like rem, vh, vw (e.g., 'height: '10vh')\n"
-        prompt += "- Modern layouts using flexbox or grid (e.g., 'display: 'flex', 'justifyContent: 'space-between')\n\n"
-        
-        prompt += "===== INTERACTIVE BEHAVIORS =====\n"
-        prompt += "Use methods to create interactive behavior. Each method should be a JavaScript function:\n\n"
-        prompt += '{\n'
-        prompt += '  "methods": {\n'
-        prompt += '    "onClick": {\n'
-        prompt += '      "code": "function(event, $m) { /* JavaScript code that manipulates components */ }",\n'
-        prompt += '      "affectedComponents": ["id-of-component-changed-by-this-method"]\n'
-        prompt += '    }\n'
-        prompt += '  }\n'
-        prompt += '}\n\n'
-        
-        prompt += "===== DOM MANIPULATION API =====\n"
-        prompt += "Use the $m() selector function in your methods to directly manipulate components:\n\n"
-        prompt += "- $m('#component-id').setProperty('propertyName', value) - Update a property\n"
-        prompt += "- $m('#component-id').getProperty('propertyName') - Read a property value\n"
-        prompt += "- $m('#component-id').setStyle('styleName', value) - Change a style property\n"
-        prompt += "- $m('#component-id').addClass('className') - Add a CSS class\n"
-        prompt += "- $m('#component-id').removeClass('className') - Remove a CSS class\n"
-        prompt += "- $m('#component-id').show() - Make a component visible\n"
-        prompt += "- $m('#component-id').hide() - Hide a component\n"
-        prompt += "- $m('#component-id').toggle() - Toggle visibility\n"
-        prompt += "- $m('#component-id').setText(value) - Shorthand for text components\n"
-        prompt += "- $m('#component-id').getValue() - Get input value\n"
-        prompt += "- $m('#component-id').setValue(value) - Set input value\n"
-        prompt += "- $m('#component-id').animate(keyframesObject, options) - Apply CSS animations\n"
-        prompt += "- Example: $m('#btn').animate({opacity: [0, 1], transform: ['scale(0.9)', 'scale(1)']}, {duration: 300})\n"
-        prompt += "- Pre-built animations: $m('#component-id').fadeIn(), $m('#component-id').fadeOut(), $m('#component-id').slideIn()\n\n"
-        
-        prompt += "===== CREATING MODERN UIs =====\n"
-        prompt += "Create intuitive, visually appealing interfaces by:\n"
-        prompt += "- Using consistent color schemes (primary, secondary, accent colors)\n"
-        prompt += "- Implementing clear visual hierarchy\n"
-        prompt += "- Adding interactive feedback (hover states, click animations)\n"
-        prompt += "- Using appropriate spacing and alignment\n"
-        prompt += "- Designing for different screen sizes with responsive styles\n"
-        prompt += "- Grouping related elements with container components\n\n"
-        
-        prompt += "===== VISUAL ELEMENTS =====\n"
-        prompt += "For visual elements that require images:\n"
-        prompt += "- Use CSS styling (colors, gradients, patterns) for most visual effects\n"
-        prompt += "- Use themed background colors that match the application purpose\n"
-        prompt += "- Only use image URLs if explicitly provided by the user\n"
-        prompt += "- Never use placeholder paths like 'path/to/image.jpg'\n"
-        prompt += "- Implement visual elements with CSS or unicode characters where possible\n\n"
-        
-        prompt += "===== COMPONENT EXAMPLES =====\n"
-        prompt += "Button with hover effect:\n"
-        prompt += '{\n'
-        prompt += '  "id": "submit-btn",\n'
-        prompt += '  "type": "button",\n'
-        prompt += '  "properties": { "text": "Submit" },\n'
-        prompt += '  "styles": {\n'
-        prompt += '    "padding": "12px 24px",\n'
-        prompt += '    "backgroundColor": "#4CAF50",\n'
-        prompt += '    "color": "white",\n'
-        prompt += '    "border": "none",\n'
-        prompt += '    "borderRadius": "4px",\n'
-        prompt += '    "cursor": "pointer",\n'
-        prompt += '    "transition": "all 0.3s ease"\n'
-        prompt += '  },\n'
-        prompt += '  "methods": {\n'
-        prompt += '    "onMouseEnter": {\n'
-        prompt += '      "code": "function(event, $m) { $m(\'#submit-btn\').setStyle(\'transform\', \'scale(1.05)\'); }"\n'
-        prompt += '    },\n'
-        prompt += '    "onMouseLeave": {\n'
-        prompt += '      "code": "function(event, $m) { $m(\'#submit-btn\').setStyle(\'transform\', \'scale(1)\'); }"\n'
-        prompt += '    }\n'
-        prompt += '  }\n'
-        prompt += '}\n\n'
-        
-        prompt += "===== FINAL REMINDERS =====\n"
-        prompt += "1. YOUR RESPONSE MUST BE ONLY VALID JSON, NO TEXT OUTSIDE THE JSON OBJECT\n"
-        prompt += "2. ALL COMPONENT IDs MUST BE UNIQUE\n"
-        prompt += "3. DON'T USE PLACEHOLDER IMAGE PATHS\n"
-        prompt += "4. USE DIRECT DOM MANIPULATION ($m() SELECTOR) IN ALL METHOD CODE\n"
-        prompt += "5. ENSURE THE JSON IS COMPLETE, WELL-FORMED AND READY TO USE\n\n"
-        
-        prompt += "Now, generate a complete, modern, interactive UI configuration that fulfills the request."
-        
-        return prompt
+        return self.app_generation_prompt_template.format(
+            ui_components=json.dumps(ui_components, indent=2),
+            app_configs=json.dumps(app_configs, indent=2),
+            user_request=user_request
+        )
     
     def _parse_app_configuration(self, generation_text: str) -> Dict[str, Any]:
         """
@@ -591,269 +667,157 @@ class ComponentService:
 
     def _create_ai_fallback_app_config(self, user_request: str) -> Dict[str, Any]:
         """
-        Create a generic, user-friendly error recovery UI when the AI response fails.
-        This system provides meaningful feedback and retry options without app-specific logic.
+        Create a fallback app configuration when AI generation fails.
         
         Args:
             user_request: The user's request description
             
         Returns:
-            A generic error recovery UI configuration
+            A simple fallback app configuration
         """
-        # Basic app structure with helpful recovery components
-        app_config = {
+        return {
             "app": {
-                "name": "Error Recovery",
-                "description": user_request,
+                "name": "Error Handling App",
+                "description": "A fallback UI was created because the AI generation failed",
                 "theme": "light"
             },
             "layout": {
                 "type": "singlepage",
                 "regions": ["header", "main", "footer"]
             },
-            "components": [],
-            "regionStyles": {
-                "main": {
-                    "position": "relative",
-                    "height": "calc(100vh - 200px)",
-                    "width": "100%",
-                    "backgroundColor": "#f8f9fa",
-                    "overflow": "auto",
-                    "padding": "20px"
-                },
-                "header": {
-                    "height": "80px",
-                    "width": "100%",
-                    "backgroundColor": "#ffffff",
-                    "boxShadow": "0 2px 4px rgba(0,0,0,0.1)",
-                    "display": "flex",
-                    "alignItems": "center",
-                    "justifyContent": "center"
-                },
-                "footer": {
-                    "height": "60px",
-                    "width": "100%",
-                    "backgroundColor": "#f8f8f8",
-                    "borderTop": "1px solid #ddd",
-                    "display": "flex",
-                    "alignItems": "center",
-                    "justifyContent": "center",
-                    "padding": "10px"
-                }
-            }
-        }
-        
-        # Add informative header
-        header_title = {
-            "id": "header-title",
-            "type": "text",
-            "region": "header",
-            "properties": {
-                "content": "We're working on your request"
-            },
-            "styles": {
-                "fontSize": "24px",
-                "fontWeight": "bold",
-                "padding": "20px",
-                "textAlign": "center",
-                "color": "#333333"
-            }
-        }
-        app_config["components"].append(header_title)
-        
-        # Add explanation card
-        explanation_card = {
-            "id": "explanation-card",
-            "type": "container",
-            "region": "main",
-            "styles": {
-                "backgroundColor": "#ffffff",
-                "padding": "20px",
-                "borderRadius": "8px",
-                "boxShadow": "0 2px 8px rgba(0,0,0,0.1)",
-                "marginBottom": "20px"
-            },
-            "children": [
+            "components": [
                 {
-                    "id": "explanation-title",
-                    "type": "text",
-                    "properties": {
-                        "content": "We're having trouble processing your request"
-                    },
+                    "id": "header-container",
+                    "type": "container",
+                    "region": "header",
                     "styles": {
-                        "fontSize": "18px",
-                        "fontWeight": "bold",
-                        "color": "#333",
-                        "marginBottom": "12px"
-                    }
+                        "backgroundColor": "#f8d7da",
+                        "color": "#721c24",
+                        "padding": "15px",
+                        "textAlign": "center",
+                        "borderRadius": "5px",
+                        "margin": "10px"
+                    },
+                    "children": [
+                        {
+                            "id": "header-title",
+                            "type": "text",
+                            "properties": {
+                                "content": "Error Generating UI",
+                                "variant": "h1"
+                            },
+                            "styles": {
+                                "fontSize": "24px",
+                                "fontWeight": "bold",
+                                "marginBottom": "10px"
+                            }
+                        }
+                    ]
                 },
                 {
-                    "id": "explanation-text",
-                    "type": "text",
-                    "properties": {
-                        "content": "Our AI is still learning to understand complex requests. You can try again with more specific instructions about what you want to build."
-                    },
+                    "id": "error-container",
+                    "type": "container",
+                    "region": "main",
                     "styles": {
-                        "fontSize": "16px",
-                        "color": "#555",
-                        "lineHeight": "1.5",
-                        "marginBottom": "16px"
-                    }
-                }
-            ]
-        }
-        app_config["components"].append(explanation_card)
-        
-        # Add user request display
-        request_display = {
-            "id": "request-card",
-            "type": "container",
-            "region": "main",
-            "styles": {
-                "backgroundColor": "#f0f7ff",
-                "padding": "16px",
-                "borderRadius": "8px",
-                "borderLeft": "4px solid #3b82f6",
-                "marginBottom": "20px"
-            },
-            "children": [
-                {
-                    "id": "request-label",
-                    "type": "text",
-                    "properties": {
-                        "content": "Your request:"
+                        "backgroundColor": "white",
+                        "padding": "20px",
+                        "borderRadius": "5px",
+                        "boxShadow": "0 2px 5px rgba(0,0,0,0.1)",
+                        "margin": "20px",
+                        "maxWidth": "800px",
+                        "marginLeft": "auto",
+                        "marginRight": "auto"
                     },
-                    "styles": {
-                        "fontSize": "14px",
-                        "fontWeight": "bold",
-                        "color": "#3b82f6",
-                        "marginBottom": "8px"
-                    }
+                    "children": [
+                        {
+                            "id": "error-message",
+                            "type": "text",
+                            "properties": {
+                                "content": "We encountered an error while generating your UI",
+                                "variant": "h2"
+                            },
+                            "styles": {
+                                "fontSize": "20px",
+                                "marginBottom": "15px",
+                                "color": "#721c24"
+                            }
+                        },
+                        {
+                            "id": "request-details",
+                            "type": "text",
+                            "properties": {
+                                "content": "Your request was: " + user_request,
+                                "variant": "p"
+                            },
+                            "styles": {
+                                "marginBottom": "20px",
+                                "padding": "10px",
+                                "backgroundColor": "#f8f9fa",
+                                "borderRadius": "5px"
+                            }
+                        },
+                        {
+                            "id": "suggestion-text",
+                            "type": "text",
+                            "properties": {
+                                "content": "Please try again with a more specific request or different wording.",
+                                "variant": "p"
+                            },
+                            "styles": {
+                                "marginBottom": "20px"
+                            }
+                        },
+                        {
+                            "id": "try-again-button",
+                            "type": "button",
+                            "properties": {
+                                "text": "Try Again"
+                            },
+                            "styles": {
+                                "padding": "10px 20px",
+                                "backgroundColor": "#007bff",
+                                "color": "white",
+                                "border": "none",
+                                "borderRadius": "5px",
+                                "cursor": "pointer",
+                                "fontSize": "16px"
+                            },
+                            "methods": {
+                                "onClick": {
+                                    "code": "function(event, $m) { window.history.back(); }",
+                                    "affectedComponents": []
+                                }
+                            }
+                        }
+                    ]
                 },
                 {
-                    "id": "request-content",
-                    "type": "text",
-                    "properties": {
-                        "content": user_request
-                    },
+                    "id": "footer-container",
+                    "type": "container",
+                    "region": "footer",
                     "styles": {
-                        "fontSize": "16px",
-                        "color": "#333",
-                        "fontStyle": "italic"
-                    }
-                }
-            ]
-        }
-        app_config["components"].append(request_display)
-        
-        # Add tips for better results
-        tips_container = {
-            "id": "tips-container",
-            "type": "container",
-            "region": "main",
-            "styles": {
-                "backgroundColor": "#ffffff",
-                "padding": "20px",
-                "borderRadius": "8px",
-                "boxShadow": "0 2px 8px rgba(0,0,0,0.1)",
-                "marginBottom": "20px"
-            },
-            "children": [
-                {
-                    "id": "tips-title",
-                    "type": "text",
-                    "properties": {
-                        "content": "Tips for better results:"
+                        "backgroundColor": "#f8f9fa",
+                        "padding": "10px",
+                        "textAlign": "center",
+                        "marginTop": "20px"
                     },
-                    "styles": {
-                        "fontSize": "18px",
-                        "fontWeight": "bold",
-                        "color": "#333",
-                        "marginBottom": "12px"
-                    }
-                },
-                {
-                    "id": "tip-1",
-                    "type": "text",
-                    "properties": {
-                        "content": "• Be specific about what components you need (buttons, inputs, text fields)"
-                    },
-                    "styles": {
-                        "fontSize": "15px",
-                        "color": "#555",
-                        "marginBottom": "8px"
-                    }
-                },
-                {
-                    "id": "tip-2",
-                    "type": "text",
-                    "properties": {
-                        "content": "• Describe the functionality you want (what should happen when buttons are clicked)"
-                    },
-                    "styles": {
-                        "fontSize": "15px",
-                        "color": "#555",
-                        "marginBottom": "8px"
-                    }
-                },
-                {
-                    "id": "tip-3",
-                    "type": "text",
-                    "properties": {
-                        "content": "• Mention any specific layout or design preferences"
-                    },
-                    "styles": {
-                        "fontSize": "15px",
-                        "color": "#555",
-                        "marginBottom": "8px"
-                    }
+                    "children": [
+                        {
+                            "id": "footer-text",
+                            "type": "text",
+                            "properties": {
+                                "content": "© " + str(datetime.datetime.now().year) + " Morpheo UI Generator",
+                                "variant": "p"
+                            },
+                            "styles": {
+                                "fontSize": "14px",
+                                "color": "#6c757d"
+                            }
+                        }
+                    ]
                 }
             ]
         }
-        app_config["components"].append(tips_container)
-        
-        # Add retry button
-        retry_button = {
-            "id": "retry-button",
-            "type": "button",
-            "region": "main",
-            "properties": {
-                "text": "Try Again"
-            },
-            "styles": {
-                "padding": "12px 24px",
-                "margin": "10px auto",
-                "backgroundColor": "#3b82f6",
-                "color": "white",
-                "border": "none",
-                "borderRadius": "6px",
-                "cursor": "pointer",
-                "fontSize": "16px",
-                "display": "block",
-                "fontWeight": "500",
-                "boxShadow": "0 2px 4px rgba(59, 130, 246, 0.25)",
-                "transition": "all 0.2s ease"
-            }
-        }
-        app_config["components"].append(retry_button)
-        
-        # Add footer
-        footer_text = {
-            "id": "footer-text",
-            "type": "text",
-            "region": "footer",
-            "properties": {
-                "content": "© Morpheo - AI-Powered UI Generator"
-            },
-            "styles": {
-                "fontSize": "14px",
-                "color": "#666",
-                "textAlign": "center"
-            }
-        }
-        app_config["components"].append(footer_text)
-        
-        return app_config
 
     def _create_app_config(self, user_request: str, app_structure: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -2107,42 +2071,67 @@ class ComponentService:
         # No matching template found
         return None
         
-    def _create_template_app_config(self, template: Dict[str, Any], user_request: str) -> Dict[str, Any]:
+    def _create_template_app_config(self, template_match: Dict[str, Any], user_request: str) -> Dict[str, Any]:
         """
-        Create an app configuration based on a template.
+        Create an app configuration based on a matched template.
         
         Args:
-            template: The template to use
+            template_match: The matched template configuration
             user_request: The user's request description
             
         Returns:
-            App configuration dictionary
+            App configuration dictionary based on the template
         """
-        # Use the template to create an app config
-        app_config = {
-            "app": {
-                "name": template.get("name", "Template App"),
-                "description": user_request,
-                "theme": template.get("theme", "light")
-            },
-            "layout": template.get("layout", {"type": "singlepage", "regions": ["header", "main", "footer"]}),
-            "components": template.get("components", [])
-        }
+        print(f"Using template: {template_match.get('name')} for request: {user_request}")
+        
+        # Use the template config directly
+        app_config = template_match.get("config", {})
+        
+        # Add request metadata to the app config
+        if "app" in app_config:
+            app_config["app"]["requestDescription"] = user_request
+        
+        # Update the app title if possible to reflect the user request
+        if "app" in app_config and user_request:
+            # Extract a reasonable title from the user request
+            title_words = user_request.split()[:5]  # First 5 words max
+            title = " ".join(title_words)
+            
+            # Capitalize the first letter of each word and append if needed
+            if len(title_words) < len(user_request.split()):
+                title = title.title() + "..."
+            else:
+                title = title.title()
+                
+            # Only update if the title seems reasonable (at least 2 words)
+            if len(title_words) >= 2:
+                app_config["app"]["name"] = title
+        
         return app_config
         
     def _get_ui_components_list(self) -> List[Dict[str, Any]]:
         """
-        Get a list of available UI components.
+        Get all available UI components information from the registry.
         
         Returns:
-            List of UI component definitions
+            List of component definitions
         """
-        # Use the proper method to get all components from the registry
-        # instead of assuming the registry has a values() method
-        components = []
-        for component_type in self.component_registry.get_all_ui_components().values():
-            components.extend(component_type)
-        return components
+        # Use the correct method name from ComponentRegistry
+        registry_components = self.component_registry.get_all_components()
+        
+        ui_components = []
+        
+        # Process registry components into a suitable format
+        for component_id, component_info in registry_components.items():
+            ui_component = {
+                "id": component_id,
+                "type": component_info.get("type", ""),
+                "properties": component_info.get("properties", {}),
+                "examples": component_info.get("examples", [])
+            }
+            ui_components.append(ui_component)
+        
+        return ui_components
         
     def _process_app_config(self, app_config: Dict[str, Any], user_request: str) -> Dict[str, Any]:
         """

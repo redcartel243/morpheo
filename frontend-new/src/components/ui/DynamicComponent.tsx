@@ -1,7 +1,17 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import TextInput from './components/basic/TextInput';
+import React, { useState, useRef, useEffect, useMemo, useCallback, createElement, Suspense } from 'react';
+// Remove the direct import of TextInput to prevent potential conflicts
+// import TextInput from './components/basic/TextInput';
 import { Chart, DataTable, Map } from './components/visualization';
 import type { ChartProps, DataTableProps, MapProps } from './components/visualization';
+import { registerAllComponents } from './ComponentRegistry';
+import { getComponent, getRegisteredComponents, isComponentRegistered } from './ComponentFactory';
+
+// Register all components once when the module is loaded
+// This prevents repeated registrations on each render
+registerAllComponents();
+
+// Add debug logging to see what components are registered
+console.log('Registered components:', getRegisteredComponents());
 
 // Define global window type to include appState
 declare global {
@@ -68,6 +78,9 @@ interface ComponentChild {
 const mapComponentType = (type: string): string => {
   // Normalize component type to prevent inconsistencies
   const normalizedType = type.toLowerCase();
+  
+  // Log component type mapping for debugging
+  console.log(`Mapping component type: ${type} -> normalized: ${normalizedType}`);
   
   // Map component types to standardized names
   switch (normalizedType) {
@@ -137,7 +150,7 @@ const mapComponentType = (type: string): string => {
 
 // Generic component structure processor
 const processComponentStructure = (component: ComponentChild | null): ComponentChild | null => {
-  if (!component) return component;
+  if (!component) return null;
   
   // Create a shallow copy of the component to avoid mutating the original
   const processedComponent: ComponentChild = {
@@ -147,23 +160,34 @@ const processComponentStructure = (component: ComponentChild | null): ComponentC
   
   // Handle nested children
   if (Array.isArray(processedComponent.children)) {
-    processedComponent.children = processedComponent.children.map((child: ComponentChild | string) => {
-      if (typeof child === 'string') return child;
-      return processComponentStructure(child) || child;
-    });
+    processedComponent.children = processedComponent.children
+      .filter(child => child !== null && child !== undefined) // Filter out null/undefined children
+      .map((child: ComponentChild | string) => {
+        if (typeof child === 'string') return child;
+        return processComponentStructure(child) || child;
+      });
   }
   
   return processedComponent;
 }
 
-const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, functionality, eventHandlers, onUpdate, config }) => {
+const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, config }: DynamicComponentProps): React.ReactElement | null => {
+  const [Component, setComponent] = useState<React.ComponentType<any> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
   // Process the component to ensure it follows the expected structure
   const processedComponent = useMemo(() => {
+    // Add a null/undefined check before processing
+    if (!component) {
+      console.warn('Received null or undefined component in DynamicComponent');
+      return null;
+    }
     return processComponentStructure(component);
   }, [component]);
   
   // Create a safe component with defaults for all required properties
-  const safeComponent = {
+  const safeComponent = useMemo(() => ({
     type: mapComponentType(processedComponent?.type || 'container'),
     id: processedComponent?.id || `component-${Math.random().toString(36).substr(2, 9)}`,
     props: processedComponent?.props || {},
@@ -171,7 +195,14 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
     styles: processedComponent?.styles || {},
     events: processedComponent?.events || {},
     methods: processedComponent?.methods || {}
-  };
+  }), [processedComponent]);
+  
+  // Add debug logging to check if the component type is registered
+  useEffect(() => {
+    const componentType = safeComponent.type;
+    console.log(`Checking component registration for type: ${componentType}`);
+    console.log(`Is component ${componentType} registered? ${isComponentRegistered(componentType)}`);
+  }, [safeComponent.type]);
   
   // Local state for component
   const [componentState, setComponentState] = useState<Record<string, any>>({});
@@ -206,6 +237,12 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
   const executeComponentMethod = useCallback((methodName: string, methodCode: string, event: any) => {
     console.log(`Executing component method ${methodName} for ${safeComponent.id}`);
     
+    // First check if methodCode is missing or empty
+    if (!methodCode || methodCode.trim() === '') {
+      console.error(`Method code is empty for ${methodName} on ${safeComponent.id}`);
+      return;
+    }
+    
     try {
       // Create DOM manipulation utility
       const $m = (selector: string) => {
@@ -223,168 +260,155 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
             const element = document.getElementById(targetId);
             if (!element) return null;
             
-            if (propName === 'content' || propName === 'text') {
-              return element.textContent;
-            } else if (propName === 'value') {
+            // Handle different property types
+            if (propName === 'value' && 'value' in element) {
               return (element as HTMLInputElement).value;
-            } else if (propName === 'checked') {
-              return (element as HTMLInputElement).checked;
-            } else {
-              return element.getAttribute(propName);
-            }
-          },
-          
-          // Value getters/setters
-          getValue: () => {
-            const element = document.getElementById(targetId);
-            if (!element) {
-              console.warn(`getValue: Element not found for selector #${targetId}`);
-              return '';
             }
             
-            if (element.tagName === 'INPUT' || element.tagName === 'SELECT' || element.tagName === 'TEXTAREA') {
-              console.log(`getValue: Getting value from ${targetId}:`, (element as HTMLInputElement).value);
-              return (element as HTMLInputElement).value;
-            } else {
-              console.log(`getValue: Getting text content from ${targetId}:`, element.textContent);
-              return element.textContent || '';
+            if (propName === 'checked' && 'checked' in element) {
+              return (element as HTMLInputElement).checked;
             }
+            
+            if (propName === 'text' || propName === 'textContent') {
+              return element.textContent;
+            }
+            
+            // Try to get from data attributes
+            return element.getAttribute(`data-${propName}`) || element.getAttribute(propName);
           },
           
-          setValue: (value: any) => {
+          setProperty: (propName: string, value: any) => {
             const element = document.getElementById(targetId);
             if (!element) {
-              console.warn(`setValue: Element not found for selector #${targetId}`);
+              console.warn(`Element not found for selector #${targetId} when setting ${propName}`);
               return null;
             }
             
-            console.log(`setValue: Setting value for ${targetId} to:`, value);
+            console.log(`Setting ${propName} to ${value} for #${targetId}`);
             
-            if (element.tagName === 'INPUT' || element.tagName === 'SELECT' || element.tagName === 'TEXTAREA') {
+            // Handle different property types
+            if (propName === 'value' && 'value' in element) {
               (element as HTMLInputElement).value = value;
+              // Dispatch input and change events for proper event propagation
+              element.dispatchEvent(new Event('input', { bubbles: true }));
               element.dispatchEvent(new Event('change', { bubbles: true }));
-            } else {
-              element.textContent = value;
+              return;
             }
             
-            return value;
+            if (propName === 'checked' && 'checked' in element) {
+              (element as HTMLInputElement).checked = value === true || value === 'true';
+              element.dispatchEvent(new Event('change', { bubbles: true }));
+              return;
+            }
+            
+            if (propName === 'text' || propName === 'textContent') {
+              element.textContent = value;
+              return;
+            }
+            
+            // Set as data attribute for custom properties
+            element.setAttribute(`data-${propName}`, value.toString());
+            
+            // For normal attributes like disabled, etc.
+            if (['disabled', 'readonly', 'required'].includes(propName)) {
+              if (value === true || value === 'true') {
+                element.setAttribute(propName, 'true');
+              } else {
+                element.removeAttribute(propName);
+              }
+            }
           },
           
           // Style manipulation
-          setStyle: (styleName: string, value: string) => {
-            const target = document.getElementById(targetId);
-            if (!target) return null;
+          setStyle: (styleProperty: string, value: string) => {
+            const element = document.getElementById(targetId);
+            if (!element) return null;
             
-            target.style[styleName as any] = value;
-            return value;
-          },
-          
-          // Add/remove classes
-          addClass: (className: string) => {
-            const target = document.getElementById(targetId);
-            if (!target) return null;
-            
-            target.classList.add(className);
-            return true;
-          },
-          
-          removeClass: (className: string) => {
-            const target = document.getElementById(targetId);
-            if (!target) return null;
-            
-            target.classList.remove(className);
-            return true;
-          },
-          
-          // Animation helper
-          animate: (keyframes: Keyframe[] | PropertyIndexedKeyframes, options?: KeyframeAnimationOptions) => {
-            const target = document.getElementById(targetId);
-            if (!target) return null;
-            
-            return target.animate(keyframes, options);
-          },
-          
-          // Show/hide helpers
-          show: () => {
-            const target = document.getElementById(targetId);
-            if (!target) return null;
-            
-            target.style.display = '';
-            return true;
-          },
-          
-          hide: () => {
-            const target = document.getElementById(targetId);
-            if (!target) return null;
-            
-            target.style.display = 'none';
-            return true;
-          },
-          
-          // Event dispatching
-          emit: (eventName: string, detail?: any) => {
-            const target = document.getElementById(targetId);
-            if (!target) return null;
-            
-            target.dispatchEvent(new CustomEvent(eventName, { 
-              bubbles: true, 
-              detail 
-            }));
-            return true;
-          },
-          
-          // Property setters
-          setProperty: (propName: string, value: any) => {
-            const target = document.getElementById(targetId);
-            if (!target) return null;
-            
-            if (propName === 'content' || propName === 'text') {
-              target.textContent = value;
-            } else if (propName === 'value') {
-              (target as HTMLInputElement).value = value;
-            } else if (propName === 'checked') {
-              (target as HTMLInputElement).checked = value;
-            } else {
-              target.setAttribute(propName, value);
+            if (styleProperty && value !== undefined) {
+              (element as HTMLElement).style[styleProperty as any] = value;
+            } else if (typeof styleProperty === 'object') {
+              // Allow passing a style object
+              Object.assign((element as HTMLElement).style, styleProperty);
             }
-            
-            // Dispatch change event for inputs
-            if ((propName === 'value' || propName === 'checked') && 
-                (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')) {
-              target.dispatchEvent(new Event('change', { bubbles: true }));
+          },
+          
+          // Event handlers
+          addEventListener: (eventType: string, handler: (e: Event) => void) => {
+            const element = document.getElementById(targetId);
+            if (!element) return null;
+            element.addEventListener(eventType, handler);
+          },
+          
+          // Additional utility methods
+          setValue: (value: string) => {
+            const element = document.getElementById(targetId);
+            if (!element) return null;
+            if ('value' in element) {
+              (element as HTMLInputElement).value = value;
+              // Dispatch events for proper event propagation
+              element.dispatchEvent(new Event('input', { bubbles: true }));
+              element.dispatchEvent(new Event('change', { bubbles: true }));
             }
-            
-            return value;
+          },
+          
+          getValue: () => {
+            const element = document.getElementById(targetId);
+            if (!element) return null;
+            if ('value' in element) {
+              return (element as HTMLInputElement).value;
+            }
+            return null;
           }
         };
       };
       
-      // Create a function from the method code
-      const methodFunction = new Function('event', '$m',
-        `"use strict";
+      // Special case for calculator-style direct execution code
+      // If code contains direct modification like $m('#display').setProperty('value', ...) 
+      if (methodCode.includes('$m(') && !methodCode.trim().startsWith('function')) {
+        console.log('Direct execution of method code with $m selector detected');
         try {
-          // Check if this is already a function declaration
-          const code = ${JSON.stringify(methodCode)};
-          if (typeof code === 'string' && code.trim().startsWith('function')) {
-            // Execute function style code
-            return (${methodCode})(event, $m);
-          } else {
-            // Execute plain code 
-            ${methodCode}
-          }
-        } catch (error) {
-          console.error('Error executing component method:', error);
-          return false;
-        }`
-      );
+          // Simply execute the code directly with the DOM manipulation utility
+          new Function('event', '$m', methodCode)(event, $m);
+          return;
+        } catch (directError) {
+          console.error('Error in direct code execution, falling back to function wrapper:', directError);
+          // Continue to the function wrapper approaches below
+        }
+      }
       
-      // Execute the method with DOM manipulation utilities
-      return methodFunction(event, $m);
+      // Try different approaches to execute code
+      try {
+        // Approach 1: If code is already a function declaration
+        if (methodCode.trim().startsWith('function')) {
+          const func = new Function('event', '$m', `return ${methodCode}`);
+          func()(event, $m);
+          return;
+        }
+        
+        // Approach 2: Wrap code in a function
+        const wrappedFunc = new Function('event', '$m', `
+          return function(event, $m) { 
+            ${methodCode} 
+          }
+        `);
+        wrappedFunc()(event, $m);
+      } catch (error) {
+        console.error('Error in function wrapper execution, trying direct execution:', error);
+        
+        // Approach 3: Direct execution as a last resort
+        new Function('event', '$m', methodCode)(event, $m);
+      }
+      
+      // Update app state if needed
+      setComponentState(prevState => {
+        const newState = { ...prevState };
+        return newState;
+      });
+      
     } catch (error) {
       console.error(`Error executing method ${methodName} for ${safeComponent.id}:`, error);
-      return false;
     }
-  }, [safeComponent.id]);
+  }, [safeComponent.id, setComponentState]);
 
   // Handle events from components
   const handleEvent = useCallback((eventType: string, event: any) => {
@@ -399,19 +423,12 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
 
     // Get the component's methods from safeComponent.methods or props.methods
     const componentMethods = safeComponent.methods || safeComponent.props?.methods || {};
-    const componentEvents = safeComponent.events || {};
+    // Get the component's events from safeComponent.events or props.events
+    const componentEvents = safeComponent.events || safeComponent.props?.events || {};
 
     if (DEBUG_EVENT_HANDLING) {
-      console.log(`Methods keys for ${safeComponent.id}:`, componentMethods ? Object.keys(componentMethods) : 'none');
-      if (componentMethods) {
-        // Log details of each method
-        Object.entries(componentMethods).forEach(([key, value]) => {
-          console.log(`Method ${key} is:`, value);
-        });
-      }
-      
-      console.log(`Available methods for ${safeComponent.id}:`, Object.keys(componentMethods));
-      console.log(`Available events for ${safeComponent.id}:`, Object.keys(componentEvents));
+      console.log(`Methods available for ${safeComponent.id}:`, componentMethods ? Object.keys(componentMethods) : 'none');
+      console.log(`Events available for ${safeComponent.id}:`, componentEvents ? Object.keys(componentEvents) : 'none');
     }
 
     // Normalize the event type to the React-style 'on' prefix format
@@ -419,10 +436,10 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
 
     // Try multiple naming conventions for methods/events (in order of preference)
     const methodNamesToTry = [
-      normalizedEventType,                                     // React style (e.g., "onClick")
-      eventType,                                               // direct match (e.g., "click")
-      eventType.toLowerCase(),                                 // lowercase (e.g., "click")
-      `on${eventType.toLowerCase()}`                           // lowercase with on prefix (e.g., "onclick")
+      normalizedEventType,                                    // React style (e.g., "onClick")
+      eventType,                                              // direct match (e.g., "click")
+      eventType.toLowerCase(),                                // lowercase (e.g., "click")
+      `on${eventType.toLowerCase()}`                          // lowercase with on prefix (e.g., "onclick")
     ];
     
     // Add specific special-case mappings for common events
@@ -439,36 +456,57 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
     // Look for a matching method in both methods and events
     let method = null;
     let methodName = '';
+    let methodSource = '';
     
+    // First try methods
     for (const name of methodNamesToTry) {
-      if (componentMethods[name]) {
+      if (componentMethods && componentMethods[name]) {
         method = componentMethods[name];
         methodName = name;
+        methodSource = 'methods';
         break;
       }
-      
-      if (componentEvents[name]) {
-        method = componentEvents[name];
-        methodName = name;
-        break;
+    }
+    
+    // If not found in methods, try events
+    if (!method) {
+      for (const name of methodNamesToTry) {
+        if (componentEvents && componentEvents[name]) {
+          method = componentEvents[name];
+          methodName = name;
+          methodSource = 'events';
+          break;
+        }
       }
     }
 
     if (method) {
       if (DEBUG_EVENT_HANDLING) {
-        console.log(`Found method ${methodName} for event ${eventType} on component ${safeComponent.id}`);
+        console.log(`Found ${methodSource}.${methodName} for event ${eventType} on component ${safeComponent.id}`);
+        console.log('Method details:', method);
       }
       
       try {
-        // Get the method code
-        const methodCode = typeof method === 'string' ? method : method.code;
+        // Handle both string and object method definitions
+        let methodCode;
+        let affectedComponents = [];
+        
+        if (typeof method === 'string') {
+          methodCode = method;
+        } else if (typeof method === 'object' && method !== null) {
+          methodCode = method.code || '';
+          affectedComponents = method.affectedComponents || [];
+        } else {
+          console.error(`Invalid method format for ${methodName}:`, method);
+          return;
+        }
         
         // Execute the method
         executeComponentMethod(methodName, methodCode, event);
         
         // If this method affects other components, notify them
-        if (method.affectedComponents) {
-          method.affectedComponents.forEach((targetId: string) => {
+        if (affectedComponents && affectedComponents.length > 0) {
+          affectedComponents.forEach((targetId: string) => {
             if (!targetId) return;
             const cleanTargetId = targetId.startsWith('#') ? targetId.substring(1) : targetId;
             const target = document.getElementById(cleanTargetId);
@@ -480,12 +518,13 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
           });
         }
       } catch (err) {
-        console.error('Error executing component method:', err);
+        console.error(`Error executing ${methodSource}.${methodName} for ${safeComponent.id}:`, err);
       }
     } else {
       if (DEBUG_EVENT_HANDLING) {
         console.log(`No method found for event ${eventType} on component ${safeComponent.id}`);
-        console.log(`Tried method names:`, methodNamesToTry);
+        console.log(`Available methods:`, componentMethods);
+        console.log(`Available events:`, componentEvents);
       }
     }
   }, [safeComponent, executeComponentMethod]);
@@ -682,356 +721,187 @@ const DynamicComponent: React.FC<DynamicComponentProps> = ({ component, function
     });
   };
 
-  /**
-   * Renders a component based on its type.
-   * This function is completely generic and can render any type of component
-   * without being tied to specific application logic.
-   */
-  const renderComponent = () => {
-    // Apply all styles from the component styles object
-    const componentStyles = {
-      ...getStyle(),
-      // Add a default style to ensure the component is visible
-      boxSizing: 'border-box',
-    } as React.CSSProperties;
-
-    // Handle different component types
-    switch (safeComponent.type) {
-      case 'text':
-        // Text component - renders text with various styles
-        return (
-          <div
-            id={safeComponent.id}
-            className={`morpheo-component morpheo-text`}
-            style={componentStyles}
-            data-component-type="text"
-            onClick={(e) => handleEvent('click', e)}
-          >
-            {getPropertyValue('content', 
-              getPropertyValue('text', 
-                getPropertyValue('children', '')))
-            }
-          </div>
-        );
-
-      case 'button':
-        // Button component - interactive element with click handler
-          return (
-            <button
-            id={safeComponent.id}
-            className={`morpheo-component morpheo-button`}
-            style={componentStyles}
-            onClick={(e) => handleEvent('click', e)}
-            disabled={getPropertyValue('disabled', false)}
-            data-component-type="button"
-          >
-            {getPropertyValue('text', 'Button')}
-            </button>
-          );
-
-      case 'input':
-      case 'text-input':
-        // Text input component
-        return (
-          <div className="morpheo-input-container" style={{ position: 'relative' }}>
-            {getPropertyValue('label') && (
-              <label 
-                htmlFor={`input-${safeComponent.id}`}
-                style={{ display: 'block', marginBottom: '0.5rem' }}
-              >
-                {getPropertyValue('label')}
-              </label>
-            )}
-            <input
-              id={safeComponent.id}
-              className={`morpheo-component morpheo-input`}
-              type={getPropertyValue('inputType', 'text')}
-              defaultValue={getPropertyValue('value', '')}
-              placeholder={getPropertyValue('placeholder', '')}
-              onChange={(e) => handleEvent('change', e)}
-              onFocus={(e) => handleEvent('focus', e)}
-              onBlur={(e) => handleEvent('blur', e)}
-              onInput={(e) => handleEvent('input', e)}
-              onKeyDown={(e) => handleEvent('keyDown', e)}
-              onKeyUp={(e) => handleEvent('keyUp', e)}
-              style={componentStyles}
-              disabled={getPropertyValue('disabled', false)}
-              readOnly={getPropertyValue('readOnly', false)}
-              maxLength={getPropertyValue('maxLength')}
-              data-component-type="text-input"
-            />
-          </div>
-        );
-
-      case 'container':
-        // Container component - holds other components
-          return (
-          <div
-            id={safeComponent.id}
-            className={`morpheo-component morpheo-container`}
-            style={componentStyles}
-            onClick={(e) => {
-              // Only handle clicks directly on this element, not bubbled events
-              if (e.target === e.currentTarget) {
-                handleEvent('click', e);
-              }
-            }}
-            data-component-type="container"
-          >
-              {renderChildren()}
-          </div>
-        );
-
-      case 'image':
-        // Image component
-        return (
-          <div className="morpheo-image-container" style={{ position: 'relative', ...componentStyles }}>
-            <img
-              id={safeComponent.id}
-              className={`morpheo-component morpheo-image`}
-              src={getPropertyValue('src', '')}
-              alt={getPropertyValue('alt', 'Image')}
-              onClick={(e) => handleEvent('click', e)}
-              onLoad={(e) => handleEvent('load', e)}
-              onError={(e) => handleEvent('error', e)}
-              style={{
-                maxWidth: '100%',
-                height: 'auto',
-                ...componentStyles
-              }}
-              data-component-type="image"
-            />
-          </div>
-        );
-      
-      case 'checkbox':
-        // Checkbox component
-        return (
-          <div className="morpheo-checkbox-container" style={{ display: 'flex', alignItems: 'center' }}>
-            <input
-              id={safeComponent.id}
-              className={`morpheo-component morpheo-checkbox`}
-              type="checkbox"
-              checked={getPropertyValue('checked', false)}
-              onChange={(e) => handleEvent('change', e)}
-              style={{ marginRight: '0.5rem', ...componentStyles }}
-              disabled={getPropertyValue('disabled', false)}
-              data-component-type="checkbox"
-            />
-            {getPropertyValue('label') && (
-              <label 
-                htmlFor={safeComponent.id}
-              >
-                {getPropertyValue('label')}
-              </label>
-            )}
-          </div>
-        );
-
-      case 'map':
-        // Map component for visualizing geographical data
-        try {
-          let mapCenter = getPropertyValue('center', { lat: 41.3851, lng: 2.1734 }); // Default to Barcelona
-          
-          // Convert array format to object if needed
-          if (Array.isArray(mapCenter) && mapCenter.length >= 2) {
-            mapCenter = { lat: mapCenter[0], lng: mapCenter[1] };
-          }
-          
-          // Final validation to ensure mapCenter is properly formatted
-          if (!mapCenter || typeof mapCenter !== 'object' || mapCenter.lat === undefined || mapCenter.lng === undefined) {
-            mapCenter = { lat: 41.3851, lng: 2.1734 }; // Fallback to Barcelona
-          }
-          
-          const mapZoom = getPropertyValue('zoom', 13);
-          let mapMarkers = getPropertyValue('markers', []);
-          
-          if (!Array.isArray(mapMarkers)) mapMarkers = [];
-          
-          // Ensure each marker has valid position
-          mapMarkers = mapMarkers.map((marker: any) => {
-            if (!marker || typeof marker !== 'object') {
-              return { position: { lat: mapCenter.lat, lng: mapCenter.lng } };
-            }
-            
-            let position = marker.position;
-            // Convert array position to object if needed
-            if (Array.isArray(position) && position.length >= 2) {
-              position = { lat: position[0], lng: position[1] };
-            }
-            
-            // Final validation
-            if (!position || typeof position !== 'object' || position.lat === undefined || position.lng === undefined) {
-              position = { lat: mapCenter.lat, lng: mapCenter.lng };
-            }
-            
-            return {
-              ...marker,
-              position
-            };
-          });
-          
-          const mapInteractive = getPropertyValue('interactive', true);
-          
-          console.log("Rendering map component with props:", { 
-            id: safeComponent.id, 
-            center: mapCenter, 
-            zoom: mapZoom, 
-            markers: mapMarkers 
-          });
-          
-          return (
-            <div
-              className="morpheo-map-container"
-              style={{ position: 'relative', ...componentStyles }}
-            >
-              <Map
-                testId={safeComponent.id}
-                center={mapCenter}
-                zoom={mapZoom}
-                markers={mapMarkers}
-                style={componentStyles}
-                interactive={mapInteractive}
-                handleEvent={(eventType, payload) => {
-                  // Forward map events to our event handler
-                  const event = {
-                    target: { id: safeComponent.id },
-                    type: eventType,
-                    detail: payload
-                  };
-                  handleEvent(eventType, event);
-                }}
-              />
-            </div>
-          );
-        } catch (error) {
-          console.error("Error rendering map component:", error);
-          return (
-            <div
-              id={safeComponent.id}
-              className="morpheo-component morpheo-map-error"
-              style={{
-                padding: '20px',
-                backgroundColor: '#ffebee',
-                color: '#d32f2f',
-                textAlign: 'center',
-                border: '1px solid #ffcdd2',
-                borderRadius: '4px',
-                ...componentStyles
-              }}
-            >
-              Error loading map component. Please check the console for details.
-            </div>
-          );
-        }
-
-      // Handle all other component types as generic div containers
-      default:
-        return (
-          <div
-            id={safeComponent.id}
-            className={`morpheo-component morpheo-${safeComponent.type}`}
-            style={componentStyles}
-            onClick={(e) => handleEvent('click', e)}
-            data-component-type={safeComponent.type}
-          >
-            {Array.isArray(safeComponent.children) ? renderChildren() : getPropertyValue('content', '')}
-          </div>
-        );
-    }
+  // Define styles at component level, outside any conditionals
+  const componentStyles = {
+    ...safeComponent.props.style
   };
 
-  // Add DOM manipulation reference setup
+  // Add this useEffect hook after the existing debug logging useEffect
   useEffect(() => {
-    // Skip if no ID
-    if (!safeComponent.id) return;
-
-    // Define the global manipulation object if it doesn't exist
-    if (!window.$morpheo) {
-      window.$morpheo = {};
+    async function loadComponentFromRegistry() {
+      const componentType = safeComponent.type;
+      console.log(`Loading component: ${componentType}`);
+      
+      try {
+        // Check if component is registered
+        if (!isComponentRegistered(componentType)) {
+          console.error(`Component ${componentType} is not registered in the ComponentFactory`);
+          setError(`Component type "${componentType}" not found`);
+          setLoading(false);
+          return;
+        }
+        
+        // Get component from registry
+        const resolvedComponent = await getComponent(componentType);
+        console.log(`Component ${componentType} loaded:`, resolvedComponent !== null);
+        
+        // Check if we have a component
+        if (!resolvedComponent) {
+          console.error(`No component resolved for type: ${componentType}`);
+          setError(`Failed to load component: ${componentType}`);
+          setLoading(false);
+          return;
+        }
+        
+        // Check if it's a valid React component
+        const isValidComponent = 
+          typeof resolvedComponent === 'function' || 
+          typeof resolvedComponent === 'string';
+        
+        if (isValidComponent) {
+          setComponent(() => resolvedComponent);
+          setLoading(false);
+        } else {
+          console.error(`Invalid component type received:`, resolvedComponent);
+          setError(`Component ${componentType} is not a valid React component`);
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error(`Error loading component ${componentType}:`, err);
+        setError(`Error loading component: ${err instanceof Error ? err.message : String(err)}`);
+        setLoading(false);
+      }
     }
+    
+    loadComponentFromRegistry();
+  }, [safeComponent.type]);
+  
+  // Render a fallback component if the component fails to load
+  const renderFallbackComponent = () => {
+    return (
+      <div style={{
+        padding: '10px',
+        border: '1px dashed red',
+        borderRadius: '4px',
+        margin: '5px',
+        color: '#721c24',
+        backgroundColor: '#f8d7da'
+      }}>
+        <h4>Component Error: {safeComponent.type}</h4>
+        <p>{error || 'Failed to load component'}</p>
+        <div>
+          <strong>ID:</strong> {safeComponent.id}
+        </div>
+        {safeComponent.props && Object.keys(safeComponent.props).length > 0 && (
+          <details>
+            <summary>Component Properties</summary>
+            <pre>{JSON.stringify(safeComponent.props, null, 2)}</pre>
+          </details>
+        )}
+      </div>
+    );
+  };
 
-    // Register this component in the global registry
-    window.$morpheo[safeComponent.id] = {
-      // DOM element getter
-      element: () => document.getElementById(safeComponent.id),
+  // If loading, show loading indicator
+  if (loading) {
+    return (
+      <div className="loading-component" style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '10px',
+        backgroundColor: '#e9ecef',
+        borderRadius: '4px',
+        margin: '5px'
+      }}>
+        <div className="spinner" style={{
+          width: '20px',
+          height: '20px',
+          borderRadius: '50%',
+          border: '2px solid #ccc',
+          borderTopColor: '#666',
+          animation: 'spin 1s linear infinite',
+          marginRight: '10px'
+        }} />
+        <div>Loading {safeComponent.type} component...</div>
+      </div>
+    );
+  }
+  
+  // If there was an error, show fallback component
+  if (error || !Component) {
+    return renderFallbackComponent();
+  }
 
-      // Property manipulation
-      setProperty: (propName: string, value: any) => {
-        // Update the DOM directly for immediate effect
-        const element = document.getElementById(safeComponent.id);
-        if (element) {
-          if (propName === 'content' || propName === 'text') {
-            element.textContent = value;
-          } else if (propName === 'value') {
-            (element as HTMLInputElement).value = value;
-          } else if (propName === 'checked') {
-            (element as HTMLInputElement).checked = value;
-          } else {
-            element.setAttribute(propName, value);
-          }
-
-          // Dispatch change event for inputs
-          if ((propName === 'value' || propName === 'checked') && 
-              (element.tagName === 'INPUT' || element.tagName === 'SELECT' || element.tagName === 'TEXTAREA')) {
-            element.dispatchEvent(new Event('change', { bubbles: true }));
-          }
-        }
-        
-        // Also update the state for React
-        setComponentState(prevState => ({
-          ...prevState,
-          [propName]: value
-        }));
-        
-        return value;
-      },
-
-      // Style manipulation
-      setStyle: (styleName: string, value: string) => {
-        const element = document.getElementById(safeComponent.id);
-        if (element) {
-          element.style[styleName as any] = value;
-        }
-        return value;
-      },
-
-      // Show/hide
-      show: () => {
-        const element = document.getElementById(safeComponent.id);
-        if (element) {
-          element.style.display = '';
-        }
-        return true;
-      },
-
-      hide: () => {
-        const element = document.getElementById(safeComponent.id);
-        if (element) {
-          element.style.display = 'none';
-        }
-        return true;
-      },
-
-      // Get the current state
-      getState: () => componentState,
-
-      // Update the entire state
-      setState: (newState: any) => {
-        setComponentState(newState);
-        return newState;
+  // Prepare the final props to pass to the component
+  const componentProps = {
+    ...safeComponent.props,
+    style: safeComponent.styles,
+    id: safeComponent.id,
+    
+    // Bind native DOM events based on the events object
+    ...(safeComponent.events && Object.entries(safeComponent.events).reduce((acc, [eventName, handler]) => {
+      // Create React-compatible event handler names (onClick, onChange, etc.)
+      let reactEventName = eventName;
+      
+      // Convert event names to React format if needed
+      if (!eventName.startsWith('on')) {
+        reactEventName = `on${eventName.charAt(0).toUpperCase()}${eventName.slice(1)}`;
       }
-    };
-
-    // Cleanup on unmount
-    return () => {
-      if (window.$morpheo && window.$morpheo[safeComponent.id]) {
-        delete window.$morpheo[safeComponent.id];
+      
+      // Create the event handler function
+      acc[reactEventName] = (event: any) => {
+        if (DEBUG_EVENT_HANDLING) {
+          console.log(`Component ${safeComponent.id} triggered event ${eventName}`);
+        }
+        handleEvent(eventName.startsWith('on') ? eventName.substring(2).toLowerCase() : eventName, event);
+      };
+      
+      return acc;
+    }, {} as Record<string, any>)),
+    
+    // Handle children components
+    children: safeComponent.children.length > 0 ? (
+      // Render nested child components recursively
+      safeComponent.children.map((child, index) => {
+        if (typeof child === 'string') {
+          return <React.Fragment key={`string-${index}`}>{child}</React.Fragment>;
+        }
+        return (
+          <DynamicComponent
+            key={child.id || `child-${index}`}
+            component={child}
+            eventHandlers={eventHandlers}
+          />
+        );
+      })
+    ) : null,
+    
+    // Add method handlers based on method object
+    ...(safeComponent.methods && Object.entries(safeComponent.methods).reduce((acc, [methodName, methodData]) => {
+      // Only convert methods that follow React event naming conventions (onClick, onChange, etc.)
+      if (methodName.startsWith('on') && typeof methodData === 'object' && methodData && 'code' in methodData) {
+        const methodCode = methodData.code as string;
+        
+        acc[methodName] = (event: any) => {
+          if (DEBUG_EVENT_HANDLING) {
+            console.log(`Component ${safeComponent.id} triggered method ${methodName}`);
+          }
+          // Execute the method with the DOM manipulation utility
+          executeComponentMethod(methodName, methodCode, event);
+        };
       }
-    };
-  }, [safeComponent.id, componentState]);
+      return acc;
+    }, {} as Record<string, any>)),
+    
+    // Add click handler if it's a button (special case for calculator buttons)
+    onClick: safeComponent.type === 'button' ? (event: any) => {
+      handleEvent('click', event);
+    } : undefined
+  };
 
-  return renderComponent();
+  // Render the final component with props
+  return <Component {...componentProps} />;
 };
 
 // Add a new top-level ProcessAppConfig component that handles the full app structure
@@ -1224,5 +1094,5 @@ export const ProcessAppConfig: React.FC<{
   );
 };
 
-// Export the ProcessAppConfig component as the default
+// Export default component
 export default DynamicComponent; 

@@ -47,6 +47,7 @@ interface AppViewerProps {
   appConfig?: any; // Allow passing app config directly
   height?: string;
   width?: string;
+  onEvent?: (eventName: string, data: any) => void;
 }
 
 // Create an enhanced ProcessAppConfig with method adapter
@@ -104,7 +105,13 @@ function validateAndCleanMethodCode(methodCode: string): string {
   }
 }
 
-const AppViewer: React.FC<AppViewerProps> = ({ appConfig: propAppConfig, height, width }) => {
+// Add this interface to define event data types
+interface ComponentEvent {
+  eventName: string;
+  data: any;
+}
+
+const AppViewer: React.FC<AppViewerProps> = ({ appConfig: propAppConfig, height, width, onEvent }) => {
   const [appConfig, setAppConfig] = useState<any>(propAppConfig || null);
   const [isLoading, setIsLoading] = useState<boolean>(!propAppConfig);
   const [error, setError] = useState<string | null>(null);
@@ -658,6 +665,15 @@ const AppViewer: React.FC<AppViewerProps> = ({ appConfig: propAppConfig, height,
     }
   }, []);
 
+  // Add these handler functions that were referenced in the component
+  const handleRegionComponentsUpdated = (regionName: string, components: any[]) => {
+    console.log(`Region ${regionName} updated with ${components.length} components`);
+  };
+
+  const handleRegionsUpdated = (regions: string[]) => {
+    console.log(`App regions updated: ${regions.join(', ')}`);
+  };
+
   if (isLoading) {
     return <div className="loading">Loading app...</div>;
   }
@@ -672,12 +688,26 @@ const AppViewer: React.FC<AppViewerProps> = ({ appConfig: propAppConfig, height,
 
   return (
     <div className="app-viewer" ref={appContainerRef} style={{ height, width }}>
-      <EnhancedProcessAppConfig 
-        config={appConfig} 
-        eventHandlers={{
-          handleEvent
-        }}
-      />
+      <div className="app-container" style={{ 
+        margin: '0 auto', 
+        maxWidth: width || 'initial',
+        width: '100%',
+        position: 'relative',
+        padding: '20px',
+        backgroundColor: '#fff',
+        color: '#333'
+      }}>
+        <EnhancedProcessAppConfig 
+          config={appConfig} 
+          onRegionComponentsUpdated={handleRegionComponentsUpdated}
+          onRegionsUpdated={handleRegionsUpdated}
+          onComponentEventOccurred={(eventName: string, data: any) => {
+            if (onEvent) {
+              onEvent(eventName, data);
+            }
+          }}
+        />
+      </div>
     </div>
   );
 };

@@ -1,124 +1,70 @@
 # Morpheo Testing Framework
 
-This directory contains the testing framework for validating and testing Morpheo-generated applications.
+This directory contains automated testing tools for the Morpheo framework.
 
 ## Overview
 
-The testing framework provides:
+The testing framework is designed to:
 
-1. **Headless Testing Environment**: A simulated DOM environment that can load and run Morpheo applications without a browser
-2. **Test Scenario Generation**: Automatic creation of test scenarios based on application type
-3. **User Interaction Simulation**: Ability to simulate clicks, inputs, and other DOM events
-4. **State Verification**: Tools to verify component state after interactions
+1. Automate the testing of Morpheo's AI-driven component generation
+2. Validate that the generated components behave as expected
+3. Ensure consistency across different generators and platforms
 
-## Components
+## Key Components
 
-### Headless Testing Framework
+- **run_tests.py**: Main entry point for executing test suites
+- **headless_test_framework.py**: Core framework for running tests without a browser
+- **test_response_handler.py**: Handles and validates responses from the generation service
+- **test_scenario_generator.py**: Creates test scenarios for different application types
 
-`headless_test_framework.py` implements a simulated DOM environment for running tests:
+## Archive
 
-- `MorpheoTester`: Main class for loading and testing applications
-- `DomElement`: Simulates DOM elements with methods like `setStyle`, `setText`, etc.
-- `DomEvent`: Represents a DOM event with type, target, and properties
+The `archive` directory contains outdated test files that are no longer in active use:
 
-### Test Scenario Generator
+- **test_template_registry.py.old**: Tests for the deprecated template-based approach
+- **test_template_selection.py.old**: Tests for the deprecated template selection methods
 
-`test_scenario_generator.py` provides automatic test scenario generation:
+These files are kept for reference but should not be used in new development.
 
-- `TestScenarioGenerator`: Creates appropriate test scenarios based on app structure
-- Generated scenarios for common app types: calculator, form, todo list, counter
-- Automatic app type detection based on component structure and naming
+## Usage
 
-### Test Runner
+To run the full test suite:
 
-`run_tests.py` provides a command-line interface for running tests:
-
-```
-python run_tests.py --file app_config.json --type calculator
-python run_tests.py --request "Create a calculator app" --type auto
+```bash
+python run_tests.py
 ```
 
-## Enhanced Validation in ComponentService
+To run a specific test:
 
-The `_validate_action_handlers` method in `components/service.py` has been enhanced with:
+```bash
+python run_tests.py --test=scenario1
+```
 
-1. **Pattern Recognition**: Identifies common event handler structures
-2. **Error Handling Verification**: Checks for and adds missing try/catch blocks
-3. **Component Initialization**: Verifies and adds proper component initialization
-4. **Safety Enhancements**:
-   - Replaces `eval()` with safer alternatives
-   - Adds input validation for forms
-   - Ensures numerical operations have proper parsing
+## Adding Tests
 
-## Usage Examples
+New tests should follow the standard pattern:
 
-### Basic Usage
+1. Create a test scenario in `test_scenario_generator.py`
+2. Define the expected output structure
+3. Create validation rules for the output
+4. Run the test using the test framework
+
+Example:
 
 ```python
-from testing.headless_test_framework import MorpheoTester
-from testing.test_scenario_generator import TestScenarioGenerator
-
-# Load app configuration
-tester = MorpheoTester()
-tester.load_app_from_file("calculator_app.json")
-
-# Generate and run test scenario
-generator = TestScenarioGenerator(app_config)
-test_scenario = generator.generate_calculator_test()
-success, errors = tester.run_test_scenario(test_scenario)
+def test_calculator_app():
+    # Define test parameters
+    prompt = "Create a calculator app"
+    expected_components = ["calculator", "display", "buttons"]
+    
+    # Run the test
+    result = test_framework.run_test(prompt, expected_components)
+    
+    # Validate results
+    assert result.success, "Test failed"
+    assert all(comp in result.components for comp in expected_components), "Missing components"
 ```
 
-### Custom Test Scenarios
+## Configuration
 
-```python
-from testing.headless_test_framework import MorpheoTester, TestScenario, TestStep, DomEvent
-
-# Create custom test steps
-test_steps = [
-    TestStep(
-        event=DomEvent(type="click", target_id="incrementButton"),
-        expected_changes={"counterDisplay": {"text": "1"}},
-        description="Increment counter once"
-    ),
-    TestStep(
-        event=DomEvent(
-            type="input",
-            target_id="nameInput",
-            properties={"value": "Test User"}
-        ),
-        expected_changes={"nameInput": {"value": "Test User"}},
-        description="Enter user name"
-    )
-]
-
-# Create and run custom scenario
-custom_scenario = TestScenario(
-    name="Custom Test",
-    description="Custom test scenario",
-    steps=test_steps
-)
-
-tester = MorpheoTester()
-tester.load_app_json(app_config)
-success, errors = tester.run_test_scenario(custom_scenario)
-```
-
-## Adding New App Types
-
-To add support for a new application type:
-
-1. Create a new generator method in `TestScenarioGenerator`
-2. Update the `detect_app_type` method to recognize the new type
-3. Add the new type to the `generate_test_for_app_type` method
-
-## Running Tests
-
-You can run tests using:
-
-```
-# Run the example tests
-python backend/testing/test_example.py
-
-# Run using the test runner
-python backend/testing/run_tests.py --file your_app.json
-``` 
+The testing framework can be configured through environment variables or a configuration file. See `config.json` for available options. 

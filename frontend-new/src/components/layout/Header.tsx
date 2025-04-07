@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../../store';
 import { logoutAsync } from '../../store/slices/authSlice';
@@ -8,6 +8,7 @@ import { toggleThemeMode } from '../../store/slices/themeSlice';
 const Header: React.FC = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
   const { isAuthenticated, user } = useSelector((state: RootState) => state.auth);
   const { mode } = useSelector((state: RootState) => state.theme);
 
@@ -49,6 +50,16 @@ const Header: React.FC = () => {
                 <Link to="/saved" className="text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
                   Saved UIs
                 </Link>
+                <li>
+                  <Link 
+                    to="/face-detection" 
+                    className={`px-4 py-2 rounded transition-colors ${
+                      location.pathname === '/face-detection' ? 'bg-blue-500 text-white' : 'hover:bg-gray-100'
+                    }`}
+                  >
+                    Face Detection
+                  </Link>
+                </li>
               </nav>
               
               <button

@@ -152,3 +152,74 @@ MIT
 You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
 
 To learn React, check out the [React documentation](https://reactjs.org/).
+
+## Development
+
+### Getting Started
+
+1. Install dependencies:
+```bash
+npm install
+```
+
+2. Start the development server:
+```bash
+npm start
+```
+
+### Building for Production
+
+```bash
+npm run build
+```
+
+## Code Organization
+
+### Components
+
+- `src/components/ui`: Core UI components used by the app
+- `src/components/generator`: Components for the UI generation process
+- `src/components/preview`: Components for previewing generated UIs
+- `src/components/saved`: Components for managing saved UIs
+- `src/components/auth`: Authentication-related components
+- `src/components/dashboard`: Dashboard components
+
+### Examples
+
+- `src/examples`: Example components demonstrating proper patterns
+- `src/examples/archive`: Archived examples from previous approaches (not for production use)
+
+### Archived Components
+
+The `src/examples/archive` directory contains components from previous architectural approaches that are no longer used in production. These files:
+
+1. Are kept for reference purposes only
+2. Should not be imported or used in new code
+3. Are excluded from TypeScript checking in `tsconfig.json`
+4. Include a warning comment at the top indicating they are archived
+
+When reviewing the codebase, always refer to the active examples in `src/examples` (non-archived) for current best practices.
+
+## State Management
+
+Morpheo uses Redux for global state management:
+
+- `src/store`: Contains Redux store configuration
+- `src/store/slices`: Redux Toolkit slices for different parts of the application
+
+## Testing
+
+Run tests with:
+
+```bash
+npm test
+```
+
+## Architecture
+
+Morpheo follows a component-based architecture where:
+
+1. Components are generic building blocks
+2. The AI determines how components are combined
+3. Components communicate through well-defined interfaces
+4. Business logic is kept separate from UI elements

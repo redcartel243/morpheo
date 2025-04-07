@@ -6,9 +6,15 @@ import reportWebVitals from './reportWebVitals';
 import { Provider } from 'react-redux';
 import { store } from './store';
 
+// Register all components with the component registry
+import { registerAllComponents } from './components/ui/ComponentRegistry';
+
 // Initialize intelligent components
 import './components/ui/intelligent/components/Button';
 import './components/ui/intelligent/components/TextInput';
+
+// Initialize component registry
+registerAllComponents();
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
