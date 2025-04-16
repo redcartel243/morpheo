@@ -194,6 +194,31 @@ const Dashboard: React.FC = () => {
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+            <div className="h-48 bg-gradient-to-r from-blue-400 to-purple-500 flex items-center justify-center p-6">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-20 w-20 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+            </div>
+            <div className="p-6">
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white">AI Chart Generator</h3>
+              <p className="mt-2 text-gray-600 dark:text-gray-400">
+                Generate dynamic, domain-agnostic charts using Gemini's structured output. Demonstrates how to use AI for component configuration without domain-specific implementations.
+              </p>
+              <div className="mt-4">
+                <Link 
+                  to="/chart-generator" 
+                  className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-md hover:from-blue-600 hover:to-purple-700 transition-all"
+                >
+                  Try it out
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H5a1 1 0 110-2h7.586l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </Link>
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
             <div className="h-48 bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
               <span className="text-gray-500 dark:text-gray-400">Calculator Preview</span>
             </div>
@@ -248,7 +273,7 @@ const Dashboard: React.FC = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
             <div className="h-48 bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
               <span className="text-gray-500 dark:text-gray-400">Todo App Preview</span>

@@ -25,9 +25,10 @@ class ConnectionManagerImpl implements ConnectionManager {
   private connections: Record<string, Connection> = {};
   private componentConnections: Record<string, string[]> = {};
   private static instance: ConnectionManagerImpl;
+  private typeCompatibilityRules: Map<DataType, Set<DataType>> = new Map();
 
   private constructor() {
-    // Singleton implementation
+    this.initializeTypeCompatibilityRules();
   }
 
   /**
@@ -38,6 +39,32 @@ class ConnectionManagerImpl implements ConnectionManager {
       ConnectionManagerImpl.instance = new ConnectionManagerImpl();
     }
     return ConnectionManagerImpl.instance;
+  }
+
+  private initializeTypeCompatibilityRules() {
+    // Initialize all types as compatible with themselves
+    Object.values(DataType).forEach(type => {
+      this.typeCompatibilityRules.set(type, new Set([type]));
+    });
+
+    // Add base compatibility rules
+    this.addTypeCompatibility(DataType.NUMBER, DataType.TEXT);
+    this.addTypeCompatibility(DataType.BOOLEAN, DataType.TEXT);
+    this.addTypeCompatibility(DataType.TEXT, DataType.OBJECT);
+    
+    // OBJECT type is special - it can potentially be compatible with any type
+    // This will be checked at runtime
+    Object.values(DataType).forEach(type => {
+      if (type !== DataType.OBJECT) {
+        this.addTypeCompatibility(DataType.OBJECT, type);
+      }
+    });
+  }
+
+  private addTypeCompatibility(sourceType: DataType, targetType: DataType) {
+    const compatibleTypes = this.typeCompatibilityRules.get(sourceType) || new Set();
+    compatibleTypes.add(targetType);
+    this.typeCompatibilityRules.set(sourceType, compatibleTypes);
   }
 
   /**
@@ -361,22 +388,8 @@ class ConnectionManagerImpl implements ConnectionManager {
    * Check if two data types are compatible
    */
   private areTypesCompatible(sourceType: DataType, targetType: DataType): boolean {
-    // Same types are always compatible
-    if (sourceType === targetType) return true;
-    
-    // Number -> Text is allowed
-    if (sourceType === DataType.NUMBER && targetType === DataType.TEXT) return true;
-    
-    // Boolean -> Text is allowed
-    if (sourceType === DataType.BOOLEAN && targetType === DataType.TEXT) return true;
-    
-    // TEXT -> JSON is allowed (assuming valid JSON)
-    if (sourceType === DataType.TEXT && targetType === DataType.OBJECT) return true;
-    
-    // OBJECT -> any other type might be compatible depending on runtime value
-    if (sourceType === DataType.OBJECT) return true;
-    
-    return false;
+    const compatibleTypes = this.typeCompatibilityRules.get(sourceType);
+    return compatibleTypes ? compatibleTypes.has(targetType) : false;
   }
 
   /**

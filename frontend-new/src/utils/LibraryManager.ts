@@ -38,8 +38,8 @@ const libraryRegistry: Record<string, {
     global: 'd3'
   },
   'chart.js': {
-    url: (version) => `https://cdn.jsdelivr.net/npm/chart.js@${version}/dist/chart.umd.min.js`,
-    defaultVersion: '4.4.0',
+    url: (version) => `https://cdn.jsdelivr.net/npm/chart.js@${version}/dist/Chart.min.js`,
+    defaultVersion: '3.7.0',
     global: 'Chart'
   },
   'plotly.js': {
@@ -182,11 +182,6 @@ const libraryRegistry: Record<string, {
     defaultVersion: '0.12.2',
     global: 'ml5'
   },
-  'face-api.js': {
-    url: (version) => `https://cdn.jsdelivr.net/npm/face-api.js@${version}/dist/face-api.min.js`,
-    defaultVersion: '0.22.2',
-    global: 'faceapi'
-  },
 
   // 3D and Graphics
   'three': {
@@ -283,23 +278,6 @@ const specialLoadHandlers: Record<string, (version?: string) => Promise<void>> =
       script.onerror = () => reject(new Error('Failed to load Monaco Editor'));
       document.head.appendChild(script);
     });
-  },
-  
-  'face-api.js': async (version?: string) => {
-    // Wait a moment to ensure face-api is fully initialized
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    const faceapi = (window as any).faceapi;
-    if (faceapi && faceapi.nets && faceapi.nets.tinyFaceDetector) {
-      try {
-        console.log('Auto-loading TinyFaceDetector model for face-api.js');
-        const MODEL_URL = 'https://rawcdn.githack.com/justadudewhohacks/face-api.js/87919f5a1c5c16da2f0a4cbac32d5e6f1f5b9c66/weights';
-        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        console.log('TinyFaceDetector model loaded successfully');
-      } catch (err) {
-        console.error('Failed to auto-load TinyFaceDetector model:', err);
-      }
-    }
   }
 };
 

@@ -33,8 +33,18 @@ const UIPreview: React.FC = () => {
     
     // Function to count components recursively
     const countComponents = (component: any) => {
-      // Count the component type
-      const type = component.type?.toLowerCase() || 'unknown';
+      // Count the component type - ensure canvas is properly counted
+      // Handle both 'canvas' type and canvas element in HTML
+      const rawType = component.type?.toLowerCase() || 'unknown';
+      
+      // Normalize component types - group similar components together
+      let type = rawType;
+      
+      // Special handling for canvas detection
+      if (rawType === 'canvas' || (component.id && component.id.toLowerCase().includes('drawing'))) {
+        type = 'Canvas';
+      }
+      
       stats[type] = (stats[type] || 0) + 1;
       
       // Count children recursively
@@ -227,34 +237,25 @@ const UIPreview: React.FC = () => {
                 width="100%" 
               />
             ) : (
-              <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                <p>No components found in this UI configuration.</p>
-                <button 
-                  onClick={handleBackToGenerator}
-                  className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  Create New UI
-                </button>
+              <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+                No components to display
               </div>
             )
           ) : (
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+            <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+              Failed to load UI configuration
             </div>
           )}
         </div>
       </div>
       
       {/* Configuration Details */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-8">
         <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
           Configuration Details
         </h2>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <h3 className="text-md font-medium text-gray-900 dark:text-white mb-2">
               Components
@@ -270,15 +271,6 @@ const UIPreview: React.FC = () => {
             </h3>
             <p className="text-gray-600 dark:text-gray-400">
               {activeConfig?.layout?.type || 'default'}
-            </p>
-          </div>
-          
-          <div>
-            <h3 className="text-md font-medium text-gray-900 dark:text-white mb-2">
-              Theme
-            </h3>
-            <p className="text-gray-600 dark:text-gray-400">
-              {activeConfig?.theme?.colors ? Object.keys(activeConfig.theme.colors).length : 0} color variables
             </p>
           </div>
         </div>

@@ -7,10 +7,8 @@ import axios from 'axios';
 import './App.css';
 import { createBrowserRouter } from 'react-router-dom';
 import Layout from './components/layout/Layout';
-import FaceDetectionApp from './examples/FaceDetectionApp';
-import PopulationComparisonChart from './examples/PopulationComparisonChart';
-import MorpheoPopulationChart from './examples/MorpheoPopulationChart';
-import SimplifiedChart from './examples/SimplifiedChart';
+import ChartGeneratorPage from './pages/ChartGeneratorPage';
+import DataSeriesPage from './pages/DataSeriesPage';
 
 // Import components
 import Header from './components/layout/Header';
@@ -32,7 +30,6 @@ import { registerAllComponents } from './components/ui/ComponentRegistry';
 
 // Lazy load components to reduce initial bundle size
 // const ChartsExample = lazy(() => import('./examples/ChartsExample'));
-const BitcoinChart = lazy(() => import('./examples/BitcoinChart'));
 const AsyncComponentExample = lazy(() => import('./examples/AsyncComponentExample'));
 const DynamicLibraryExample = lazy(() => import('./examples/DynamicLibraryExample'));
 
@@ -180,9 +177,10 @@ function App() {
                 </ProtectedRoute>
               } />
               <Route path="/test" element={<TestPage />} />
-              <Route path="/bitcoin-chart" element={
+              {/* AI-powered chart generator */}
+              <Route path="/chart-generator" element={
                 <Suspense fallback={<div>Loading...</div>}>
-                  <BitcoinChart />
+                  <ChartGeneratorPage />
                 </Suspense>
               } />
               {/* Comment out the route to ChartsExample */}
@@ -197,24 +195,9 @@ function App() {
                   <DynamicLibraryExample />
                 </Suspense>
               } />
-              <Route path="/face-detection" element={
+              <Route path="/data-series" element={
                 <Suspense fallback={<div>Loading...</div>}>
-                  <FaceDetectionApp />
-                </Suspense>
-              } />
-              <Route path="/examples/population-chart" element={
-                <Suspense fallback={<div>Loading...</div>}>
-                  <PopulationComparisonChart />
-                </Suspense>
-              } />
-              <Route path="/examples/morpheo-population" element={
-                <Suspense fallback={<div>Loading...</div>}>
-                  <MorpheoPopulationChart />
-                </Suspense>
-              } />
-              <Route path="/examples/simple-chart" element={
-                <Suspense fallback={<div>Loading...</div>}>
-                  <SimplifiedChart />
+                  <DataSeriesPage />
                 </Suspense>
               } />
               <Route path="*" element={<NotFound />} />

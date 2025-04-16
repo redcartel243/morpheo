@@ -193,14 +193,28 @@ export const { clearError, setUser } = authSlice.actions;
 // Setup Firebase auth state listener
 export const setupAuthListener = (dispatch: any) => {
   return auth.onAuthStateChanged((user: any) => {
-    dispatch(setUser(user));
-    
-    // Set axios headers if user is logged in
+    // Map Firebase user object to a plain serializable object
     if (user) {
+      // Create a serializable user object
+      const serializableUser = {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL,
+        emailVerified: user.emailVerified,
+        isAnonymous: user.isAnonymous,
+        createdAt: user.metadata?.creationTime,
+        lastLoginAt: user.metadata?.lastSignInTime
+      };
+      
+      dispatch(setUser(serializableUser));
+      
+      // Set axios headers if user is logged in
       user.getIdToken().then((token: string) => {
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       });
     } else {
+      dispatch(setUser(null));
       delete axios.defaults.headers.common['Authorization'];
     }
   });

@@ -11,6 +11,7 @@ import {
 import { componentRegistry } from '../ComponentRegistry';
 import { withIntelligentComponent } from '../IntelligentComponent';
 import { useTheme } from '../../theme/ThemeProvider';
+import './Select.css'; // Import the CSS file with animations
 
 /**
  * Define Select capabilities
@@ -25,6 +26,34 @@ const selectCapabilities: ComponentCapability[] = [
         id: 'change',
         name: 'Selection Change Event',
         description: 'Triggered when the selected option changes',
+        type: DataType.OBJECT,
+        direction: 'output'
+      },
+      {
+        id: 'focus',
+        name: 'Focus Event',
+        description: 'Triggered when the select is focused',
+        type: DataType.OBJECT,
+        direction: 'output'
+      },
+      {
+        id: 'blur',
+        name: 'Blur Event',
+        description: 'Triggered when the select loses focus',
+        type: DataType.OBJECT,
+        direction: 'output'
+      },
+      {
+        id: 'open',
+        name: 'Open Event',
+        description: 'Triggered when the select dropdown opens',
+        type: DataType.OBJECT,
+        direction: 'output'
+      },
+      {
+        id: 'close',
+        name: 'Close Event',
+        description: 'Triggered when the select dropdown closes',
         type: DataType.OBJECT,
         direction: 'output'
       },
@@ -66,6 +95,61 @@ const selectCapabilities: ComponentCapability[] = [
         type: DataType.TEXT,
         direction: 'input',
         defaultValue: 'Select an option...'
+      },
+      {
+        id: 'loading',
+        name: 'Loading State',
+        description: 'Whether the options are currently loading',
+        type: DataType.BOOLEAN,
+        direction: 'input',
+        defaultValue: false
+      },
+      {
+        id: 'error',
+        name: 'Error State',
+        description: 'Error message to display',
+        type: DataType.TEXT,
+        direction: 'input',
+        defaultValue: ''
+      }
+    ]
+  },
+  {
+    id: 'behavior',
+    name: 'Behavior Properties',
+    description: 'Capabilities related to the select behavior',
+    connectionPoints: [
+      {
+        id: 'multiple',
+        name: 'Multiple Selection',
+        description: 'Whether multiple options can be selected',
+        type: DataType.BOOLEAN,
+        direction: 'input',
+        defaultValue: false
+      },
+      {
+        id: 'searchable',
+        name: 'Searchable',
+        description: 'Whether the options can be searched',
+        type: DataType.BOOLEAN,
+        direction: 'input',
+        defaultValue: false
+      },
+      {
+        id: 'clearable',
+        name: 'Clearable',
+        description: 'Whether the selection can be cleared',
+        type: DataType.BOOLEAN,
+        direction: 'input',
+        defaultValue: false
+      },
+      {
+        id: 'maxItems',
+        name: 'Maximum Items',
+        description: 'Maximum number of items that can be selected (for multiple)',
+        type: DataType.NUMBER,
+        direction: 'input',
+        defaultValue: null
       }
     ]
   },
@@ -97,19 +181,73 @@ const selectCapabilities: ComponentCapability[] = [
         type: DataType.TEXT,
         direction: 'input',
         defaultValue: 'medium'
+      },
+      {
+        id: 'dropdownPosition',
+        name: 'Dropdown Position',
+        description: 'Position of the dropdown relative to the input',
+        type: DataType.TEXT,
+        direction: 'input',
+        defaultValue: 'bottom'
+      },
+      {
+        id: 'animation',
+        name: 'Animation Type',
+        description: 'Type of animation for the dropdown',
+        type: DataType.TEXT,
+        direction: 'input',
+        defaultValue: 'fade-down'
+      }
+    ]
+  },
+  {
+    id: 'state',
+    name: 'State Management',
+    description: 'Capabilities related to select state',
+    connectionPoints: [
+      {
+        id: 'state',
+        name: 'Select State',
+        description: 'Current state of the select',
+        type: DataType.OBJECT,
+        direction: 'bidirectional',
+        defaultValue: {
+          isOpen: false,
+          isFocused: false,
+          searchQuery: '',
+          selectedOption: null,
+          selectedOptions: []
+        }
       }
     ]
   }
 ];
 
 // Define Select variant and size types
-type SelectVariant = 'default' | 'outlined' | 'filled';
-type SelectSize = 'small' | 'medium' | 'large';
+type SelectVariant = 'default' | 'outlined' | 'filled' | 'custom';
+type SelectSize = 'small' | 'medium' | 'large' | 'custom';
+type DropdownPosition = 'top' | 'bottom';
+type DropdownAnimation = 'fade-down' | 'fade-up' | 'none';
+
 type SelectOption = {
   value: string | number;
   label: string;
   disabled?: boolean;
+  group?: string;
+  icon?: React.ReactNode;
+  [key: string]: any;
 };
+
+// Interface for select state
+interface SelectState {
+  isOpen: boolean;
+  isFocused: boolean;
+  searchQuery: string;
+  selectedOption: SelectOption | null;
+  selectedOptions: SelectOption[];
+  filteredOptions: SelectOption[];
+  [key: string]: any;
+}
 
 /**
  * Props for the Intelligent Select Component
@@ -127,116 +265,56 @@ interface IntelligentSelectProps {
   label?: string;
   options?: SelectOption[];
   value?: any;
-  onChange?: (value: any, option?: SelectOption) => void;
+  onChange?: (value: any, option?: SelectOption | SelectOption[]) => void;
   placeholder?: string;
   variant?: SelectVariant;
   size?: SelectSize;
   disabled?: boolean;
   className?: string;
   testId?: string;
+  
+  // Enhanced props
+  multiple?: boolean;
+  searchable?: boolean;
+  clearable?: boolean;
+  loading?: boolean;
+  error?: string;
+  maxItems?: number;
+  dropdownPosition?: DropdownPosition;
+  animation?: DropdownAnimation;
+  
+  // Event handlers
+  onFocus?: (event: React.FocusEvent<HTMLDivElement>) => void;
+  onBlur?: (event: React.FocusEvent<HTMLDivElement>) => void;
+  onOpen?: () => void;
+  onClose?: () => void;
+  
+  // Customization props
+  renderOption?: (option: SelectOption, isSelected: boolean) => React.ReactNode;
+  renderSelectedValue?: (option: SelectOption | SelectOption[] | null) => React.ReactNode;
+  
+  // Style props
+  style?: React.CSSProperties;
+  dropdownStyle?: React.CSSProperties;
+  optionStyle?: React.CSSProperties;
+  
+  // State management props
+  initialState?: Partial<SelectState>;
+  onStateChange?: (newState: SelectState) => void;
 }
 
 /**
- * Get styles based on select variant and theme
+ * Get animation class name based on animation type
  */
-const getSelectStyles = (
-  variant: SelectVariant, 
-  size: SelectSize,
-  isOpen: boolean,
-  disabled: boolean
-): {
-  container: React.CSSProperties;
-  select: React.CSSProperties;
-  dropdown: React.CSSProperties;
-  option: React.CSSProperties;
-  label: React.CSSProperties;
-} => {
-  const paddingMap = {
-    small: '0.5rem',
-    medium: '0.75rem',
-    large: '1rem'
-  };
-  
-  const fontSizeMap = {
-    small: '0.875rem',
-    medium: '1rem',
-    large: '1.125rem'
-  };
-  
-  const heightMap = {
-    small: '2rem',
-    medium: '2.5rem',
-    large: '3rem'
-  };
-  
-  // Container styles
-  const container: React.CSSProperties = {
-    position: 'relative',
-    width: '100%',
-    maxWidth: '20rem',
-    fontFamily: 'sans-serif'
-  };
-  
-  // Select input styles
-  const select: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    width: '100%',
-    height: heightMap[size],
-    padding: `0 ${paddingMap[size]}`,
-    fontSize: fontSizeMap[size],
-    backgroundColor: variant === 'filled' ? '#f1f5f9' : '#ffffff',
-    border: variant === 'default' ? '1px solid #cbd5e1' : variant === 'outlined' ? '2px solid #94a3b8' : 'none',
-    borderRadius: '0.25rem',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    opacity: disabled ? 0.7 : 1,
-    position: 'relative',
-    boxSizing: 'border-box',
-    userSelect: 'none',
-    transition: 'all 0.2s ease',
-    color: disabled ? '#94a3b8' : '#1e293b'
-  };
-  
-  if (isOpen && !disabled) {
-    select.borderColor = '#3b82f6';
-    select.boxShadow = '0 0 0 2px rgba(59, 130, 246, 0.2)';
+const getAnimationClassName = (animation: DropdownAnimation): string => {
+  switch (animation) {
+    case 'fade-down':
+      return 'select-dropdown-fade-down';
+    case 'fade-up':
+      return 'select-dropdown-fade-up';
+    default:
+      return '';
   }
-  
-  // Dropdown styles
-  const dropdown: React.CSSProperties = {
-    position: 'absolute',
-    top: 'calc(100% + 0.25rem)',
-    left: 0,
-    width: '100%',
-    maxHeight: '12rem',
-    overflowY: 'auto',
-    backgroundColor: '#ffffff',
-    border: '1px solid #e2e8f0',
-    borderRadius: '0.25rem',
-    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-    zIndex: 10,
-    display: isOpen ? 'block' : 'none'
-  };
-  
-  // Option styles
-  const option: React.CSSProperties = {
-    padding: paddingMap[size],
-    fontSize: fontSizeMap[size],
-    cursor: 'pointer',
-    transition: 'background-color 0.2s ease',
-    color: '#1e293b'
-  };
-  
-  // Label styles
-  const label: React.CSSProperties = {
-    display: 'block',
-    marginBottom: '0.5rem',
-    fontSize: fontSizeMap[size] === '1.125rem' ? '1rem' : fontSizeMap[size],
-    fontWeight: 500,
-    color: '#475569'
-  };
-  
-  return { container, select, dropdown, option, label };
 };
 
 /**
@@ -253,12 +331,41 @@ const IntelligentSelectBase: React.FC<IntelligentSelectProps> = ({
   options: propOptions = [],
   value: propValue,
   onChange,
-  placeholder: propPlaceholder,
+  placeholder: propPlaceholder = 'Select an option...',
   variant: propVariant = 'default',
   size = 'medium',
-  disabled: propDisabled,
+  disabled: propDisabled = false,
   className,
   testId,
+  
+  // Enhanced props
+  multiple: propMultiple = false,
+  searchable: propSearchable = false,
+  clearable: propClearable = false,
+  loading: propLoading = false,
+  error: propError = '',
+  maxItems: propMaxItems,
+  dropdownPosition: propDropdownPosition = 'bottom',
+  animation: propAnimation = 'fade-down',
+  
+  // Event handlers
+  onFocus,
+  onBlur,
+  onOpen,
+  onClose,
+  
+  // Customization props
+  renderOption,
+  renderSelectedValue,
+  
+  // Style props
+  style,
+  dropdownStyle,
+  optionStyle,
+  
+  // State management props
+  initialState = {},
+  onStateChange,
   ...rest
 }) => {
   // Get values from connections if available
@@ -266,159 +373,542 @@ const IntelligentSelectBase: React.FC<IntelligentSelectProps> = ({
   const connectionOptions = getConnectionValue?.('options');
   const connectionValue = getConnectionValue?.('value');
   const connectionPlaceholder = getConnectionValue?.('placeholder');
+  const connectionDisabled = getConnectionValue?.('enabled') !== undefined ? !getConnectionValue?.('enabled') : undefined;
   const connectionVariant = getConnectionValue?.('variant');
-  const connectionEnabled = getConnectionValue?.('enabled');
+  const connectionMultiple = getConnectionValue?.('multiple');
+  const connectionSearchable = getConnectionValue?.('searchable');
+  const connectionClearable = getConnectionValue?.('clearable');
+  const connectionLoading = getConnectionValue?.('loading');
+  const connectionError = getConnectionValue?.('error');
+  const connectionMaxItems = getConnectionValue?.('maxItems');
+  const connectionDropdownPosition = getConnectionValue?.('dropdownPosition');
+  const connectionAnimation = getConnectionValue?.('animation');
+  const connectionState = getConnectionValue?.('state');
   
   // Use connection values or props
   const label = connectionLabel || propLabel || '';
   const options = connectionOptions || propOptions || [];
   const value = connectionValue !== undefined ? connectionValue : propValue;
-  const placeholder = connectionPlaceholder || propPlaceholder || 'Select an option...';
+  const placeholder = connectionPlaceholder || propPlaceholder || '';
+  const disabled = connectionDisabled !== undefined ? connectionDisabled : propDisabled;
   const variant = (connectionVariant || propVariant || 'default') as SelectVariant;
-  const disabled = connectionEnabled === false || propDisabled === true;
+  const multiple = connectionMultiple !== undefined ? connectionMultiple : propMultiple;
+  const searchable = connectionSearchable !== undefined ? connectionSearchable : propSearchable;
+  const clearable = connectionClearable !== undefined ? connectionClearable : propClearable;
+  const loading = connectionLoading !== undefined ? connectionLoading : propLoading;
+  const error = connectionError || propError || '';
+  const maxItems = connectionMaxItems !== undefined ? connectionMaxItems : propMaxItems;
+  const dropdownPosition = (connectionDropdownPosition || propDropdownPosition || 'bottom') as DropdownPosition;
+  const animation = (connectionAnimation || propAnimation || 'fade-down') as DropdownAnimation;
   
-  // Local state for dropdown open/close
-  const [isOpen, setIsOpen] = useState(false);
-  // Add hover state tracking
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const selectRef = useRef<HTMLDivElement>(null);
+  // Refs
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   
-  // Find the currently selected option
-  const selectedOption = options.find((opt: SelectOption) => opt.value === value);
+  // Find the selected option(s) from value
+  const findSelectedOption = (optionValue: any): SelectOption | null => {
+    return options.find((option: SelectOption) => option.value === optionValue) || null;
+  };
+  
+  const findSelectedOptions = (values: any[]): SelectOption[] => {
+    return values.map(v => findSelectedOption(v)).filter(Boolean) as SelectOption[];
+  };
+  
+  // Initialize state from props/connections with defaults
+  const [state, setState] = useState<SelectState>(() => {
+    // Default state
+    let defaultState: SelectState = {
+      isOpen: false,
+      isFocused: false,
+      searchQuery: '',
+      selectedOption: null,
+      selectedOptions: [],
+      filteredOptions: options,
+    };
+    
+    // Set initial selected option(s) based on value
+    if (value !== undefined) {
+      if (multiple && Array.isArray(value)) {
+        defaultState.selectedOptions = findSelectedOptions(value);
+      } else if (!multiple && value !== null && value !== '') {
+        defaultState.selectedOption = findSelectedOption(value);
+      }
+    }
+    
+    // Apply custom initial state
+    return {
+      ...defaultState,
+      ...initialState,
+      ...(connectionState || {})
+    };
+  });
+  
+  // Update state function that also emits events
+  const updateState = useCallback((updates: Partial<SelectState>) => {
+    setState(prevState => {
+      const newState = { ...prevState, ...updates };
+      
+      // Send state update through the component system
+      if (sendEvent && componentId) {
+        sendEvent(ComponentEventType.STATE_CHANGE, 'state', newState);
+      }
+      
+      // Call the prop onStateChange if provided
+      if (onStateChange) {
+        onStateChange(newState);
+      }
+      
+      return newState;
+    });
+  }, [componentId, sendEvent, onStateChange]);
+  
+  // Update filtered options when search query changes
+  useEffect(() => {
+    if (searchable) {
+      const query = state.searchQuery.toLowerCase();
+      const filtered = options.filter((option: SelectOption) => 
+        option.label.toLowerCase().includes(query)
+      );
+      updateState({ filteredOptions: filtered });
+    } else {
+      updateState({ filteredOptions: options });
+    }
+  }, [searchable, options, state.searchQuery, updateState]);
+  
+  // Filter options on search
+  const handleSearch = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const query = e.target.value;
+    updateState({ searchQuery: query });
+  }, [updateState]);
+  
+  // Update from external value changes
+  useEffect(() => {
+    if (value !== undefined) {
+      if (multiple && Array.isArray(value)) {
+        const selectedOptions = findSelectedOptions(value);
+        updateState({ selectedOptions });
+      } else if (!multiple && value !== null) {
+        const selectedOption = findSelectedOption(value);
+        updateState({ selectedOption });
+      }
+    }
+  }, [value, multiple, options, updateState]);
+  
+  // Open/close dropdown when isOpen state changes
+  useEffect(() => {
+    // Focus search input when dropdown opens if searchable
+    if (state.isOpen && searchable && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+    
+    // Emit open/close events
+    if (state.isOpen) {
+      if (sendEvent && componentId) {
+        sendEvent(ComponentEventType.CUSTOM, 'open', {
+          timestamp: new Date().toISOString()
+        });
+      }
+      if (onOpen) {
+        onOpen();
+      }
+    } else {
+      if (sendEvent && componentId) {
+        sendEvent(ComponentEventType.CUSTOM, 'close', {
+          timestamp: new Date().toISOString()
+        });
+      }
+      if (onClose) {
+        onClose();
+      }
+      
+      // Clear search query when dropdown closes
+      if (searchable) {
+        updateState({ searchQuery: '' });
+      }
+    }
+  }, [state.isOpen, searchable, componentId, sendEvent, onOpen, onClose, updateState]);
   
   // Handle click outside to close dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (selectRef.current && !selectRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        updateState({ isOpen: false });
       }
     };
     
+    if (state.isOpen) {
     document.addEventListener('mousedown', handleClickOutside);
+    }
+    
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, []);
+  }, [state.isOpen, updateState]);
   
-  // Toggle dropdown
-  const handleToggleDropdown = () => {
+  // Toggle dropdown state
+  const handleToggleDropdown = useCallback(() => {
     if (!disabled) {
-      setIsOpen(!isOpen);
+      updateState({ isOpen: !state.isOpen });
     }
-  };
+  }, [disabled, state.isOpen, updateState]);
   
   // Handle option selection
-  const handleSelectOption = (option: SelectOption) => {
+  const handleSelectOption = useCallback((option: SelectOption) => {
     if (option.disabled) return;
     
-    // Create payload for the event
-    const payload = {
+    if (multiple) {
+      // For multiple selection
+      const isSelected = state.selectedOptions.some(
+        selected => selected.value === option.value
+      );
+      
+      let newSelectedOptions: SelectOption[];
+      
+      if (isSelected) {
+        // Remove option if already selected
+        newSelectedOptions = state.selectedOptions.filter(
+          selected => selected.value !== option.value
+        );
+      } else {
+        // Add option if not exceeding maxItems
+        if (maxItems && state.selectedOptions.length >= maxItems) {
+          // Replace the last item if maxItems is reached
+          const newOptions = [...state.selectedOptions];
+          newOptions.pop();
+          newSelectedOptions = [...newOptions, option];
+        } else {
+          newSelectedOptions = [...state.selectedOptions, option];
+        }
+      }
+      
+      updateState({ selectedOptions: newSelectedOptions });
+      
+      // Call onChange with array of values
+      if (onChange) {
+        onChange(
+          newSelectedOptions.map(opt => opt.value),
+          newSelectedOptions
+        );
+      }
+      
+      // Send change event through component system
+      if (sendEvent && componentId) {
+        sendEvent(ComponentEventType.CHANGE, 'change', {
+          timestamp: new Date().toISOString(),
+          value: newSelectedOptions.map(opt => opt.value),
+          options: newSelectedOptions
+        });
+      }
+      
+      // Don't close the dropdown for multiple selection
+    } else {
+      // For single selection
+      updateState({ 
+        selectedOption: option,
+        isOpen: false 
+      });
+      
+      // Call onChange with single value
+      if (onChange) {
+        onChange(option.value, option);
+      }
+      
+      // Send change event through component system
+      if (sendEvent && componentId) {
+        sendEvent(ComponentEventType.CHANGE, 'change', {
+          timestamp: new Date().toISOString(),
       value: option.value,
-      label: option.label,
-      timestamp: new Date().toISOString()
-    };
+          option
+        });
+      }
+    }
+  }, [multiple, maxItems, state.selectedOptions, state.isOpen, updateState, onChange, sendEvent, componentId]);
+  
+  // Handle focus event
+  const handleFocus = useCallback((e: React.FocusEvent<HTMLDivElement>) => {
+    updateState({ isFocused: true });
     
-    // Send the event through the component system
     if (sendEvent && componentId) {
-      sendEvent(ComponentEventType.CHANGE, 'change', payload);
-      sendEvent(ComponentEventType.USER_INTERACTION, 'value', payload.value);
+      sendEvent(ComponentEventType.FOCUS, 'focus', {
+        timestamp: new Date().toISOString(),
+        event: e
+      });
     }
     
-    // Call the prop onChange if provided
+    if (onFocus) {
+      onFocus(e);
+    }
+  }, [updateState, sendEvent, componentId, onFocus]);
+  
+  // Handle blur event
+  const handleBlur = useCallback((e: React.FocusEvent<HTMLDivElement>) => {
+    // Only update focus state if not clicking within the component
+    if (!containerRef.current?.contains(e.relatedTarget as Node)) {
+      updateState({ isFocused: false });
+      
+      if (sendEvent && componentId) {
+        sendEvent(ComponentEventType.BLUR, 'blur', {
+          timestamp: new Date().toISOString(),
+          event: e
+        });
+      }
+      
+      if (onBlur) {
+        onBlur(e);
+      }
+    }
+  }, [updateState, sendEvent, componentId, onBlur]);
+  
+  // Clear selection
+  const handleClearSelection = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    if (multiple) {
+      updateState({ selectedOptions: [] });
+      
+      if (onChange) {
+        onChange([], []);
+    }
+    } else {
+      updateState({ selectedOption: null });
+      
+      if (onChange) {
+        onChange(null, undefined);
+      }
+    }
+    
+    if (sendEvent && componentId) {
+      sendEvent(ComponentEventType.CHANGE, 'change', {
+        timestamp: new Date().toISOString(),
+        value: multiple ? [] : null
+      });
+    }
+  }, [multiple, updateState, onChange, sendEvent, componentId]);
+  
+  // Remove a selected item in multiple mode
+  const handleRemoveItem = useCallback((e: React.MouseEvent, optionToRemove: SelectOption) => {
+    e.stopPropagation();
+    
+    const newSelectedOptions = state.selectedOptions.filter(
+      option => option.value !== optionToRemove.value
+    );
+    
+    updateState({ selectedOptions: newSelectedOptions });
+    
     if (onChange) {
-      onChange(option.value, option);
+      onChange(
+        newSelectedOptions.map(opt => opt.value),
+        newSelectedOptions
+      );
     }
     
-    // Close the dropdown
-    setIsOpen(false);
-  };
+    if (sendEvent && componentId) {
+      sendEvent(ComponentEventType.CHANGE, 'change', {
+        timestamp: new Date().toISOString(),
+        value: newSelectedOptions.map(opt => opt.value),
+        options: newSelectedOptions
+      });
+    }
+  }, [state.selectedOptions, updateState, onChange, sendEvent, componentId]);
   
-  // Get styles for the component
-  const styles = getSelectStyles(variant, size, isOpen, disabled);
+  // Determine what to display in the select input
+  const getDisplayValue = useCallback(() => {
+    if (multiple) {
+      if (state.selectedOptions.length === 0) {
+        return placeholder;
+      }
+      
+      if (renderSelectedValue) {
+        return renderSelectedValue(state.selectedOptions);
+      }
+      
+      // Display tag count if not rendering in the dropdown
+      return (
+        <div className="select-tags-container">
+          {state.selectedOptions.map(option => (
+            <div key={option.value.toString()} className="select-tag">
+              <span className="select-tag-text">{option.label}</span>
+              {clearable && (
+                <span 
+                  className="select-tag-remove"
+                  onClick={(e) => handleRemoveItem(e, option)}
+                >
+                  ✕
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    } else {
+      if (!state.selectedOption) {
+        return placeholder;
+      }
+      
+      if (renderSelectedValue) {
+        return renderSelectedValue(state.selectedOption);
+      }
+      
+      return state.selectedOption.label;
+    }
+  }, [
+    multiple, 
+    state.selectedOptions, 
+    state.selectedOption, 
+    placeholder, 
+    renderSelectedValue, 
+    clearable, 
+    handleRemoveItem
+  ]);
   
-  // Calculate display text
-  const displayText = selectedOption ? selectedOption.label : placeholder;
+  // Determine if an option is selected
+  const isOptionSelected = useCallback((option: SelectOption) => {
+    if (multiple) {
+      return state.selectedOptions.some(
+        selected => selected.value === option.value
+      );
+    }
+    
+    return state.selectedOption?.value === option.value;
+  }, [multiple, state.selectedOptions, state.selectedOption]);
+  
+  // Determine CSS classes
+  const selectContainerClass = [
+    'select-container',
+    `select-variant-${variant}`,
+    className,
+    disabled ? 'select-disabled' : '',
+    state.isFocused ? 'select-focused' : '',
+    error ? 'select-error' : ''
+  ].filter(Boolean).join(' ');
+  
+  const dropdownClass = [
+    'select-dropdown',
+    getAnimationClassName(animation)
+  ].filter(Boolean).join(' ');
+  
+  const chevronClass = [
+    'select-chevron',
+    state.isOpen ? 'select-chevron-open' : ''
+  ].filter(Boolean).join(' ');
   
   return (
     <div 
-      ref={selectRef}
-      style={styles.container} 
-      className={className}
+      ref={containerRef}
+      className={selectContainerClass}
+      tabIndex={disabled ? -1 : 0}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
       data-testid={testId}
+      {...rest}
     >
-      {label && <label style={styles.label}>{label}</label>}
+      {label && (
+        <label className="select-label">
+          {label}
+        </label>
+      )}
       
       <div 
-        style={styles.select}
+        className={`select-input select-variant-${variant}`}
         onClick={handleToggleDropdown}
-        role="combobox"
-        aria-expanded={isOpen}
-        aria-haspopup="listbox"
-        aria-disabled={disabled}
       >
-        <div 
-          style={{ 
-            flex: 1,
-            opacity: selectedOption ? 1 : 0.6
-          }}
-        >
-          {displayText}
+        <div className="select-value">
+          {loading ? (
+            <div className="select-loading-indicator" />
+          ) : null}
+          
+          {getDisplayValue()}
         </div>
         
-        <div style={{ marginLeft: '0.5rem' }}>
-          <svg 
-            width="16" 
-            height="16" 
-            viewBox="0 0 24 24" 
-            fill="none" 
-            stroke="currentColor" 
-            strokeWidth="2" 
-            strokeLinecap="round" 
-            strokeLinejoin="round"
-            style={{
-              transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-              transition: 'transform 0.2s ease'
-            }}
+        <div className="select-actions">
+          {clearable && (state.selectedOption || state.selectedOptions.length > 0) && !disabled ? (
+            <div 
+              className="select-clear"
+              onClick={handleClearSelection}
           >
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
+              ✕
+            </div>
+          ) : null}
+          
+          <div className={chevronClass}>
+            ▼
+          </div>
         </div>
       </div>
       
-      <div 
-        style={styles.dropdown}
-        role="listbox"
-      >
-        {options.length > 0 ? (
-          options.map((option: SelectOption, index: number) => (
+      {error && (
+        <div className="select-error-message">
+          {error}
+        </div>
+      )}
+      
+      {state.isOpen && (
             <div
-              key={`${option.value}-${index}`}
+          ref={dropdownRef}
+          className={dropdownClass}
               style={{
-                ...styles.option,
-                backgroundColor: option.value === value 
-                  ? '#f1f5f9' 
-                  : hoveredIndex === index && !option.disabled
-                    ? '#f8fafc'
-                    : 'transparent',
-                color: option.disabled ? '#94a3b8' : '#1e293b',
-                cursor: option.disabled ? 'not-allowed' : 'pointer'
-              }}
-              onClick={() => !option.disabled && handleSelectOption(option)}
-              onMouseEnter={() => setHoveredIndex(index)}
-              onMouseLeave={() => setHoveredIndex(null)}
-              role="option"
-              aria-selected={option.value === value}
-              aria-disabled={option.disabled}
-            >
-              {option.label}
+            [dropdownPosition === 'top' ? 'bottom' : 'top']: '100%',
+            ...dropdownStyle
+          }}
+        >
+          {searchable && (
+            <div className="select-search">
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={state.searchQuery}
+                onChange={handleSearch}
+                className="select-search-input"
+                placeholder="Search..."
+                onClick={e => e.stopPropagation()}
+              />
             </div>
-          ))
-        ) : (
-          <div style={{ ...styles.option, color: '#94a3b8', cursor: 'default' }}>
+          )}
+          
+          {state.filteredOptions.length === 0 ? (
+            <div className="select-empty">
             No options available
           </div>
+          ) : (
+            state.filteredOptions.map(option => {
+              const isSelected = isOptionSelected(option);
+              const optionClassName = [
+                'select-option',
+                isSelected ? 'select-option-selected' : '',
+                option.disabled ? 'select-option-disabled' : ''
+              ].filter(Boolean).join(' ');
+              
+              return (
+                <div
+                  key={option.value.toString()}
+                  className={optionClassName}
+                  onClick={() => handleSelectOption(option)}
+                  style={optionStyle}
+                >
+                  {renderOption ? (
+                    renderOption(option, isSelected)
+                  ) : (
+                    <div className="select-option-content">
+                      {option.icon && (
+                        <span className="select-option-icon">
+                          {option.icon}
+                        </span>
+                      )}
+                      <span className="select-option-label">
+                        {option.label}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })
         )}
       </div>
+      )}
     </div>
   );
 };
@@ -430,42 +920,30 @@ const selectComponentDefinition: ComponentDefinition = {
   meta: {
     type: ComponentType.SELECT,
     name: 'Select',
-    description: 'A dropdown select component for selecting from a list of options',
-    capabilities: selectCapabilities,
-    defaultProps: {
-      placeholder: 'Select an option...',
-      variant: 'default',
-      size: 'medium',
-      options: []
-    }
+    description: 'An intelligent select component that can be customized and connected to other components',
+    capabilities: selectCapabilities
   },
   initializer: (props: Record<string, any>) => ({
-    id: props.id || `select-${uuidv4()}`,
+    id: props.id || uuidv4(),
     type: ComponentType.SELECT,
     properties: {
-      label: props.label || '',
-      placeholder: props.placeholder || 'Select an option...',
       options: props.options || [],
+      placeholder: props.placeholder || 'Select an option...',
       variant: props.variant || 'default',
-      size: props.size || 'medium',
-      disabled: props.disabled || false,
-      value: props.value
+      size: props.size || 'medium'
     }
   }),
-  renderer: (instance) => {
-    // The actual renderer is provided by the withIntelligentComponent HOC
-    return null;
-  }
+  renderer: () => null // The actual rendering is handled by the HOC
 };
 
-// Register component with the registry
+// Register the component
 componentRegistry.registerComponent(selectComponentDefinition);
 
-// Export the component wrapped with the intelligent component system
-export const IntelligentSelect = withIntelligentComponent<IntelligentSelectProps>(
+// Create the enhanced component with the intelligent component wrapper
+const IntelligentSelect = withIntelligentComponent<IntelligentSelectProps>(
   IntelligentSelectBase,
   ComponentType.SELECT
 );
 
-// Export base component for testing purposes
-export { IntelligentSelectBase }; 
+export { IntelligentSelect };
+export default IntelligentSelect; 

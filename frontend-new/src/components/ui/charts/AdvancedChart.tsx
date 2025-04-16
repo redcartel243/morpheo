@@ -19,7 +19,7 @@ interface AdvancedChartProps {
   title?: string;
   subtitle?: string;
   height?: number;
-  width?: number;
+  width?: number | string;
   libraryPreference?: ChartLibrary;
   colorScheme?: string[];
   options?: any;
@@ -73,62 +73,56 @@ const AdvancedChart: React.FC<AdvancedChartProps> = ({
           ? ['chart.js', 'echarts', 'plotly']
           : [libraryPreference, 'chart.js', 'echarts', 'plotly'];
       
+      let loaded = false;
+      
       // Try each library in order until one loads successfully
       for (const library of librariesToTry) {
+        if (loaded) break;
+        
         try {
-          await loadChartLibrary(library);
-          return;
+          // Load the library based on type
+          switch(library) {
+            case 'chart.js':
+              if (!(window as any).Chart) {
+                const module = await import('chart.js/auto');
+                (window as any).Chart = module.default || module;
+              }
+              renderChartJS();
+              setLoadedLibrary('chart.js');
+              loaded = true;
+              break;
+              
+            case 'echarts':
+              if (!(window as any).echarts) {
+                const module = await import('echarts' as any);
+                (window as any).echarts = module;
+              }
+              renderECharts();
+              setLoadedLibrary('echarts');
+              loaded = true;
+              break;
+              
+            case 'plotly':
+              if (!(window as any).Plotly) {
+                const Plotly = await import('plotly.js-dist' as any);
+                (window as any).Plotly = Plotly.default || Plotly;
+              }
+              renderPlotly();
+              setLoadedLibrary('plotly');
+              loaded = true;
+              break;
+          }
         } catch (err) {
           console.warn(`Failed to load ${library}, trying next library...`, err);
         }
       }
       
-      // If we get here, all libraries failed
-      setError('Failed to load any chart library. Please check your connection or try again.');
+      // If we get here and nothing loaded, all libraries failed
+      if (!loaded) {
+        setError('Failed to load any chart library. Please check your connection or try again.');
+      }
+      
       setLoading(false);
-    };
-
-    // Load Chart.js and create chart
-    const loadChartJS = async () => {
-      try {
-        // Check if Chart.js is already in window
-        if (!(window as any).Chart) {
-          // Dynamic import for Chart.js
-          const Chart = await import('chart.js/auto');
-          (window as any).Chart = Chart.default;
-        }
-        
-        renderChartJS();
-        setLoadedLibrary('chart.js');
-        setLoading(false);
-      } catch (err) {
-        console.error('Failed to load Chart.js:', err);
-        throw err;
-      }
-    };
-
-    // Load ECharts and create chart
-    const loadECharts = async () => {
-      try {
-        // Check if ECharts is already in window
-        if (!(window as any).echarts) {
-          // Dynamic import for ECharts
-          const echarts = await import('echarts' as any);
-          (window as any).echarts = echarts;
-        }
-        
-        renderECharts();
-        setLoadedLibrary('echarts');
-        setLoading(false);
-      } catch (err) {
-        console.error('Failed to load ECharts:', err);
-        throw err;
-      }
-    };
-
-    // Load Plotly.js and create chart
-    const loadPlotly = async (): Promise<any> => {
-      return import('plotly.js-dist' as any);
     };
 
     // Initialize and render Chart.js chart
@@ -138,6 +132,11 @@ const AdvancedChart: React.FC<AdvancedChartProps> = ({
       // Destroy existing chart if any
       if (chartInstance && loadedLibrary === 'chart.js') {
         chartInstance.destroy();
+      }
+      
+      // Set container width if string width is provided
+      if (typeof width === 'string' && width) {
+        chartContainerRef.current.style.width = width;
       }
       
       const Chart = (window as any).Chart;
@@ -224,6 +223,11 @@ const AdvancedChart: React.FC<AdvancedChartProps> = ({
       const echarts = (window as any).echarts;
       chartContainerRef.current.innerHTML = '';
       
+      // Set container width if string width is provided
+      if (typeof width === 'string' && width) {
+        chartContainerRef.current.style.width = width;
+      }
+      
       // Initialize ECharts instance
       const newChartInstance = echarts.init(chartContainerRef.current, theme);
       
@@ -283,6 +287,11 @@ const AdvancedChart: React.FC<AdvancedChartProps> = ({
       if (!chartContainerRef.current) return;
       chartContainerRef.current.innerHTML = '';
       
+      // Set container width if string width is provided
+      if (typeof width === 'string' && width) {
+        chartContainerRef.current.style.width = width;
+      }
+      
       const Plotly = (window as any).Plotly;
       
       // Prepare data for Plotly
@@ -328,7 +337,7 @@ const AdvancedChart: React.FC<AdvancedChartProps> = ({
           }
         },
         height,
-        width: width || undefined,
+        width: typeof width === 'number' ? width : undefined,
         paper_bgcolor: theme === 'dark' ? '#1a1a1a' : '#fff',
         plot_bgcolor: theme === 'dark' ? '#1a1a1a' : '#fff',
         font: {
@@ -397,56 +406,6 @@ const AdvancedChart: React.FC<AdvancedChartProps> = ({
       return chartType;
     };
 
-    // Add the loadChartLibrary function
-    const loadChartLibrary = async (library: ChartLibrary) => {
-      setLoading(true);
-      
-      try {
-        switch(library) {
-          case 'chart.js':
-            if (!(window as any).Chart) {
-              const module = await import('chart.js/auto');
-              (window as any).Chart = module.default || module;
-            }
-            renderChartJS();
-            setLoadedLibrary('chart.js');
-            setLoading(false);
-            break;
-            
-          case 'echarts':
-            if (!(window as any).echarts) {
-              const module = await import('echarts' as any);
-              (window as any).echarts = module;
-            }
-            renderECharts();
-            setLoadedLibrary('echarts');
-            setLoading(false);
-            break;
-            
-          case 'plotly':
-            // Check if Plotly is already in window
-            if (!(window as any).Plotly) {
-              // Dynamic import for Plotly
-              const Plotly = await loadPlotly();
-              (window as any).Plotly = Plotly.default || Plotly;
-            }
-            renderPlotly();
-            setLoadedLibrary('plotly');
-            setLoading(false);
-            break;
-            
-          default:
-            // Try to auto-detect
-            await loadChartJS();
-            break;
-        }
-      } catch (err) {
-        console.error(`Failed to load ${library}:`, err);
-        setError(String(err));
-        setLoading(false);
-      }
-    };
-
     // Start the library loading process
     loadLibraries();
     
@@ -472,7 +431,7 @@ const AdvancedChart: React.FC<AdvancedChartProps> = ({
       className={`advanced-chart-container ${className}`}
       style={{ 
         height: `${height}px`, 
-        width: width ? `${width}px` : '100%', 
+        width: typeof width === 'number' ? `${width}px` : width || '100%', 
         backgroundColor: theme === 'dark' ? '#222' : '#fff',
         padding: '10px',
         borderRadius: '4px'

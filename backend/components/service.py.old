@@ -1,0 +1,1671 @@
+"""
+Component-Based UI Generation Service
+
+This module provides services for component-based UI generation.
+It uses AI (Gemini or OpenAI) to compose components into a complete UI based on user requirements.
+The service no longer relies on templates, instead fully embracing AI-driven component configuration.
+"""
+
+import json
+import os
+import datetime
+import re
+import time
+import random
+import logging
+from typing import Dict, List, Any, Optional, Tuple, Union
+
+# Import OpenAI correctly
+import openai
+try:
+    from openai import OpenAI  # For newer OpenAI version
+except ImportError:
+    OpenAI = None  # We'll handle this in the init method
+
+from dotenv import load_dotenv
+import traceback
+import requests
+from uuid import uuid4
+# Update Gemini imports to use new client-based approach
+try:
+    from google import genai
+    from google.genai import types
+    GEMINI_CLIENT_AVAILABLE = True
+except ImportError:
+    GEMINI_CLIENT_AVAILABLE = False
+    import google.generativeai as genai
+
+from .registry import component_registry
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from modules.tools.registry import tool_registry
+from .response_validator import response_validator, ResponseValidator
+from .response_handler import ResponseHandler
+
+# Import map processing if available
+try:
+    # Add the root directory to the path to find the prompts folder
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sys.path.append(root_dir)
+    from prompts.preprocess_map_prompt import preprocess_map_request
+    from prompts.map_post_processor import fix_map_configuration
+    MAP_PROCESSORS_AVAILABLE = True
+    print("Map processing functions successfully imported from", os.path.join(root_dir, "prompts"))
+except ImportError:
+    print("Warning: Map processors not available. Map component fixes will be disabled.")
+    MAP_PROCESSORS_AVAILABLE = False
+    
+    # Define dummy functions
+    def preprocess_map_request(request_text):
+        return request_text
+        
+    def fix_map_configuration(config_json):
+        return config_json
+
+# Load environment variables
+load_dotenv()
+
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class ComponentService:
+    """
+    Service for AI-driven component-based UI generation.
+    This service uses AI models to generate UI configurations based on user requests,
+    without relying on predefined templates.
+    """
+    
+    # Keywords to identify camera-based applications
+    CAMERA_RELATED_KEYWORDS = [
+        "camera", "webcam", "video", "face recognition", "face detect", 
+        "facial", "image processing", "object detection", "photo capture",
+        "selfie", "picture taking", "media capture"
+    ]
+    
+    def __init__(self, component_registry=None):
+        """
+        Initialize the ComponentService.
+        
+        Args:
+            component_registry: Optional component registry instance. 
+                               If not provided, the default registry will be used.
+        """
+        # Initialize the OpenAI client with API key from environment variable
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if openai_api_key:
+            # Set up the OpenAI client based on available package
+            if OpenAI is not None:
+                # New OpenAI client style (v1.0.0+)
+                self.client = OpenAI(api_key=openai_api_key)
+                self.openai_version = "new"
+            else:
+                # Old OpenAI module style (v0.x)
+                openai.api_key = openai_api_key
+                self.client = None  # Don't store the module
+                self.openai_version = "old"
+        else:
+            logger.warning("OpenAI API key not found. Some features may not work.")
+            self.client = None
+            self.openai_version = None
+        
+        # Use the provided component registry or get the default one
+        from .registry import component_registry as default_registry
+        self.component_registry = component_registry or default_registry
+        
+        self.tool_registry = tool_registry
+        self._component_connections = []  # Initialize connections list
+        self.response_handler = ResponseHandler()  # Add the response handler instance
+        
+        # Configure Gemini API
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
+        if gemini_api_key:
+            if GEMINI_CLIENT_AVAILABLE:
+                # Initialize the Gemini client with the new approach
+                self.gemini_client = genai.Client(api_key=gemini_api_key)
+                self.gemini_version = "new"
+            else:
+                # Fall back to older approach if necessary
+                genai.configure(api_key=gemini_api_key)
+                self.gemini_client = None
+                self.gemini_version = "old"
+    
+    def generate_app_config(self, user_request: str, use_search: bool = True) -> Dict[str, Any]:
+        """
+        Generate an app configuration based on a user request using AI.
+        This method extracts a valid JSON response from Gemini or OpenAI for creating the application.
+        
+        Args:
+            user_request: The user's request description
+            use_search: Whether to enable Google search capability for better app generation (default True)
+            
+        Returns:
+            App configuration dictionary
+        """
+        try:
+            # Apply map preprocessing if available
+            original_request = user_request
+            if MAP_PROCESSORS_AVAILABLE:
+                user_request = preprocess_map_request(user_request)
+                if user_request != original_request:
+                    print("Map preprocessing applied to user request")
+            
+            # Check if this is a camera-based application
+            is_camera_app = self._is_camera_based_request(user_request)
+            if is_camera_app:
+                print("Detected camera-based application request")
+            
+            # Get the active UI components from config
+            ui_components = self._get_ui_components_list()
+            
+            # Generate prompt for app using the enhaced AI-driven prompt
+            prompt = self._create_enhanced_prompt(user_request, ui_components, is_camera_app)
+            
+            # Check if Gemini API key is available
+            gemini_api_key = os.getenv("GEMINI_API_KEY")
+            if gemini_api_key:
+                try:
+                    # Use search capability by default for Gemini when available
+                    enable_search = use_search and GEMINI_CLIENT_AVAILABLE and self.gemini_version == "new"
+                    
+                    # Make API call to Gemini
+                    print(f"Using Gemini API for app configuration generation{' with search enabled' if enable_search else ''}")
+                    response_text = self._call_gemini_api(prompt, use_search=enable_search)
+                except Exception as gemini_error:
+                    print(f"Error with Gemini API: {str(gemini_error)}. Falling back to OpenAI.")
+                    # Fall back to OpenAI
+                    response_text = self._call_openai_api(prompt)
+            else:
+                # Fall back to OpenAI
+                response_text = self._call_openai_api(prompt)
+            
+            # Process the API response using our enhanced handler
+            app_config = self._process_api_response(response_text)
+            
+            # --- Add post-processing step to replace/fix method calls --- 
+            self._post_process_component_methods(app_config.get("components", []), app_config.get("components", [])) # Pass full list
+            # --- End post-processing step --- 
+            
+            # --- Final check for fallback before returning --- 
+            is_fallback = (app_config.get("app", {}).get("name") == "Error Handling App")
+            if is_fallback:
+                 print("AI response processing failed or violated constraints. Returning fallback config.")
+                 return app_config # Return the error config directly
+            else:
+                 print(f"Successfully generated app config with {len(app_config.get('components', []))} components")
+                 return app_config # Return the successfully processed config
+            
+        except Exception as e:
+            print(f"Error generating app config: {str(e)}")
+            traceback.print_exc()
+            
+            # Create a fallback app configuration that shows error info
+            return self._create_ai_fallback_app_config(user_request)
+    
+    def _call_gemini_api(self, prompt: str, use_search: bool = False) -> str:
+        """
+        Make an API call to Google's Gemini API.
+        
+        Args:
+            prompt: The prompt to send to Gemini
+            use_search: Whether to enable Google search capability
+            
+        Returns:
+            Response text from Gemini
+        """
+        try:
+            # Log the request
+            with open("gemini_request_log.txt", "a", encoding="utf-8") as log_file:
+                log_file.write(f"Request Time: {datetime.datetime.now()}\n")
+                log_file.write("Prompt:\n")
+                log_file.write(prompt)
+                log_file.write("\n--- End of Prompt ---\n\n")
+            
+            if self.gemini_version == "new" and self.gemini_client:
+                # Use the new client-based approach
+                generate_config = types.GenerateContentConfig(
+                    temperature=0.9,
+                    top_p=1,
+                    top_k=1,
+                    max_output_tokens=8192,
+                )
+                
+                # Add Google search capability if requested
+                if use_search:
+                    generate_config = types.GenerateContentConfig(
+                        temperature=0.9,
+                        top_p=1,
+                        top_k=1,
+                        max_output_tokens=8192,
+                        tools=[types.Tool(
+                            google_search=types.GoogleSearchRetrieval(
+                                dynamic_retrieval_config=types.DynamicRetrievalConfig(
+                                    dynamic_threshold=0.6
+                                )
+                            )
+                        )]
+                    )
+                
+                # Generate content using the client
+                response = self.gemini_client.models.generate_content(
+                    model='gemini-2.0-flash',
+                    contents=prompt,
+                    config=generate_config
+                )
+                
+                # Extract the response text
+                response_text = response.text
+            else:
+                # Configure the generation model using the older approach
+                generation_config = {
+                    "temperature": 0.9,
+                    "top_p": 1,
+                    "top_k": 1,
+                    "max_output_tokens": 8192,
+                }
+                
+                # Safety settings - adjust as needed
+                safety_settings = [
+                    {
+                        "category": "HARM_CATEGORY_HARASSMENT",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_HATE_SPEECH",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    },
+                ]
+                
+                # Initialize the model with the correct model name: gemini-2.0-flash
+                model = genai.GenerativeModel(
+                    model_name="gemini-2.0-flash",
+                    generation_config=generation_config,
+                    safety_settings=safety_settings
+                )
+                
+                # Generate content
+                response = model.generate_content(prompt)
+                
+                # Extract the response text
+                response_text = response.text
+            
+            # Log the response
+            with open("gemini_request_log.txt", "a", encoding="utf-8") as log_file:
+                log_file.write("Response:\n")
+                log_file.write(response_text)
+                log_file.write("\n--- End of Response ---\n\n")
+            
+            return response_text
+            
+        except Exception as e:
+            print(f"Error calling Gemini API: {str(e)}")
+            traceback.print_exc()
+            raise
+    
+    def _call_openai_api(self, prompt: str) -> str:
+        """
+        Make an API call to OpenAI with robust handling for different API versions.
+        
+        Args:
+            prompt: The prompt to send to OpenAI
+            
+        Returns:
+            Response text from OpenAI
+        """
+        response_text = None
+        
+        try:
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            if not openai_api_key:
+                raise ValueError("OpenAI API key not found")
+                
+            # Log the request
+            with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
+                log_file.write(f"Request Time: {datetime.datetime.now()}\n")
+                log_file.write("Prompt:\n")
+                log_file.write(prompt)
+                log_file.write("\n--- End of Prompt ---\n\n")
+            
+            messages = [
+                {"role": "system", "content": "You are a UI configuration generator assistant. Respond with valid JSON only."},
+                {"role": "user", "content": prompt}
+            ]
+            
+            # Try different API calling patterns based on OpenAI version
+            if self.openai_version == "new" and self.client:
+                # OpenAI Python v1.0+ with client object
+                try:
+                    response = self.client.chat.completions.create(
+                        model="gpt-4-turbo",
+                        messages=messages,
+                        temperature=0.7,
+                        max_tokens=8192,
+                        top_p=1,
+                        frequency_penalty=0,
+                        presence_penalty=0
+                    )
+                    
+                    if hasattr(response.choices[0].message, 'content'):
+                        response_text = response.choices[0].message.content
+                except Exception as e:
+                    print(f"Error with client.chat.completions: {str(e)}")
+                    raise
+            else:
+                # Try older openai.ChatCompletion
+                if hasattr(openai, 'ChatCompletion'):
+                    response = openai.ChatCompletion.create(
+                        model="gpt-4-turbo",
+                        messages=messages,
+                        temperature=0.7,
+                        max_tokens=8192,
+                        top_p=1,
+                        frequency_penalty=0,
+                        presence_penalty=0
+                    )
+                    
+                    response_text = response.choices[0].message["content"]
+                else:
+                    raise ValueError("OpenAI ChatCompletion not available")
+        
+            # Log the response
+            if response_text:
+                with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
+                    log_file.write("Response:\n")
+                    log_file.write(response_text)
+                    log_file.write("\n--- End of Response ---\n\n")
+            else:
+                raise ValueError("Failed to get response from OpenAI API")
+        
+            return response_text
+        
+        except Exception as e:
+            print(f"Error calling OpenAI API: {str(e)}")
+            traceback.print_exc()
+            raise
+    
+    def _process_api_response(self, response_text: str) -> Dict[str, Any]:
+        """Processes the raw API response text, cleans JSON, validates, and applies post-processing."""
+        app_config = None 
+        cleaned_json_string = "" 
+        try:
+            cleaned_json_string = self._extract_json_from_text(response_text)
+            if not cleaned_json_string:
+                print("Error: Cleaned JSON string is empty.")
+                return self._create_ai_fallback_app_config("Empty JSON response received.")
+
+            # Attempt to strip potential BOM
+            if cleaned_json_string.startswith('\ufeff'):
+                print("Stripped BOM character.")
+                cleaned_json_string = cleaned_json_string[1:]
+            cleaned_json_string = cleaned_json_string.strip()
+
+            # Log right before parsing
+            print("--- Attempting final JSON parse of string (snippet) ---")
+            log_snippet = cleaned_json_string[:300] + ("..." if len(cleaned_json_string) > 600 else "") + cleaned_json_string[-300:]
+            print(log_snippet)
+            print("--- End Snippet --- ")
+            
+            try:
+                app_config = json.loads(cleaned_json_string)
+            except json.JSONDecodeError as e:
+                # If parsing fails, try conditional newline escaping as a fallback
+                if '\n' in cleaned_json_string and 'Unterminated string' in str(e):
+                    print("Initial parse failed, attempting newline escaping...")
+                    cleaned_json_string_escaped = cleaned_json_string.replace("\n", "\\n")
+                    try:
+                        app_config = json.loads(cleaned_json_string_escaped)
+                        print("Parse successful after newline escaping.")
+                    except json.JSONDecodeError as e2:
+                        print(f"JSON parsing error even after newline escaping: {str(e2)}")
+                        raise e2 # Re-raise the second error
+                else:
+                    raise e # Re-raise original error if not newline related
+
+            # --- Validation Steps After Successful Parsing ---
+            if not isinstance(app_config, dict):
+                 print(f"Error: Parsed config is not a dictionary. Type: {type(app_config)}")
+                 if cleaned_json_string:
+                     print("--- Non-Dictionary Content Snippet ---")
+                     print(cleaned_json_string[:500] + ("..." if len(cleaned_json_string) > 500 else ""))
+                     print("--- End Snippet ---")
+                 return self._create_ai_fallback_app_config("Invalid JSON structure (not a dictionary).")
+
+            # Add validation: Check for disallowed $m() usage in method code
+            # Commenting out this check as we're now replacing $m() calls instead of rejecting them
+            # if self._check_for_disallowed_m_usage(app_config.get("components", [])):
+            #     print("Error: AI response included disallowed use of $m() selector in method code.")
+            #     return self._create_ai_fallback_app_config("AI response violated API constraints (used $m()).")
+
+            # --- End Validation ---
+            
+            # Post-processing happens later in generate_app_config
+            # --- End of successful processing path --- 
+
+        except json.JSONDecodeError as e:
+            print(f"JSON parsing error: {str(e)}")
+            print("--- Failed JSON String (Final Attempt) ---")
+            print(cleaned_json_string) 
+            print("--- End Failed String ---")
+            return self._create_ai_fallback_app_config(f"JSON parsing error: {str(e)}")
+
+        except Exception as e: # Catch any other errors
+            print(f"Error during response processing: {str(e)}")
+            print(f"Traceback: {traceback.format_exc()}")
+            if cleaned_json_string:
+                 print("--- JSON String (at time of error) ---")
+                 print(cleaned_json_string)
+                 print("--- End JSON String ---")
+            return self._create_ai_fallback_app_config(f"General processing error: {str(e)}")
+
+        if app_config is None:
+            print("Error: app_config is unexpectedly None after processing.")
+            return self._create_ai_fallback_app_config("Internal processing error resulted in None config.")
+        
+        return app_config
+            
+    def _check_for_disallowed_m_usage(self, components: List[Dict[str, Any]]) -> bool:
+        """Recursively checks component methods for disallowed '$m(' usage."""
+        if not components:
+            return False
+
+        for component in components:
+            if not isinstance(component, dict):
+                continue
+
+            if "methods" in component and isinstance(component["methods"], dict):
+                for method_name, method_info in component["methods"].items():
+                    method_code = None
+                    if isinstance(method_info, str):
+                        method_code = method_info
+                    elif isinstance(method_info, dict) and "code" in method_info:
+                        method_code = method_info["code"]
+                    
+                    if method_code and "$m(" in method_code:
+                        print(f"Disallowed '$m(' usage found in component '{component.get('id', '?')}' method '{method_name}'")
+                        return True # Found disallowed usage
+            
+            # Process children recursively
+            if "children" in component and isinstance(component["children"], list):
+                 # Correct Python way to filter for dictionaries (representing ComponentChild)
+                 childComponents = [c for c in component["children"] if isinstance(c, dict)]
+                 if childComponents:
+                    if self._check_for_disallowed_m_usage(childComponents):
+                        return True # Found in children
+        
+        return False # No disallowed usage found in this branch
+
+    def _create_enhanced_prompt(self, user_request: str, ui_components: List[Dict[str, Any]], is_camera_app: bool) -> str:
+        """
+        Create a comprehensive prompt for generating an app configuration.
+        This method generates a detailed prompt with extensive context and examples,
+        leveraging Gemini's large context window to provide comprehensive guidance.
+        
+        Args:
+            user_request: The user's request description
+            ui_components: List of available UI components
+            is_camera_app: Whether the request is for a camera-based application
+            
+        Returns:
+            A detailed prompt string
+        """
+        has_search = GEMINI_CLIENT_AVAILABLE and self.gemini_version == "new"
+        
+        # Load base prompt template
+        base_template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "prompts", "gemini_prompt_template.md")
+        if os.path.exists(base_template_path):
+            with open(base_template_path, "r", encoding="utf-8") as f:
+                base_template = f.read()
+        else:
+            # Fall back to default template if file doesn't exist
+            base_template = """
+        # MORPHEO UI CONFIGURATION GENERATOR
+
+        ## USER REQUEST
+{{user_request}}
+
+        ## AVAILABLE COMPONENTS
+        
+        Here is a list of available base components. Use these as building blocks. 
+        Remember to use generic components; the AI provides the specific logic.
+        
+        - **text**: Displays text content. Can be styled for headings (e.g., `fontSize: '24px', fontWeight: 'bold'`), paragraphs, labels, etc. 
+          - Properties: `content` (string), `variant` (optional string, e.g., 'h1', 'p', 'label')
+        - **container**: A flexible layout element to group other components. Supports flexbox/grid styles.
+          - Properties: None specific, relies on children and styles.
+        - **button**: An interactive button.
+          - Properties: `content` (string, button text), `variant` (optional string for style theme)
+        - **text-input**: Field for single-line text entry.
+          - Properties: `placeholder` (string), `value` (string), `label` (string), `type` (string, e.g., 'text', 'password', 'email')
+        - **textarea**: Field for multi-line text entry.
+          - Properties: `placeholder` (string), `value` (string), `label` (string), `rows` (number)
+        - **list**: Displays a list of items. Items can be simple strings or complex component structures.
+          - Properties: `items` (array), `renderItem` (optional function string to customize item display)
+        - **image**: Displays an image.
+          - Properties: `src` (string URL), `alt` (string)
+        - **video**: Displays video, potentially from a camera feed.
+          - Properties: `src` (string URL), `useCamera` (boolean), `facingMode` (string 'user'/'environment'), `autoPlay` (boolean), `muted` (boolean)
+        - **canvas**: A drawing surface, often used as an overlay for video or for custom visualizations.
+          - Properties: `width` (number), `height` (number), `overlayFor` (string, ID of element to overlay), `transparent` (boolean)
+        - **checkbox**: A checkbox input.
+          - Properties: `label` (string), `checked` (boolean)
+        - **radio**: A radio button input (usually grouped).
+          - Properties: `label` (string), `checked` (boolean), `value` (string), `name` (string for grouping)
+        - **select**: A dropdown selection input.
+          - Properties: `label` (string), `options` (array of {value: string, label: string}), `value` (string)
+        - **map**: Displays an interactive map.
+          - Properties: `latitude`, `longitude`, `zoom`, `markers` (array), `apiKey` (string)
+        - **script**: Embeds custom JavaScript logic (Use sparingly! Prefer component methods).
+          - Properties: `content` (string of JS code) or `src` (string URL)
+        
+        *(This list might not be exhaustive, adapt based on the user request if other logical components seem necessary, but prefer these common ones)*
+
+        ## CORE PRINCIPLES
+        Morpheo is an AI-driven component system with these fundamental principles:
+        
+        1. **Zero Application-Specific Logic**: 
+           - No hardcoded calculator logic, form validation, or app-specific functionality
+           - All application behavior must be generated by you (the AI), not pre-built
+        
+        2. **Pure AI-Driven Generation**:
+           - You analyze requests and determine needed components
+           - You create connections and transformations
+           - You apply behaviors appropriate to the use case
+        
+        3. **Generic Component System**:
+           - Components are generic building blocks
+           - Behaviors should be reusable across applications
+           - Component behavior should adapt to the specific context
+        
+        ## YOUR TASK
+        Generate a complete JSON configuration for a UI application that satisfies the user's request.
+        
+        DO NOT use templates or predefined application structures. Instead:
+        - Analyze what components would best serve the user's needs
+        - Create a component tree with appropriate nesting and organization
+        - Define component properties, styles, and methods
+
+        ## DYNAMIC UPDATES & INTERACTIONS
+        
+        **DO NOT USE `$m()` SELECTOR IN YOUR GENERATED CODE.**
+        
+        Instead, use the following **ALLOWED GLOBAL FUNCTIONS** to interact with components and manage state dynamically from within component methods:
+        
+        - `addComponent(parentId, config)`: Adds a new component (defined by `config`) as a child of the component with ID `parentId`.
+        - `removeComponent(componentId)`: Removes the component with the specified `componentId`.
+        - `updateComponent(componentId, updates)`: Updates the properties and/or styles of the component with `componentId`. `updates` is an object like `{ properties: { ... }, styles: { ... } }`.
+        - `getComponentProperty(componentId, propertyName)`: Retrieves the value of a specific property from the component with `componentId`.
+        - `setComponentProperty(componentId, propertyName, value)`: Sets the value of a specific property on the component with `componentId`.
+        - `callComponentMethod(componentId, methodName, ...args)`: Calls a method defined on another component.
+        
+        **IMPORTANT:**
+        - All `componentId` and `parentId` arguments MUST be strings representing the component's ID (e.g., `'#my-list'`, `'#input-field'`).
+        - These functions operate on the application's state and trigger UI updates.
+           
+        ```javascript
+        // --- Example: Todo List Add Button Click --- 
+        // (Method defined on the 'add-button' component)
+        {
+          "id": "add-button",
+          "type": "button",
+          "methods": {
+            "click": "function() { \
+              const text = getComponentProperty('#todo-input', 'value'); \
+              if (text) { \
+                const newItemConfig = { \
+                  id: 'todo-' + Date.now(), \
+                  type: 'container', \
+                  properties: { text: text }, \
+                  children: [ /* ... delete button etc ... */ ] \
+                }; \
+                addComponent('#todo-list', newItemConfig); \
+                setComponentProperty('#todo-input', 'value', ''); \
+              } \
+            }"
+          }
+        }
+        
+        // --- Example: Todo List Delete Button Click --- 
+        // (Method defined on a delete button *inside* a list item)
+        {
+          "id": "delete-btn-123", // ID of the delete button itself
+          "type": "button", 
+          "properties": { "parentTodoId": "todo-123" }, // Store parent ID if needed
+          "methods": {
+            "click": "function() { \
+              const parentId = getComponentProperty('#delete-btn-123', 'parentTodoId'); \
+              if (parentId) { removeComponent(parentId); } \
+            }" 
+          }
+        }
+
+        // --- Example: Calling another component's method --- 
+        // (Button calling a 'refreshData' method on a list)
+        {
+          "id": "refresh-button",
+          "type": "button",
+          "methods": {
+            "click": "callComponentMethod('#data-list', 'refreshData')" 
+          }
+        }
+        ```
+
+        ## COMPONENT METHOD AND EVENT HANDLING
+
+        - Define functions **directly as methods on the components** they logically control or relate to. 
+        - **DO NOT place core application logic inside separate `<script>` components.** Use component methods instead.
+        - **AVOID assigning functions to the global `window` object.** Use the global functions above.
+        - Keep method code concise and focused on a single task.
+        - Ensure unique method names within a component.
+
+        ## RESPONSE FORMAT
+        Your response should be a complete JSON object with the following structure:
+        ```json
+        {
+          "app": {
+            "name": "App Name",
+            "description": "App Description",
+            "theme": "light" or "dark" or custom color scheme
+          },
+          "layout": {
+            "type": "singlepage",
+            "regions": ["header", "main", "footer"]
+          },
+          "components": [
+            {
+              "id": "unique-id",
+              "type": "component-type",
+              "region": "region-name",
+              "properties": { /* Component properties */ },
+              "styles": { /* CSS-compatible styles */ },
+              "methods": { /* Event handlers and functions */ },
+              "children": [ /* For container components: nested components */ ]
+            }
+          ]
+        }
+        ```
+
+IMPORTANT: RESPOND WITH VALID JSON ONLY. NO EXPLANATIONS, MARKDOWN, OR TEXT OUTSIDE THE JSON OBJECT.
+"""
+        
+        # Load camera instructions if needed
+        camera_instructions = ""
+        if is_camera_app:
+            camera_template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "prompts", "camera_media_instructions.md")
+            if os.path.exists(camera_template_path):
+                with open(camera_template_path, "r", encoding="utf-8") as f:
+                    # Just load the important parts (we don't need the complete file)
+                    camera_instructions_content = f.read()
+                    # Extract the key sections
+                    camera_instructions = "\n## CAMERA AND MEDIA PROCESSING REQUIREMENTS\n\n"
+                    camera_instructions += "When implementing camera-based applications or applications requiring media input:\n\n"
+                    camera_instructions += "1. **ALWAYS use the proper video component type**:\n"
+                    camera_instructions += "   ```json\n"
+                    camera_instructions += "   {\n"
+                    camera_instructions += '     "id": "media-input",\n'
+                    camera_instructions += '     "type": "video", \n'
+                    camera_instructions += '     "properties": {\n'
+                    camera_instructions += '       "useCamera": true,\n'
+                    camera_instructions += '       "facingMode": "user",\n'
+                    camera_instructions += '       "autoPlay": true,\n'
+                    camera_instructions += '       "muted": true\n'
+                    camera_instructions += '     }\n'
+                    camera_instructions += "   }\n"
+                    camera_instructions += "   ```\n\n"
+                    camera_instructions += "2. **ALWAYS add canvas overlay for visualizations**:\n"
+                    camera_instructions += "3. **NEVER use static images or placeholder divs** for camera views\n"
+                    camera_instructions += "4. **ALWAYS implement proper camera access** using the MediaDevices API\n"
+                    camera_instructions += "5. **ALWAYS provide status feedback** during camera initialization and processing\n"
+                    camera_instructions += "6. **USE generic terminology** like \"Media Analysis\" or \"Object Detection\" instead of domain-specific terms\n"
+                    camera_instructions += "7. **IMPLEMENT proper cleanup** when stopping camera access\n"
+        
+        # Prepare the component list as a JSON string
+        components_json = json.dumps(ui_components, indent=2)
+        
+        # Replace placeholder values in the template
+        prompt = base_template.replace("{{user_request}}", user_request)
+        
+        # Insert camera instructions if this is a camera-based application
+        if is_camera_app and camera_instructions:
+            # Find the CORE PRINCIPLES section and insert camera instructions after it
+            core_principles_end = prompt.find("## YOUR TASK")
+            if core_principles_end != -1:
+                prompt = prompt[:core_principles_end] + camera_instructions + prompt[core_principles_end:]
+        
+        # Log the prompt to a file for debugging
+        with open("prompt_log.txt", "a", encoding="utf-8") as log_file:
+            log_file.write(f"--- Prompt at {datetime.datetime.now()} ---\n")
+            log_file.write(prompt)
+            log_file.write("\n--- End of Prompt ---\n\n")
+        
+        return prompt
+    
+    def _create_ai_fallback_app_config(self, error_message: str) -> Dict[str, Any]:
+        """
+        Create a fallback app configuration when AI generation fails.
+        
+        Args:
+            error_message: The error message to display
+            
+        Returns:
+            A simple fallback app configuration
+        """
+        return {
+            "app": {
+                "name": "Error Handling App",
+                "description": "A fallback UI was created because the AI generation failed",
+                "theme": "light"
+            },
+            "layout": {
+                "type": "singlepage",
+                "regions": ["header", "main", "footer"]
+            },
+            "components": [
+                {
+                    "id": "header-container",
+                    "type": "container",
+                    "region": "header",
+                    "styles": {
+                        "backgroundColor": "#f8d7da",
+                        "color": "#721c24",
+                        "padding": "15px",
+                        "textAlign": "center",
+                        "borderRadius": "5px",
+                        "margin": "10px"
+                    },
+                    "children": [
+                        {
+                            "id": "header-title",
+                            "type": "text",
+                            "properties": {
+                                "content": "Error Generating UI",
+                                "variant": "h1"
+                            },
+                            "styles": {
+                                "fontSize": "24px",
+                                "fontWeight": "bold",
+                                "marginBottom": "10px"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "id": "error-container",
+                    "type": "container",
+                    "region": "main",
+                    "styles": {
+                        "backgroundColor": "#fff",
+                        "border": "1px solid #f5c6cb",
+                        "borderRadius": "5px",
+                        "padding": "20px",
+                        "margin": "20px",
+                        "textAlign": "left"
+                    },
+                    "children": [
+                        {
+                            "id": "error-title",
+                            "type": "text",
+                            "properties": {
+                                "content": "The AI encountered an error:",
+                                "variant": "h2"
+                            },
+                            "styles": {
+                                "fontSize": "18px",
+                                "marginBottom": "10px",
+                                "color": "#721c24"
+                            }
+                        },
+                        {
+                            "id": "error-message",
+                            "type": "text",
+                            "properties": {
+                                "content": error_message,
+                                "variant": "p"
+                            },
+                            "styles": {
+                                "fontFamily": "monospace",
+                                "padding": "15px",
+                                "backgroundColor": "#f8f9fa",
+                                "borderRadius": "4px",
+                                "overflowX": "auto"
+                            }
+                        },
+                        {
+                            "id": "retry-button",
+                            "type": "button",
+                            "properties": {
+                                "text": "Try Again"
+                            },
+                            "styles": {
+                                "marginTop": "20px",
+                                "padding": "10px 15px",
+                                "backgroundColor": "#0d6efd",
+                                "color": "white",
+                                "border": "none",
+                                "borderRadius": "4px",
+                                "cursor": "pointer"
+                            },
+                            "methods": {
+                                "onClick": {
+                                    "code": "function(event, $m) { window.location.reload(); }"
+                                }
+                            }
+                        }
+                    ]
+                },
+                {
+                    "id": "footer-container",
+                    "type": "container",
+                    "region": "footer",
+                    "styles": {
+                        "padding": "10px",
+                        "textAlign": "center",
+                        "borderTop": "1px solid #f5c6cb",
+                        "marginTop": "20px",
+                        "color": "#6c757d",
+                        "fontSize": "12px"
+                    },
+                    "children": [
+                        {
+                            "id": "footer-text",
+                            "type": "text",
+                            "properties": {
+                                "content": "Please try a different request or check the system logs.",
+                                "variant": "p"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+
+    def _extract_json_from_text(self, text: str) -> str:
+        """
+        Extract JSON content from text that may contain markdown, explanations, etc.
+        Also cleans common escaping issues before returning.
+        
+        Args:
+            text: The text to extract JSON from
+            
+        Returns:
+            The extracted JSON content as a string, or empty string if none found
+        """
+        json_content = ""
+        
+        # 1. Try extracting from markdown code blocks
+        json_pattern_markdown = r'```(?:json)?\s*(\{[\s\S]*?\})\s*```'
+        match_markdown = re.search(json_pattern_markdown, text, re.DOTALL)
+        if match_markdown:
+            json_content = match_markdown.group(1).strip()
+            print("Extracted JSON from markdown block.")
+        
+        # 2. If no markdown match, check if the whole text looks like JSON
+        elif text.strip().startswith('{') and text.strip().endswith('}'):
+            json_content = text.strip()
+            print("Assuming entire text is JSON.")
+        
+        # 3. Fallback: Find the largest JSON-like object within the text
+        else:
+            json_pattern_object = r'(\{[\s\S]*\})'
+            matches_object = re.findall(json_pattern_object, text)
+            if matches_object:
+                json_content = max(matches_object, key=len).strip()
+                print("Extracted largest JSON-like object from text.")
+        
+        if not json_content:
+            print("ERROR: No JSON content could be extracted.")
+            return ""
+        
+        # --- Apply Cleaning Steps --- 
+        cleaned_content = json_content
+        
+        # Replace invalid \' with ' 
+        cleaned_content = cleaned_content.replace("\\'", "'")
+        
+        # Replace problematic single backslashes (ensure this doesn't break valid escapes)
+        # This regex replaces backslashes NOT followed by standard JSON escapes or uXXXX
+        try:
+            cleaned_content = re.sub(r'\\(?!["\/bfnrtu]|u[0-9a-fA-F]{4})', r'\\', cleaned_content)
+        except re.error as e:
+            print(f"Warning: Regex error during backslash cleaning: {e}")
+            # Proceed without this specific cleaning step if regex fails
+        
+        # Fix common unicode escape sequence issues
+        cleaned_content = self._fix_unicode_escapes(cleaned_content)
+        
+        print(f"Cleaned JSON content (first 100 chars): {cleaned_content[:100]}...")
+        return cleaned_content
+
+    def _fix_unicode_escapes(self, json_string: str) -> str:
+        """
+        Fix Unicode escape sequences in JSON strings that might cause parsing errors.
+        
+        Args:
+            json_string: The JSON string to fix
+            
+        Returns:
+            The fixed JSON string
+        """
+        # This regex finds Unicode escape patterns \uXXXX that aren't already properly escaped
+        pattern = r'([^\\]|^)\\u([0-9a-fA-F]{4})'
+        
+        # Function to replace each match with a properly escaped version
+        def replace_escape(match):
+            prefix = match.group(1)  # The character before \u, or empty string if at the beginning
+            code = match.group(2)    # The 4 hex digits after \u
+            return f"{prefix}\\\\u{code}"  # Add proper escaping for JSON
+        
+        # Apply the fix
+        try:
+            # First attempt: try fixing double backslashes in Unicode sequences
+            fixed_json = re.sub(pattern, replace_escape, json_string)
+            
+            # Test if the JSON is valid now
+            json.loads(fixed_json)
+            return fixed_json
+        except json.JSONDecodeError:
+            # If still failing, try a more aggressive approach:
+            # Replace all Unicode escapes with the actual Unicode characters
+            try:
+                # This pattern matches all Unicode escape sequences
+                unicode_pattern = r'\\u([0-9a-fA-F]{4})'
+                
+                # Replace each \uXXXX with the actual Unicode character
+                def replace_with_unicode(match):
+                    return chr(int(match.group(1), 16))
+                
+                fixed_json = re.sub(unicode_pattern, replace_with_unicode, json_string)
+                return fixed_json
+            except Exception:
+                # If all else fails, return the original string
+                return json_string
+
+    def _normalize_methods_to_events(self, components: List[Dict[str, Any]]) -> None:
+        """
+        Normalize component methods and event handlers.
+        
+        Args:
+            components: List of components to process
+        """
+        if not components:
+            return
+        
+        for component in components:
+            if not isinstance(component, dict):
+                continue
+            
+            # Normalize methods object
+            if "methods" in component and isinstance(component["methods"], dict):
+                methods = component["methods"]
+                
+                # Ensure all methods have the correct structure
+                for method_name, method_info in methods.items():
+                    if isinstance(method_info, str):
+                        # Convert string method to proper structure
+                        methods[method_name] = {
+                            "code": method_info,
+                            "affectedComponents": [component.get("id", "")]
+                        }
+                    elif isinstance(method_info, dict) and "code" in method_info:
+                        # Fix method code format to ensure it's properly wrapped
+                        code = method_info["code"]
+                        if code.startswith("function(") and not code.startswith("function(event, $m)"):
+                            # Replace the function declaration with the correct parameter list
+                            code = "function(event, $m)" + code[code.find("{"):]
+                            method_info["code"] = code
+                        # Ensure affected components exists
+                        if "affectedComponents" not in method_info:
+                            method_info["affectedComponents"] = [component.get("id", "")]
+            
+            # Process children recursively
+            if "children" in component and isinstance(component["children"], list):
+                self._normalize_methods_to_events(component["children"])
+        
+        # --- Add post-processing step to replace addChild --- 
+        self._post_process_component_methods(components, components) # Pass full list here too
+        # --- End post-processing step --- 
+
+    def _post_process_component_methods(self, components: List[Dict[str, Any]], all_components: List[Dict[str, Any]]) -> None:
+        """
+        Recursively traverses components and modifies specific $m(...) calls 
+        within method code strings, and fixes direct function calls that should target component methods.
+        
+        Args:
+            components: List of components to process in the current recursion level
+            all_components: The full list of top-level components in the app config
+        """
+        print("--- Running Component Method Replacements ---") # Print for debugging
+        if not components:
+            return
+
+        # Helper function to find the component defining a method (Still needed for direct call replacement)
+        component_method_map = {}
+        def build_method_map(comp_list):
+            for comp in comp_list:
+                if isinstance(comp, dict):
+                    comp_id = comp.get('id')
+                    methods = comp.get('methods', {})
+                    if comp_id and isinstance(methods, dict):
+                        for method_name in methods.keys():
+                            if method_name not in component_method_map:
+                                component_method_map[method_name] = []
+                            component_method_map[method_name].append(comp_id)
+                    if isinstance(comp.get('children'), list):
+                        # Correct Python way to filter for dictionaries (representing ComponentChild)
+                        childComponents = [c for c in comp.get('children') if isinstance(c, dict)]
+                        if childComponents:
+                           build_method_map(childComponents)
+        build_method_map(all_components) # Build map once
+
+        for component in components:
+            if not isinstance(component, dict):
+                continue
+
+            component_id_for_log = component.get('id', '?')
+            
+            if "methods" in component and isinstance(component["methods"], dict):
+                methods = component["methods"]
+                for method_name, method_info in list(methods.items()): 
+                    original_method_code = None
+                    is_method_info_dict = isinstance(method_info, dict)
+
+                    if isinstance(method_info, str):
+                        original_method_code = method_info
+                    elif is_method_info_dict and "code" in method_info:
+                        original_method_code = method_info["code"]
+                    
+                    if original_method_code:
+                        current_code = original_method_code
+                        total_replacements = 0
+                        
+                        # === START OF ACTIVE REPLACEMENTS ===
+                        
+                        # --- Replacement 1: $m(...).getProperty(...) -> getComponentProperty(...) ---
+                        try:
+                            pattern_get = r'\$m\(([\'"](?:#?[\w\-]+)[\'"]\s*)\)\.getProperty\s*\(\s*([\'"][\w\-]+[\'"]\s*)\)'
+                            def replacer_get(match):
+                                selector_id = match.group(1).strip()
+                                property_name = match.group(2).strip()
+                                print(f"Replacing getProperty with getComponentProperty({selector_id}, {property_name}) in {component_id_for_log}.{method_name}")
+                                return f'getComponentProperty({selector_id}, {property_name})'
+                            current_code, count = re.subn(pattern_get, replacer_get, current_code)
+                            if count > 0: print(f"SUCCESS (getProperty): Replaced {count} call(s) in {component_id_for_log}.{method_name}")
+                            total_replacements += count
+                        except re.error as e:
+                            print(f"Regex error (getProperty) for {component_id_for_log}.{method_name}: {e}")
+                        
+                        # --- Replacement 2: $m(...).setProperty(...) -> setComponentProperty(...) ---
+                        try:
+                            pattern_set = r'\$m\(([\'"](?:#?[\w\-]+)[\'"]\s*)\)\.setProperty\s*\(\s*([\'"][\w\-]+[\'"]\s*),\s*(.*?)\s*\)'
+                            def replacer_set(match):
+                                selector_id = match.group(1).strip()
+                                property_name = match.group(2).strip()
+                                value_expr = match.group(3).strip()
+                                print(f"Replacing setProperty with setComponentProperty({selector_id}, {property_name}, {value_expr}) in {component_id_for_log}.{method_name}")
+                                return f'setComponentProperty({selector_id}, {property_name}, {value_expr})'
+                            current_code, count = re.subn(pattern_set, replacer_set, current_code)
+                            if count > 0: print(f"SUCCESS (setProperty): Replaced {count} call(s) in {component_id_for_log}.{method_name}")
+                            total_replacements += count
+                        except re.error as e:
+                            print(f"Regex error (setProperty) for {component_id_for_log}.{method_name}: {e}")
+                        
+                        # --- Replacement 3: $m(...).remove() -> removeComponent(...) ---
+                        try:
+                            pattern_remove = r'(\$m\((\s*(?:["\'](?:#?[\w\-]+)["\']|\'[^\']+\'\s*\+\s*[\w\.]+\s*\+\s*\'[^\']+\'|"[^"]+"\s*\+\s*[\w\.]+\s*\+\s*"[^"]+")\s*)\))\.remove\s*\(\s*\)'
+                            def replacer_remove(match):
+                                selector_id_expr = match.group(2).strip() 
+                                print(f"Replacing .remove() with removeComponent({selector_id_expr}) in {component_id_for_log}.{method_name}")
+                                return f'removeComponent({selector_id_expr})' 
+                            current_code, count = re.subn(pattern_remove, replacer_remove, current_code)
+                            if count > 0: print(f"SUCCESS (.remove): Replaced {count} call(s) in {component_id_for_log}.{method_name}")
+                            total_replacements += count
+                        except re.error as e:
+                            print(f"Regex error (.remove) for {component_id_for_log}.{method_name}: {e}")
+                        
+                        # --- Replacement 4: functionName() -> callComponentMethod('#target_id', 'functionName') ---
+                        # Keep this one active as a fallback/fix for now
+                        try:
+                            # Pattern matches simple function calls like funcName() or funcName( )
+                            pattern_direct_call = r'^\s*([a-zA-Z_]\w*)\s*\(\s*\)\s*$' 
+                            match_direct = re.match(pattern_direct_call, current_code)
+                            
+                            if match_direct:
+                                called_function_name = match_direct.group(1)
+                                print(f"Found direct call: {called_function_name}() in {component_id_for_log}.{method_name}")
+
+                                # Find which component defines this method (use the pre-built map)
+                                target_ids = component_method_map.get(called_function_name)
+
+                                if target_ids:
+                                    # If multiple components define it, warn but pick the first one (heuristic)
+                                    if len(target_ids) > 1:
+                                         print(f"WARNING: Method '{called_function_name}' defined in multiple components: {target_ids}. Using first found: '{target_ids[0]}'.")
+                                    target_id = target_ids[0]
+                                    
+                                    # Use the new global callComponentMethod pattern
+                                    replacement_code = f"callComponentMethod('#{target_id}', '{called_function_name}')"
+                                    print(f"Replacing {called_function_name}() with {replacement_code} in {component_id_for_log}.{method_name}")
+                                    current_code = replacement_code
+                                    total_replacements += 1
+                                    print(f"SUCCESS (direct call): Replaced 1 call in {component_id_for_log}.{method_name}")
+                                else:
+                                    print(f"WARNING: Direct call '{called_function_name}()' found in {component_id_for_log}.{method_name}, but no component defines this method. Leaving as is.")
+                        except re.error as e:
+                             print(f"Regex error (direct call) for {component_id_for_log}.{method_name}: {e}")
+
+                        # --- Replacement 5: $m('#parent-id').addChild(config) -> addComponent('#parent-id', config) ---
+                        try:
+                            pattern_add = r'(\$m\(([\'"](?:#?[\w\-]+)[\'"])\))\.addChild\s*\(\s*(.*?)\s*\)'
+                            def replacer_add(match):
+                                parent_selector = match.group(2).strip()
+                                config_str = match.group(3).strip()
+                                
+                                # Sanity check: make sure the config looks like an object
+                                stripped_config = config_str.rstrip(',;')
+                                if not (stripped_config.startswith('{') and stripped_config.endswith('}')):
+                                    print(f"WARNING (addChild): Captured config doesn't look like an object in {component_id_for_log}.{method_name}. Skipping replacement. Content: {config_str[:100]}...")
+                                    return match.group(0)
+                                
+                                # Ensure selector has # prefix
+                                stripped_selector = parent_selector.strip('\'"')
+                                if not stripped_selector.startswith('#'):
+                                     parent_selector_norm = f"'#{stripped_selector}'"
+                                else:
+                                     parent_selector_norm = parent_selector
+                                     
+                                print(f"Replacing $m(...).addChild with addComponent({parent_selector_norm}, ...) in {component_id_for_log}.{method_name}")
+                                return f'addComponent({parent_selector_norm}, {config_str})'
+                            
+                            current_code, count = re.subn(pattern_add, replacer_add, current_code, flags=re.DOTALL)
+                            if count > 0: 
+                                print(f"SUCCESS (addChild): Replaced {count} call(s) in {component_id_for_log}.{method_name}")
+                                total_replacements += count
+                        except re.error as e:
+                            print(f"Regex error (addChild) for {component_id_for_log}.{method_name}: {e}")
+                            
+                        # --- Replacement 6: Fix nested quote issue in delete button onClick ---
+                        try:
+                            nested_quote_pattern = r"methods:\s*{\s*onClick:\s*'\$m\(\'#\'\s*\+\s*todoId\s*\+\s*\'\'\)\.remove\(\);'\s*}"
+                            replacement_str = "methods: { onClick: \"removeComponent('#' + todoId)\" }"
+                            if nested_quote_pattern.replace(" ", "") in current_code.replace(" ", ""): 
+                                print(f"Found nested quote issue in {component_id_for_log}.{method_name}. Attempting replacement.")
+                                current_code = current_code.replace(nested_quote_pattern, replacement_str)
+                                print(f"SUCCESS (nested quote fix): Replaced 1 occurrence in {component_id_for_log}.{method_name}")
+                                total_replacements += 1
+                        except Exception as e:
+                            print(f"Error during nested quote fix for {component_id_for_log}.{method_name}: {e}")
+                        
+                        # === END OF ACTIVE REPLACEMENTS ===
+
+                        # Update the method code only if changes were made
+                        if total_replacements > 0:
+                            print(f"Total Replacements for {component_id_for_log}.{method_name}: {total_replacements}")
+                            if is_method_info_dict:
+                                method_info["code"] = current_code
+                            else: # It must be a string
+                                methods[method_name] = current_code
+            
+            # Process children recursively
+            if "children" in component and isinstance(component["children"], list):
+                # Correct Python way to filter for dictionaries (representing ComponentChild)
+                childComponents = [c for c in component["children"] if isinstance(c, dict)]
+                if childComponents:
+                  # Pass the full component list down for context
+                  self._post_process_component_methods(childComponents, all_components)
+        
+    def generate_search_response(self, query: str) -> str:
+        """
+        Generate a response using Gemini with Google search capability.
+        
+        Args:
+            query: The search query
+            
+        Returns:
+            Response text from Gemini with search results incorporated
+        """
+        try:
+            if not GEMINI_CLIENT_AVAILABLE or not self.gemini_version == "new":
+                return "Google search capability requires the new Gemini client library. Please install it with 'pip install google-generativeai'."
+            
+            # Call Gemini API with search enabled
+            response_text = self._call_gemini_api(query, use_search=True)
+            return response_text
+            
+        except Exception as e:
+            error_message = f"Error generating search response: {str(e)}"
+            print(error_message)
+            traceback.print_exc()
+            return error_message
+
+    def _get_ui_components_list(self) -> List[Dict[str, Any]]:
+        """
+        Get the list of UI components from the registry.
+        
+        Returns:
+            A list of component definitions
+        """
+        components_list = []
+        
+        try:
+            # Ensure component_registry is properly initialized
+            if self.component_registry is None:
+                from .registry import component_registry as default_registry
+                self.component_registry = default_registry
+                if self.component_registry is None:
+                    print("Warning: Could not initialize component registry. Using empty components list.")
+                    return self._get_fallback_components()
+
+            # Get all registered components from the component registry
+            # The ComponentRegistry class has a get_all_components method
+            if hasattr(self.component_registry, 'get_all_components'):
+                registry_components = self.component_registry.get_all_components()
+            elif hasattr(self.component_registry, 'components'):
+                registry_components = self.component_registry.components
+            else:
+                print("Warning: Could not access components from registry. Using fallback components list.")
+                return self._get_fallback_components()
+            
+            # Process the components
+            for component_name, component_info in registry_components.items():
+                if not component_info:
+                    continue
+                    
+                # Extract the basic component information
+                # Handle variability in property naming
+                properties = component_info.get("properties", component_info.get("defaultProps", {}))
+                
+                component_def = {
+                    "type": component_name,
+                    "description": component_info.get("description", ""),
+                    "properties": properties,
+                    "category": component_info.get("category", "basic")
+                }
+                
+                components_list.append(component_def)
+            
+            # If no components were found, use fallback
+            if not components_list:
+                print("Warning: No components found in registry. Using fallback components list.")
+                return self._get_fallback_components()
+        
+        except Exception as e:
+            print(f"Error getting component list: {str(e)}")
+            # Return fallback components on error
+            return self._get_fallback_components()
+            
+        return components_list
+        
+    def _get_fallback_components(self) -> List[Dict[str, Any]]:
+        """
+        Create a fallback list of basic components when the registry is unavailable.
+        
+        Returns:
+            A list of basic component definitions
+        """
+        return [
+            {
+                "type": "text",
+                "description": "Displays text content in various styles and formats.",
+                "properties": {
+                    "content": {"type": "string", "description": "The text content to display"},
+                    "variant": {"type": "string", "description": "The HTML element variant to use"}
+                },
+                "category": "basic"
+            },
+            {
+                "type": "container",
+                "description": "A flexible container that can hold other components.",
+                "properties": {},
+                "category": "basic"
+            },
+            {
+                "type": "button",
+                "description": "An interactive button that triggers actions.",
+                "properties": {
+                    "text": {"type": "string", "description": "The button text"},
+                    "variant": {"type": "string", "description": "Button style variant"}
+                },
+                "category": "basic"
+            },
+            {
+                "type": "input",
+                "description": "A text input field for user data entry.",
+                "properties": {
+                    "placeholder": {"type": "string", "description": "Placeholder text"},
+                    "label": {"type": "string", "description": "Label for the input"},
+                    "value": {"type": "string", "description": "Current input value"},
+                    "type": {"type": "string", "description": "Input type"}
+                },
+                "category": "basic"
+            }
+        ]
+        
+    def _process_app_config(self, app_config: Dict[str, Any], user_request: str) -> Dict[str, Any]:
+        """
+        Process the app configuration after it's been generated by the AI.
+        
+        Args:
+            app_config: The app configuration to process
+            user_request: The original user request
+            
+        Returns:
+            Processed app configuration
+        """
+        # Ensure app section exists
+        if "app" not in app_config:
+            app_config["app"] = {
+                "name": "Generated Application",
+                "description": user_request,
+                "theme": "light"
+            }
+        
+        # Add user request as the description if not present
+        if "description" not in app_config["app"]:
+            app_config["app"]["description"] = user_request
+            
+        # Ensure layout section exists
+        if "layout" not in app_config:
+            app_config["layout"] = {
+                "type": "singlepage",
+                "regions": ["main"]
+            }
+            
+        # Ensure the components list exists
+        if "components" not in app_config:
+            app_config["components"] = []
+            
+        # Clean up any formatting issues in components
+        self._sanitize_components(app_config.get("components", []))
+            
+        return app_config
+        
+    def _process_app_config_imports(self, app_config: Dict[str, Any]) -> None:
+        """
+        Process any imports or external dependencies in the app configuration.
+        
+        Args:
+            app_config: The app configuration to process
+        """
+        # Check if app_config has imports section
+        if "imports" not in app_config:
+            return
+            
+        # Process the imports (libraries, external resources, etc.)
+        # This is a placeholder - implement based on your actual import requirements
+        # For example, you might need to add script tags, stylesheets, etc.
+        pass
+        
+    def _normalize_component_ids(self, app_config: Dict[str, Any]) -> None:
+        """
+        Ensure all components have unique IDs.
+        
+        Args:
+            app_config: The app configuration to process
+        """
+        # Get the components list
+        components = app_config.get("components", [])
+        
+        # Track used IDs to avoid duplicates
+        used_ids = set()
+        
+        # Recursively assign unique IDs to all components
+        def ensure_unique_ids(components_list):
+            for component in components_list:
+                if not isinstance(component, dict):
+                    continue
+                    
+                # If component has no ID or ID is already used, generate a new one
+                if "id" not in component or not component["id"] or component["id"] in used_ids:
+                    # Generate a unique ID based on component type
+                    component_type = component.get("type", "component")
+                    new_id = f"{component_type}-{str(uuid4())[:8]}"
+                    component["id"] = new_id
+                    
+                # Add ID to used IDs set
+                used_ids.add(component["id"])
+                
+                # Process children recursively
+                if "children" in component and isinstance(component["children"], list):
+                    ensure_unique_ids(component["children"])
+                    
+        # Start the recursive ID normalization
+        ensure_unique_ids(components)
+        
+    def _normalize_component_properties(self, components: List[Dict[str, Any]]) -> None:
+        """
+        Normalize component properties to ensure compatibility.
+        
+        Args:
+            components: List of components to process
+        """
+        if not components:
+            return
+            
+        for component in components:
+            if not isinstance(component, dict):
+                continue
+                
+            # Ensure component has basic required properties
+            if "type" not in component:
+                component["type"] = "container"
+                
+            if "properties" not in component and "props" in component:
+                # Rename props to properties for consistency
+                component["properties"] = component.pop("props")
+                
+            if "properties" not in component:
+                component["properties"] = {}
+                
+            if "styles" not in component:
+                component["styles"] = {}
+                
+            # Convert any string values that should be objects to actual objects
+            for prop_name, prop_value in component.get("properties", {}).items():
+                if prop_name in ["style", "options"] and isinstance(prop_value, str):
+                    try:
+                        # Try to parse JSON string as object
+                        component["properties"][prop_name] = json.loads(prop_value)
+                    except json.JSONDecodeError:
+                        # If parsing fails, keep as string
+                        pass
+                        
+            # Process children recursively
+            if "children" in component and isinstance(component["children"], list):
+                self._normalize_component_properties(component["children"])
+                
+    def _sanitize_components(self, components: List[Dict[str, Any]]) -> None:
+        """
+        Clean up component definitions to ensure they're valid.
+        
+        Args:
+            components: List of components to sanitize
+        """
+        if not components:
+            return
+            
+        for i in range(len(components)):
+            # Skip if not a dict
+            if not isinstance(components[i], dict):
+                continue
+                
+            component = components[i]
+            
+            # Fix component type if it's invalid
+            if "type" not in component or not component["type"]:
+                component["type"] = "container"
+                
+            # Ensure component has an ID
+            if "id" not in component or not component["id"]:
+                component["id"] = f"{component.get('type', 'component')}-{str(uuid4())[:8]}"
+                
+            # Process children recursively
+            if "children" in component and isinstance(component["children"], list):
+                self._sanitize_components(component["children"])
+            elif "children" in component and not isinstance(component["children"], list):
+                # Fix invalid children field
+                component["children"] = []
+
+    def _is_camera_based_request(self, user_request: str) -> bool:
+        """
+        Determine if the user request is related to camera-based functionality.
+        
+        Args:
+            user_request: The user's request description
+            
+        Returns:
+            True if the request appears to involve camera functionality, False otherwise
+        """
+        # Convert request to lowercase for case-insensitive matching
+        request_lower = user_request.lower()
+        
+        # Check if any camera-related keywords are present in the request
+        for keyword in self.CAMERA_RELATED_KEYWORDS:
+            if keyword in request_lower:
+                return True
+                
+        # Check for media capture implications
+        media_patterns = [
+            r"take\s+(?:a\s+)?(?:photo|picture|selfie)",
+            r"capture\s+(?:an\s+)?image",
+            r"record\s+(?:a\s+)?video",
+            r"detect\s+(?:objects|people|faces)",
+            r"scan\s+(?:objects|documents|codes|qr)",
+            r"recognize\s+(?:objects|people|faces|text)"
+        ]
+        
+        for pattern in media_patterns:
+            if re.search(pattern, request_lower):
+                return True
+                
+        return False
+
+    def _fix_camera_component_issues(self, app_config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process and fix any issues related to camera-based applications.
+        
+        Args:
+            app_config: The app configuration to process
+            
+        Returns:
+            Processed app configuration
+        """
+        # Extract components
+        components = app_config.get("components", [])
+        
+        # Function to find camera view containers and fix them
+        def process_components(components_list):
+            for component in components_list:
+                # Process nested children recursively
+                children = component.get("children", [])
+                if children:
+                    process_components(children)
+                
+                # Check if this component needs to be fixed
+                component_id = component.get("id", "")
+                component_type = component.get("type", "")
+                
+                # Look for static camera containers that should be video elements
+                if component_type == "container" and any(keyword in component_id.lower() for keyword in ["camera", "video", "webcam"]):
+                    # Check if this container has a static background or image 
+                    styles = component.get("styles", {})
+                    has_background_image = "backgroundImage" in styles or "background-image" in styles
+                    
+                    if has_background_image or not any(child.get("type") == "video" for child in children):
+                        # Convert to a proper video component if no video child exists
+                        if not children:
+                            # Replace the container with a video element
+                            component["type"] = "video"
+                            component["properties"] = component.get("properties", {})
+                            component["properties"]["useCamera"] = True
+                            component["properties"]["facingMode"] = "user"
+                            component["properties"]["autoPlay"] = True
+                            component["properties"]["muted"] = True
+                            component["properties"]["width"] = "100%"
+                            component["properties"]["height"] = "100%"
+                            
+                            # Create a canvas overlay as a sibling
+                            parent = component.get("_parent", None)
+                            if parent and isinstance(parent, dict) and "children" in parent:
+                                canvas_overlay = {
+                                    "id": f"{component_id}-overlay",
+                                    "type": "canvas",
+                                    "properties": {
+                                        "overlayFor": component_id,
+                                        "transparent": True
+                                    },
+                                    "styles": {
+                                        "position": "absolute",
+                                        "top": "0",
+                                        "left": "0",
+                                        "width": "100%",
+                                        "height": "100%",
+                                        "pointerEvents": "none"
+                                    }
+                                }
+                                parent["children"].append(canvas_overlay)
+                        
+                # Domain-specific language fixing
+                if "face" in component_id.lower() or "recognition" in component_id.lower():
+                    # Rename to use generic terminology
+                    if "face-detection" in component_id.lower():
+                        component["id"] = component_id.replace("face-detection", "object-detection")
+                    elif "face" in component_id.lower():
+                        component["id"] = component_id.replace("face", "object")
+                    
+                    # Fix button text or component properties with domain-specific terms
+                    if component_type == "button" and "properties" in component:
+                        props = component["properties"]
+                        if "text" in props and "face" in props["text"].lower():
+                            props["text"] = props["text"].replace("Face", "Object").replace("face", "object")
+                    
+                    # Fix method contents
+                    if "methods" in component:
+                        methods = component["methods"]
+                        for method_name, method_code in methods.items():
+                            if isinstance(method_code, str) and "face" in method_code.lower():
+                                # Replace domain-specific language in method code
+                                methods[method_name] = method_code.replace("Face", "Object").replace("face", "object")
+        
+        # Add parent references to make it easier to add siblings
+        def add_parent_refs(components_list, parent=None):
+            for component in components_list:
+                component["_parent"] = parent
+                if "children" in component and component["children"]:
+                    add_parent_refs(component["children"], component)
+        
+        # Remove parent references to avoid serialization issues
+        def remove_parent_refs(components_list):
+            for component in components_list:
+                if "_parent" in component:
+                    del component["_parent"]
+                if "children" in component and component["children"]:
+                    remove_parent_refs(component["children"])
+        
+        # Fix app name and description
+        if "app" in app_config:
+            app_info = app_config["app"]
+            if "name" in app_info and "face" in app_info["name"].lower():
+                app_info["name"] = app_info["name"].replace("Face Recognition", "Media Analysis").replace("face recognition", "media analysis")
+            
+            if "description" in app_info and "face" in app_info["description"].lower():
+                app_info["description"] = app_info["description"].replace("face recognition", "media analysis").replace("Face Recognition", "Media Analysis")
+        
+        # Add parent references, process components, then remove parent references
+        add_parent_refs(components)
+        process_components(components)
+        remove_parent_refs(components)
+        
+        return app_config
+
+# Create a singleton instance of the component service
+component_service = ComponentService()

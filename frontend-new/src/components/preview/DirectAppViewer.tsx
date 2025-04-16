@@ -2,9 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import AppViewer from '../AppViewer';
 import { getConfigById } from '../../services/api';
-import { todoAppConfig } from './TestAppConfig';
-import { taskMasterConfig } from './TaskMasterConfig';
-import { calculatorConfig } from './CalculatorConfig';
 
 // Helper to parse query parameters
 const useQuery = () => {
@@ -20,7 +17,6 @@ interface AppViewerProps {
 const DirectAppViewer: React.FC = () => {
   const query = useQuery();
   const configId = query.get('id');
-  const configType = query.get('type') || 'todo';
   const [appConfig, setAppConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -28,14 +24,7 @@ const DirectAppViewer: React.FC = () => {
   useEffect(() => {
     const loadConfig = async () => {
       if (!configId) {
-        // If no ID provided, use a demo app config based on type
-        if (configType === 'taskmaster') {
-          setAppConfig(taskMasterConfig);
-        } else if (configType === 'calculator') {
-          setAppConfig(calculatorConfig);
-        } else {
-          setAppConfig(todoAppConfig);
-        }
+        setError('No configuration ID provided');
         setLoading(false);
         return;
       }
@@ -52,7 +41,7 @@ const DirectAppViewer: React.FC = () => {
     };
 
     loadConfig();
-  }, [configId, configType]);
+  }, [configId]);
 
   if (loading) {
     return (

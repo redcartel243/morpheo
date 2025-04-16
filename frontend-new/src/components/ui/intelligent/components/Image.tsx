@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { 
   ComponentType, 
@@ -9,6 +9,7 @@ import {
 } from '../ComponentTypes';
 import { componentRegistry } from '../ComponentRegistry';
 import { withIntelligentComponent } from '../IntelligentComponent';
+import './Image.css'; // Import the CSS file with animations
 
 /**
  * Define Image capabilities
@@ -23,6 +24,27 @@ const imageCapabilities: ComponentCapability[] = [
         id: 'click',
         name: 'Click Event',
         description: 'Triggered when the image is clicked',
+        type: DataType.OBJECT,
+        direction: 'output'
+      },
+      {
+        id: 'hover',
+        name: 'Hover Event',
+        description: 'Triggered when the mouse enters or leaves the image',
+        type: DataType.OBJECT,
+        direction: 'output'
+      },
+      {
+        id: 'load',
+        name: 'Load Event',
+        description: 'Triggered when the image is loaded',
+        type: DataType.OBJECT,
+        direction: 'output'
+      },
+      {
+        id: 'error',
+        name: 'Error Event',
+        description: 'Triggered when the image fails to load',
         type: DataType.OBJECT,
         direction: 'output'
       }
@@ -45,6 +67,14 @@ const imageCapabilities: ComponentCapability[] = [
         id: 'alt',
         name: 'Alternative Text',
         description: 'Alternative text for the image for accessibility',
+        type: DataType.TEXT,
+        direction: 'input',
+        defaultValue: ''
+      },
+      {
+        id: 'caption',
+        name: 'Image Caption',
+        description: 'Caption text to display below the image',
         type: DataType.TEXT,
         direction: 'input',
         defaultValue: ''
@@ -71,6 +101,88 @@ const imageCapabilities: ComponentCapability[] = [
         type: DataType.TEXT,
         direction: 'input',
         defaultValue: 'lazy'
+      },
+      {
+        id: 'animation',
+        name: 'Animation Type',
+        description: 'Type of animation to apply to the image',
+        type: DataType.TEXT,
+        direction: 'input',
+        defaultValue: 'none'
+      },
+      {
+        id: 'filter',
+        name: 'Image Filter',
+        description: 'CSS filter to apply to the image',
+        type: DataType.TEXT,
+        direction: 'input',
+        defaultValue: 'none'
+      },
+      {
+        id: 'shape',
+        name: 'Image Shape',
+        description: 'Shape/border radius of the image',
+        type: DataType.TEXT,
+        direction: 'input',
+        defaultValue: 'rectangle'
+      },
+      {
+        id: 'frame',
+        name: 'Image Frame',
+        description: 'Apply a decorative frame to the image',
+        type: DataType.BOOLEAN,
+        direction: 'input',
+        defaultValue: false
+      }
+    ]
+  },
+  {
+    id: 'effect',
+    name: 'Dynamic Effects',
+    description: 'Capabilities related to dynamic image effects',
+    connectionPoints: [
+      {
+        id: 'hoverEffect',
+        name: 'Hover Effect',
+        description: 'Effect to apply when hovering over the image',
+        type: DataType.TEXT,
+        direction: 'input',
+        defaultValue: 'none'
+      },
+      {
+        id: 'transform',
+        name: 'Transform Style',
+        description: 'CSS transform to apply to the image',
+        type: DataType.TEXT,
+        direction: 'input',
+        defaultValue: ''
+      },
+      {
+        id: 'transition',
+        name: 'Transition Style',
+        description: 'CSS transition style for the image',
+        type: DataType.TEXT,
+        direction: 'input',
+        defaultValue: 'all 0.3s ease'
+      }
+    ]
+  },
+  {
+    id: 'state',
+    name: 'State Management',
+    description: 'Capabilities related to image state',
+    connectionPoints: [
+      {
+        id: 'state',
+        name: 'Image State',
+        description: 'Current state of the image',
+        type: DataType.OBJECT,
+        direction: 'bidirectional',
+        defaultValue: {
+          isLoaded: false,
+          hasError: false,
+          isHovered: false
+        }
       }
     ]
   }
@@ -79,6 +191,18 @@ const imageCapabilities: ComponentCapability[] = [
 // Define Object Fit and Loading types
 type ObjectFit = 'fill' | 'contain' | 'cover' | 'none' | 'scale-down';
 type Loading = 'eager' | 'lazy';
+type ImageAnimation = 'none' | 'fade-in' | 'zoom-in' | 'slide-in' | 'custom';
+type ImageFilter = 'none' | 'grayscale' | 'sepia' | 'blur' | 'custom';
+type ImageShape = 'rectangle' | 'rounded-sm' | 'rounded-md' | 'rounded-lg' | 'circle' | 'custom';
+type HoverEffect = 'none' | 'zoom' | 'contrast' | 'tilt' | 'border' | 'custom';
+
+// Interface for image state
+interface ImageState {
+  isLoaded: boolean;
+  hasError: boolean;
+  isHovered: boolean;
+  [key: string]: any;
+}
 
 /**
  * Props for the Intelligent Image Component
@@ -95,13 +219,99 @@ interface IntelligentImageProps {
   // Image specific props
   src?: string;
   alt?: string;
+  caption?: string;
   objectFit?: ObjectFit;
   loading?: Loading;
   className?: string;
   testId?: string;
   onClick?: (e: React.MouseEvent) => void;
+  onMouseEnter?: (e: React.MouseEvent) => void;
+  onMouseLeave?: (e: React.MouseEvent) => void;
+  onLoad?: () => void;
+  onError?: () => void;
+  
+  // Enhanced props
+  animation?: ImageAnimation;
+  filter?: ImageFilter;
+  shape?: ImageShape;
+  frame?: boolean;
+  hoverEffect?: HoverEffect;
+  transform?: string;
+  transition?: string;
+  
+  // Custom styles
   style?: React.CSSProperties;
+  captionStyle?: React.CSSProperties;
+  containerStyle?: React.CSSProperties;
+  
+  // State management props
+  initialState?: Partial<ImageState>;
+  onStateChange?: (newState: ImageState) => void;
 }
+
+/**
+ * Get animation class name based on animation type
+ */
+const getAnimationClassName = (animation: ImageAnimation): string => {
+  switch (animation) {
+    case 'fade-in':
+      return 'image-fade-in';
+    default:
+      return '';
+  }
+};
+
+/**
+ * Get filter class name based on filter type
+ */
+const getFilterClassName = (filter: ImageFilter): string => {
+  switch (filter) {
+    case 'grayscale':
+      return 'image-grayscale';
+    case 'sepia':
+      return 'image-sepia';
+    case 'blur':
+      return 'image-blur';
+    default:
+      return '';
+  }
+};
+
+/**
+ * Get shape class name based on shape type
+ */
+const getShapeClassName = (shape: ImageShape): string => {
+  switch (shape) {
+    case 'rounded-sm':
+      return 'image-rounded-sm';
+    case 'rounded-md':
+      return 'image-rounded-md';
+    case 'rounded-lg':
+      return 'image-rounded-lg';
+    case 'circle':
+      return 'image-rounded-full';
+    default:
+      return '';
+  }
+};
+
+/**
+ * Get hover effect class name based on effect type
+ */
+const getHoverEffectClassName = (effect: HoverEffect): string => {
+  switch (effect) {
+    case 'zoom':
+      return 'image-zoom-hover';
+    case 'contrast':
+      return 'image-contrast-hover';
+    case 'tilt':
+      return 'image-tilt-hover';
+    case 'border':
+      return 'image-border-hover';
+    default:
+      return '';
+  }
+};
 
 /**
  * Base Image implementation that uses the intelligent component system
@@ -115,32 +325,89 @@ const IntelligentImageBase: React.FC<IntelligentImageProps> = ({
   disconnect,
   src: propSrc = '',
   alt: propAlt = '',
+  caption: propCaption = '',
   objectFit: propObjectFit = 'cover',
   loading: propLoading = 'lazy',
   className,
   testId,
   onClick,
+  onMouseEnter,
+  onMouseLeave,
+  onLoad,
+  onError,
+  animation: propAnimation = 'none',
+  filter: propFilter = 'none',
+  shape: propShape = 'rectangle',
+  frame: propFrame = false,
+  hoverEffect: propHoverEffect = 'none',
+  transform: propTransform = '',
+  transition: propTransition = 'all 0.3s ease',
   style,
+  captionStyle,
+  containerStyle,
+  initialState = {},
+  onStateChange,
   ...rest
 }) => {
   // Get values from connections if available
   const connectionSrc = getConnectionValue?.('src');
   const connectionAlt = getConnectionValue?.('alt');
+  const connectionCaption = getConnectionValue?.('caption');
   const connectionObjectFit = getConnectionValue?.('objectFit');
   const connectionLoading = getConnectionValue?.('loading');
+  const connectionAnimation = getConnectionValue?.('animation');
+  const connectionFilter = getConnectionValue?.('filter');
+  const connectionShape = getConnectionValue?.('shape');
+  const connectionFrame = getConnectionValue?.('frame');
+  const connectionHoverEffect = getConnectionValue?.('hoverEffect');
+  const connectionTransform = getConnectionValue?.('transform');
+  const connectionTransition = getConnectionValue?.('transition');
+  const connectionState = getConnectionValue?.('state');
   
   // Use connection values or props
   const src = connectionSrc || propSrc || '';
   const alt = connectionAlt || propAlt || '';
+  const caption = connectionCaption || propCaption || '';
   const objectFit = (connectionObjectFit || propObjectFit || 'cover') as ObjectFit;
   const loading = (connectionLoading || propLoading || 'lazy') as Loading;
+  const animation = (connectionAnimation || propAnimation || 'none') as ImageAnimation;
+  const filter = (connectionFilter || propFilter || 'none') as ImageFilter;
+  const shape = (connectionShape || propShape || 'rectangle') as ImageShape;
+  const frame = connectionFrame !== undefined ? connectionFrame : propFrame;
+  const hoverEffect = (connectionHoverEffect || propHoverEffect || 'none') as HoverEffect;
+  const transform = connectionTransform || propTransform || '';
+  const transition = connectionTransition || propTransition || 'all 0.3s ease';
   
-  // Track loading state
-  const [isLoaded, setIsLoaded] = React.useState(false);
-  const [hasError, setHasError] = React.useState(false);
+  // Initialize state from props/connections with defaults
+  const [state, setState] = useState<ImageState>({
+    isLoaded: false,
+    hasError: false,
+    isHovered: false,
+    ...initialState,
+    ...(connectionState || {})
+  });
+  
+  // Update state function
+  const updateState = useCallback((updates: Partial<ImageState>) => {
+    setState(prevState => {
+      const newState = { ...prevState, ...updates };
+      
+      // Emit state change event
+      if (sendEvent && componentId) {
+        sendEvent(ComponentEventType.STATE_CHANGE, 'state', newState);
+      }
+      
+      // Call onStateChange callback if provided
+      if (onStateChange) {
+        onStateChange(newState);
+      }
+      
+      return newState;
+    });
+  }, [componentId, sendEvent, onStateChange]);
   
   // Handle image click
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = useCallback((e: React.MouseEvent) => {
     // Send the event through the component system
     if (sendEvent && componentId) {
       sendEvent(ComponentEventType.CLICK, 'click', {
@@ -153,19 +420,81 @@ const IntelligentImageBase: React.FC<IntelligentImageProps> = ({
     if (onClick) {
       onClick(e);
     }
-  };
+  }, [componentId, sendEvent, onClick]);
   
   // Handle image load
-  const handleLoad = () => {
-    setIsLoaded(true);
-    setHasError(false);
-  };
+  const handleLoad = useCallback(() => {
+    updateState({ isLoaded: true, hasError: false });
+    
+    // Send the event through the component system
+    if (sendEvent && componentId) {
+      sendEvent(ComponentEventType.CUSTOM, 'load', {
+        timestamp: new Date().toISOString(),
+        success: true
+      });
+    }
+    
+    // Call the prop onLoad if provided
+    if (onLoad) {
+      onLoad();
+    }
+  }, [componentId, sendEvent, onLoad, updateState]);
   
   // Handle image error
-  const handleError = () => {
-    setIsLoaded(true);
-    setHasError(true);
-  };
+  const handleError = useCallback(() => {
+    updateState({ isLoaded: true, hasError: true });
+    
+    // Send the event through the component system
+    if (sendEvent && componentId) {
+      sendEvent(ComponentEventType.CUSTOM, 'error', {
+        timestamp: new Date().toISOString(),
+        success: false
+      });
+    }
+    
+    // Call the prop onError if provided
+    if (onError) {
+      onError();
+    }
+  }, [componentId, sendEvent, onError, updateState]);
+  
+  // Handle mouse enter
+  const handleMouseEnter = useCallback((e: React.MouseEvent) => {
+    updateState({ isHovered: true });
+    
+    // Send the event through the component system
+    if (sendEvent && componentId) {
+      sendEvent(ComponentEventType.CUSTOM, 'hover', {
+        timestamp: new Date().toISOString(),
+        type: 'enter',
+        event: e
+      });
+    }
+    
+    // Call the prop onMouseEnter if provided
+    if (onMouseEnter) {
+      onMouseEnter(e);
+    }
+  }, [componentId, sendEvent, onMouseEnter, updateState]);
+  
+  // Handle mouse leave
+  const handleMouseLeave = useCallback((e: React.MouseEvent) => {
+    updateState({ isHovered: false });
+    
+    // Send the event through the component system
+    if (sendEvent && componentId) {
+      sendEvent(ComponentEventType.CUSTOM, 'hover', {
+        timestamp: new Date().toISOString(),
+        type: 'leave',
+        event: e
+      });
+    }
+    
+    // Call the prop onMouseLeave if provided
+    if (onMouseLeave) {
+      onMouseLeave(e);
+    }
+  }, [componentId, sendEvent, onMouseLeave, updateState]);
   
   // Calculate image styles
   const imageStyles: React.CSSProperties = {
@@ -173,8 +502,9 @@ const IntelligentImageBase: React.FC<IntelligentImageProps> = ({
     width: '100%',
     height: '100%',
     display: 'block',
-    opacity: isLoaded ? 1 : 0,
-    transition: 'opacity 0.3s ease-in-out',
+    opacity: state.isLoaded ? 1 : 0,
+    transition: transition,
+    transform,
     ...style
   };
   
@@ -185,7 +515,8 @@ const IntelligentImageBase: React.FC<IntelligentImageProps> = ({
     height: '100%',
     minHeight: '50px',
     backgroundColor: '#f1f5f9',
-    overflow: 'hidden'
+    overflow: 'hidden',
+    ...containerStyle
   };
   
   // Loading placeholder styles
@@ -195,7 +526,7 @@ const IntelligentImageBase: React.FC<IntelligentImageProps> = ({
     left: 0,
     width: '100%',
     height: '100%',
-    display: isLoaded ? 'none' : 'flex',
+    display: state.isLoaded ? 'none' : 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#f1f5f9',
@@ -210,7 +541,7 @@ const IntelligentImageBase: React.FC<IntelligentImageProps> = ({
     left: 0,
     width: '100%',
     height: '100%',
-    display: hasError ? 'flex' : 'none',
+    display: state.hasError ? 'flex' : 'none',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#fee2e2',
@@ -219,26 +550,66 @@ const IntelligentImageBase: React.FC<IntelligentImageProps> = ({
     padding: '1rem'
   };
   
+  // Caption styles
+  const defaultCaptionStyles: React.CSSProperties = {
+    padding: '0.5rem',
+    fontSize: '0.875rem',
+    color: '#4b5563',
+    textAlign: 'center',
+    ...captionStyle
+  };
+  
+  // Combine all the class names
+  const animationClass = getAnimationClassName(animation);
+  const filterClass = getFilterClassName(filter);
+  const shapeClass = getShapeClassName(shape);
+  const hoverEffectClass = getHoverEffectClassName(hoverEffect);
+  const frameClass = frame ? 'image-frame' : '';
+  const loadingClass = !state.isLoaded ? 'image-loading-pulse' : '';
+  
+  const combinedClassName = [
+    className,
+    animationClass,
+    filterClass,
+    shapeClass,
+    hoverEffectClass,
+    frameClass,
+    loadingClass
+  ].filter(Boolean).join(' ');
+  
   return (
-    <div style={containerStyles} className={className} data-testid={testId}>
-      {src ? (
-        <>
-          <img
-            src={src}
-            alt={alt}
-            style={imageStyles}
-            onClick={handleClick}
-            onLoad={handleLoad}
-            onError={handleError}
-            loading={loading}
-          />
-          <div style={placeholderStyles}>Loading...</div>
-          <div style={errorStyles}>
-            Failed to load image
-          </div>
-        </>
-      ) : (
-        <div style={placeholderStyles}>No image source provided</div>
+    <div className="image-component" style={{ width: '100%' }}>
+      <div 
+        style={containerStyles} 
+        className={combinedClassName} 
+        data-testid={testId}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
+        {src ? (
+          <>
+            <img
+              src={src}
+              alt={alt}
+              style={imageStyles}
+              onClick={handleClick}
+              onLoad={handleLoad}
+              onError={handleError}
+              loading={loading}
+            />
+            <div style={placeholderStyles}>Loading...</div>
+            <div style={errorStyles}>
+              Failed to load image
+            </div>
+          </>
+        ) : (
+          <div style={placeholderStyles}>No image source provided</div>
+        )}
+      </div>
+      {caption && (
+        <div style={defaultCaptionStyles}>
+          {caption}
+        </div>
       )}
     </div>
   );
@@ -251,39 +622,30 @@ const imageComponentDefinition: ComponentDefinition = {
   meta: {
     type: ComponentType.IMAGE,
     name: 'Image',
-    description: 'A component for displaying images with various loading strategies',
-    capabilities: imageCapabilities,
-    defaultProps: {
-      src: '',
-      alt: '',
-      objectFit: 'cover',
-      loading: 'lazy'
-    }
+    description: 'An intelligent image component that can be customized and connected to other components',
+    capabilities: imageCapabilities
   },
   initializer: (props: Record<string, any>) => ({
-    id: props.id || `image-${uuidv4()}`,
+    id: props.id || uuidv4(),
     type: ComponentType.IMAGE,
     properties: {
       src: props.src || '',
-      alt: props.alt || '',
+      alt: props.alt || 'Image',
       objectFit: props.objectFit || 'cover',
       loading: props.loading || 'lazy'
     }
   }),
-  renderer: (instance) => {
-    // The actual renderer is provided by the withIntelligentComponent HOC
-    return null;
-  }
+  renderer: () => null // The actual rendering is handled by the HOC
 };
 
-// Register component with the registry
+// Register the component
 componentRegistry.registerComponent(imageComponentDefinition);
 
-// Export the component wrapped with the intelligent component system
-export const IntelligentImage = withIntelligentComponent<IntelligentImageProps>(
+// Create the enhanced component with the intelligent component wrapper
+const IntelligentImage = withIntelligentComponent<IntelligentImageProps>(
   IntelligentImageBase,
   ComponentType.IMAGE
 );
 
-// Export base component for testing purposes
-export { IntelligentImageBase }; 
+export { IntelligentImage };
+export default IntelligentImage; 

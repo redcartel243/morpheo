@@ -7,12 +7,16 @@ import BarChart from './charts/BarChart';
 import PieChart from './charts/PieChart';
 import DataGrid from './charts/DataGrid';
 import AdvancedChart from './charts/AdvancedChart';
+import DataSeriesChart from './charts/DataSeriesChart';
 
 // Import basic components
 import { Container, Text, Button } from './BasicComponents';
 // Import layout components
 import Grid from './components/layout/Grid';
 import Card from './components/layout/Card';
+
+// Add the import for Video component
+import Video from './components/basic/Video';
 
 // Define types for component props and return types
 interface FallbackComponentProps {
@@ -33,37 +37,12 @@ const wrapMethodCode = (code: string): string => {
   }
 };
 
-// Define a fallback component creator function instead of JSX
-const createFallbackComponent = (componentType: string): React.FC<FallbackComponentProps> => {
-  // Define a proper React functional component
-  const FallbackComponent: React.FC<FallbackComponentProps> = (props: FallbackComponentProps) => {
-    return React.createElement('div', {
-      style: {
-        padding: '1rem',
-        border: '1px dashed #d0d0d0',
-        borderRadius: '4px',
-        color: '#666'
-      }
-    }, [
-      React.createElement('p', {}, [
-        'Component ',
-        React.createElement('strong', {}, componentType),
-        ' is registered but the implementation is not available.'
-      ]),
-      React.createElement('p', {}, `Props: ${JSON.stringify(props)}`)
-    ]);
-  };
-  
-  // Return the component function, not the rendered element
-  return FallbackComponent;
-};
-
 /**
  * Register all available components with the ComponentFactory
  */
 export function registerAllComponents() {
   // Register native HTML elements
-  const nativeElements = ['div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'canvas'];
+  const nativeElements = ['div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p'];
   
   nativeElements.forEach(element => {
     registerComponent({
@@ -86,7 +65,50 @@ export function registerAllComponents() {
   // Register basic UI components
   registerComponent({
     name: 'Container',
-    getComponent: () => Promise.resolve(Container),
+    getComponent: () => Promise.resolve(
+      function ContainerComponent(props) {
+        const { children, style = {}, ...rest } = props || {};
+        
+        // Log the container props for debugging
+        console.log('Container component rendering:', { id: props.id, hasChildren: !!children });
+        
+        return React.createElement('div', {
+          style: {
+            display: 'block',
+            width: '100%',
+            ...(style || {})
+          },
+          ...rest
+        }, children);
+      }
+    ),
+    defaultProps: {
+      className: '',
+      style: {},
+      disabled: 'false'
+    }
+  });
+  
+  // Also register lowercase 'container' to match lookup in component mapping
+  registerComponent({
+    name: 'container',
+    getComponent: () => Promise.resolve(
+      function ContainerComponent(props) {
+        const { children, style = {}, ...rest } = props || {};
+        
+        // Log the container props for debugging
+        console.log('container (lowercase) component rendering:', { id: props.id, hasChildren: !!children });
+        
+        return React.createElement('div', {
+          style: {
+            display: 'block',
+            width: '100%',
+            ...(style || {})
+          },
+          ...rest
+        }, children);
+      }
+    ),
     defaultProps: {
       className: '',
       style: {},
@@ -132,10 +154,13 @@ export function registerAllComponents() {
     name: 'button',
     getComponent: () => Promise.resolve(
       function ButtonComponent(props) {
-        const { text, children, style = {}, ...rest } = props || {};
+        const { text, content, children, style = {}, ...rest } = props || {};
         
-        // Make sure to show either text property or children
-        const buttonContent = text || children || '';
+        // Debugging: log the properties received
+        console.log('Button component props:', { text, content, children, hasProps: !!props });
+        
+        // Make sure to show either text, content property or children in that order of precedence
+        const buttonContent = text || content || children || '';
         
         return React.createElement('button', {
           style: {
@@ -342,15 +367,16 @@ export function registerAllComponents() {
     }
   });
   
-  // Register Select/Dropdown component
+  // Register select component
   registerComponent({
     name: 'select',
-    getComponent: () => Promise.resolve(createFallbackComponent('select')),
+    getComponent: () => import('./components/basic/Select').then(module => module.default),
     defaultProps: {
       options: [],
-      fullWidth: 'true',
-      variant: 'outlined',
-      size: 'medium'
+      value: '',
+      placeholder: 'Select an option',
+      disabled: false,
+      required: false
     }
   });
   
@@ -485,10 +511,25 @@ export function registerAllComponents() {
   // Register List component
   registerComponent({
     name: 'list',
-    getComponent: () => Promise.resolve(createFallbackComponent('list')),
+    getComponent: () => Promise.resolve(
+      function ListComponent(props) {
+        const { children, style = {}, ...rest } = props || {};
+        console.log('Rendering list component with children:', children);
+        return React.createElement('ul', {
+          style: {
+            listStyleType: 'none', // Default to no bullets
+            padding: 0,
+            margin: 0,
+            ...(style || {})
+          },
+          ...rest
+        }, children);
+      }
+    ),
     defaultProps: {
-      items: [],
-      ordered: 'false'
+      className: '',
+      style: {},
+      disabled: 'false'
     }
   });
   
@@ -516,6 +557,305 @@ export function registerAllComponents() {
   registerComponent({
     name: 'chart',
     getComponent: () => Promise.resolve(AdvancedChart),
+    defaultProps: {
+      type: 'bar',
+      data: [],
+      height: 300,
+      width: '100%'
+    }
+  });
+
+  // Register Canvas component (proper implementation)
+  registerComponent({
+    name: 'canvas',
+    getComponent: () => import('./components/basic/Canvas').then(module => module.default),
+    defaultProps: {
+      width: 300,
+      height: 150,
+      style: {}
+    }
+  });
+
+  // Register all chart components
+  registerComponent({
+    name: 'linechart',
+    getComponent: () => Promise.resolve(LineChart),
+    defaultProps: {
+      data: [],
+      dataUrl: '',
+      height: 300,
+      width: '100%',
+      title: '',
+      subtitle: '',
+      xKey: 'x',
+      yKey: 'y',
+      lineColor: '#4E79A7',
+      gridLines: 'true',
+      showLegend: 'true',
+      pointStyles: 'circle',
+      interaction: {}
+    },
+    transformProps: (props) => ({
+      ...props,
+      data: props.data || [],
+      height: props.height || 300,
+      width: props.width || '100%'
+    })
+  });
+  
+  registerComponent({
+    name: 'barchart',
+    getComponent: () => Promise.resolve(BarChart),
+    defaultProps: {
+      data: [],
+      dataUrl: '',
+      height: 300,
+      width: '100%',
+      title: '',
+      subtitle: '',
+      xKey: 'x',
+      yKey: 'y',
+      barColors: ['#4E79A7', '#F28E2B', '#E15759'],
+      gridLines: 'true',
+      showLegend: 'true',
+      interaction: {}
+    }
+  });
+  
+  registerComponent({
+    name: 'piechart',
+    getComponent: () => Promise.resolve(PieChart),
+    defaultProps: {
+      data: [],
+      dataUrl: '',
+      height: 300,
+      width: '100%',
+      title: '',
+      subtitle: '',
+      labelKey: 'label',
+      valueKey: 'value',
+      colors: ['#4E79A7', '#F28E2B', '#E15759', '#76B7B2', '#59A14F', '#EDC948'],
+      showLegend: 'true',
+      donut: 'false',
+      interaction: {}
+    }
+  });
+  
+  registerComponent({
+    name: 'datagrid',
+    getComponent: () => Promise.resolve(DataGrid),
+    defaultProps: {
+      data: [],
+      dataUrl: '',
+      height: 400,
+      width: '100%',
+      title: '',
+      columns: [],
+      pagination: 'true',
+      pageSize: 10,
+      sortable: 'true',
+      filterable: 'true',
+      selectable: 'false',
+      exportable: 'false',
+      theme: 'light'
+    }
+  });
+  
+  registerComponent({
+    name: 'advancedchart',
+    getComponent: () => Promise.resolve(AdvancedChart),
+    defaultProps: {
+      data: [],
+      type: 'line',
+      xKey: 'x',
+      yKey: 'y',
+      height: 300,
+      libraryPreference: 'any',
+      theme: 'light'
+    }
+  });
+  
+  registerComponent({
+    name: 'dataSeries',
+    getComponent: () => Promise.resolve(DataSeriesChart),
+    defaultProps: {
+      data: [],
+      type: 'line',
+      xKey: 'x',
+      yKey: 'y',
+      height: 300,
+      libraryPreference: 'any',
+      theme: 'light'
+    }
+  });
+  
+  // Also register all-lowercase version for case-insensitive matching
+  registerComponent({
+    name: 'dataseries',
+    getComponent: () => Promise.resolve(DataSeriesChart),
+    defaultProps: {
+      data: [],
+      type: 'line',
+      xKey: 'x',
+      yKey: 'y',
+      height: 300,
+      libraryPreference: 'any',
+      theme: 'light'
+    }
+  });
+  
+  // Register with hyphenated name for kebab-case convention
+  registerComponent({
+    name: 'data-series',
+    getComponent: () => Promise.resolve(DataSeriesChart),
+    defaultProps: {
+      data: [],
+      type: 'line',
+      xKey: 'x',
+      yKey: 'y',
+      height: 300,
+      libraryPreference: 'any',
+      theme: 'light'
+    }
+  });
+
+  // Register Video component for media playback and camera access
+  registerComponent({
+    name: 'Video',
+    getComponent: () => Promise.resolve(Video),
+    defaultProps: {
+      width: '100%',
+      height: 'auto',
+      autoPlay: false,
+      controls: true,
+      muted: false,
+      useCamera: false,
+      facingMode: 'user'
+    }
+  });
+  
+  // Also register lowercase 'video' component to match lookup
+  registerComponent({
+    name: 'video',
+    getComponent: () => Promise.resolve(Video),
+    defaultProps: {
+      width: '100%',
+      height: 'auto',
+      autoPlay: false,
+      controls: true,
+      muted: false,
+      useCamera: false,
+      facingMode: 'user'
+    }
+  });
+
+  // --- Add registrations for header, footer, script ---
+  registerComponent({
+    name: 'header',
+    getComponent: () => Promise.resolve(
+      function HeaderComponent(props) {
+        const { children, style = {}, ...rest } = props || {};
+        return React.createElement('header', { style, ...rest }, children);
+      }
+    ),
+    defaultProps: {}
+  });
+
+  registerComponent({
+    name: 'footer',
+    getComponent: () => Promise.resolve(
+      function FooterComponent(props) {
+        const { children, style = {}, ...rest } = props || {};
+        return React.createElement('footer', { style, ...rest }, children);
+      }
+    ),
+    defaultProps: {}
+  });
+
+  registerComponent({
+    name: 'script',
+    getComponent: () => Promise.resolve(
+      function ScriptPlaceholderComponent(props) {
+        const code = props?.properties?.code || props?.code || '[no code property found]';
+        console.warn('Placeholder <script> component rendered. AI generated code was NOT executed for security:', code.substring(0, 100) + '...');
+        // Render nothing visible, or an HTML comment
+        return React.createElement(React.Fragment, null);
+        // Alternatively: return React.createElement(React.Fragment, null, `<!-- Script component ignored: ${props.id} -->`);
+      }
+    ),
+    defaultProps: {}
+  });
+  // --- End registrations ---
+}
+
+/**
+ * Create a fallback component for when a registered component fails to load
+ */
+export function createFallbackComponent(componentType: string) {
+  return function FallbackComponent(props: Record<string, any>) {
+    // Enhanced debugging output - also log to console with more context
+    console.error(`Fallback component being rendered for type "${componentType}". This means the component is registered but the implementation is not available.`);
+
+    // Get list of available components for better debugging
+    const { getRegisteredComponents } = require('./ComponentFactory');
+    const availableComponents = getRegisteredComponents();
+    
+    console.error(`Available registered components (${availableComponents.length}):`, availableComponents.sort().join(', '));
+    console.error(`Component props:`, JSON.stringify(props, null, 2));
+    
+    return React.createElement(
+      'div', 
+      { 
+        style: {
+          padding: '10px',
+          border: '1px dashed red',
+          borderRadius: '4px',
+          margin: '5px',
+          color: '#721c24',
+          backgroundColor: '#f8d7da'
+        }
+      },
+      [
+        React.createElement('h4', { key: 'title' }, `Component Not Available: ${componentType}`),
+        React.createElement('div', { key: 'message' }, 
+          React.createElement('strong', {}, 'This component is registered but the implementation is not available.')
+        ),
+        React.createElement('pre', { 
+          key: 'props',
+          style: { 
+            marginTop: '10px', 
+            padding: '8px', 
+            background: '#f8f9fa', 
+            fontSize: '12px' 
+          }
+        }, JSON.stringify(props, null, 2))
+      ]
+    );
+  };
+}
+
+// Register chart components
+export function registerChartComponents() {
+  registerComponent({
+    name: 'chart',
+    getComponent: () => Promise.resolve(
+      function ChartComponent(props) {
+        // Basic chart implementation
+        return React.createElement('div', { 
+          style: { 
+            width: props.width || '100%',
+            height: props.height || '300px',
+            border: '1px solid #ddd',
+            borderRadius: '4px',
+            padding: '16px',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            backgroundColor: '#f9f9fa'
+          }
+        }, 'Chart Component - Data Visualization');
+      }
+    ),
     defaultProps: {
       type: 'bar',
       data: [],

@@ -17,9 +17,25 @@ import { ComponentRegistry } from './ComponentRegistry';
 export class ActionProcessor {
   private registry: ComponentRegistry;
   private variables: Map<string, any> = new Map();
+  private actionHandlers: Map<string, (action: any) => any> = new Map();
 
   constructor(registry: ComponentRegistry = ComponentRegistry.getInstance()) {
     this.registry = registry;
+    this.initializeActionHandlers();
+  }
+
+  private initializeActionHandlers() {
+    this.registerActionHandler('setValue', this.executeSetValue.bind(this));
+    this.registerActionHandler('getValue', this.executeGetValue.bind(this));
+    this.registerActionHandler('setStyle', this.executeSetStyle.bind(this));
+    this.registerActionHandler('addClass', this.executeClassAction.bind(this));
+    this.registerActionHandler('removeClass', this.executeClassAction.bind(this));
+    this.registerActionHandler('setTimeout', this.executeTimeout.bind(this));
+    this.registerActionHandler('if', this.executeCondition.bind(this));
+  }
+
+  private registerActionHandler(type: string, handler: (action: any) => any) {
+    this.actionHandlers.set(type, handler);
   }
 
   /**
@@ -54,30 +70,14 @@ export class ActionProcessor {
    */
   private executeAction(action: Action): any {
     try {
-      switch (action.type) {
-        case 'setValue':
-          return this.executeSetValue(action as SetValueAction);
-        
-        case 'getValue':
-          return this.executeGetValue(action as GetValueAction);
-        
-        case 'setStyle':
-          return this.executeSetStyle(action as StyleAction);
-        
-        case 'addClass':
-        case 'removeClass':
-          return this.executeClassAction(action as ClassAction);
-        
-        case 'setTimeout':
-          return this.executeTimeout(action as TimeoutAction);
-        
-        case 'if':
-          return this.executeCondition(action as ConditionAction);
-        
-        default:
-          console.warn(`Unknown action type: ${action.type}`);
-          return null;
+      const handler = this.actionHandlers.get(action.type);
+      
+      if (handler) {
+        return handler(action);
       }
+      
+      console.warn(`Unknown action type: ${action.type}`);
+      return null;
     } catch (error) {
       console.error(`Error executing action of type ${action.type}:`, error);
       return null;

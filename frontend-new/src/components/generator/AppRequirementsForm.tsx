@@ -6,6 +6,7 @@ export interface AppRequirements {
   dataStructure: string;
   uiPreferences: string;
   appType: string;
+  preferredComponents?: string[];
 }
 
 interface AppRequirementsFormProps {
@@ -23,12 +24,13 @@ const AppRequirementsForm: React.FC<AppRequirementsFormProps> = ({
     dataStructure: initialValues.dataStructure || '',
     uiPreferences: initialValues.uiPreferences || '',
     appType: initialValues.appType || '',
+    preferredComponents: initialValues.preferredComponents || [],
   });
 
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 4;
 
-  const handleChange = (field: keyof AppRequirements, value: string) => {
+  const handleChange = (field: keyof AppRequirements, value: string | string[]) => {
     setRequirements({
       ...requirements,
       [field]: value,
@@ -114,15 +116,19 @@ const AppRequirementsForm: React.FC<AppRequirementsFormProps> = ({
             
             <div className="mt-4">
               <label className="block text-lg font-medium text-gray-700 dark:text-gray-300 mb-3">
-                What type of app would best suit your needs?
+                What type of UI components would you like?
               </label>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {(['tracker', 'calculator', 'dashboard', 'form', 'list', 'other'] as const).map((type) => (
+                {(['input', 'button', 'display', 'container', 'data', 'layout'] as const).map((type) => (
                   <div 
                     key={type}
-                    onClick={() => handleChange('appType', type)}
+                    onClick={() => handleChange('preferredComponents', 
+                      requirements.preferredComponents?.includes(type)
+                        ? requirements.preferredComponents.filter(t => t !== type)
+                        : [...(requirements.preferredComponents || []), type]
+                    )}
                     className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                      requirements.appType === type 
+                      requirements.preferredComponents?.includes(type) 
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' 
                         : 'border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
                     }`}

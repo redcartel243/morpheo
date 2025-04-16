@@ -5,6 +5,55 @@ import { Chart, DataTable, Map } from './components/visualization';
 import type { ChartProps, DataTableProps, MapProps } from './components/visualization';
 import { registerAllComponents } from './ComponentRegistry';
 import { getComponent, getRegisteredComponents, isComponentRegistered } from './ComponentFactory';
+import { createFallbackComponent } from './ComponentRegistry';
+import { processComponentStructure, mapComponentType } from './ComponentProcessing';
+
+/**
+ * Default method implementations for common components
+ */
+const DEFAULT_METHOD_IMPLEMENTATIONS: Record<string, string> = {
+  // Add other default method implementations here
+  toggleVisibility: `
+    function(event, $m) {
+      const target = event.currentTarget.dataset.target;
+      if (!target) return;
+      
+      const element = $m('#' + target);
+      const isVisible = element.getStyle('display') !== 'none';
+      
+      if (isVisible) {
+        element.hide();
+      } else {
+        element.show();
+      }
+    }
+  `,
+  
+  submitForm: `
+    function(event, $m) {
+      const formId = event.currentTarget.dataset.form;
+      if (!formId) return;
+      
+      const form = $m('#' + formId);
+      if (!form) return;
+      
+      // Get form data
+      const formData = new FormData(form.element);
+      const data = {};
+      
+      // Convert to object
+      for (const [key, value] of formData.entries()) {
+        data[key] = value;
+      }
+      
+      console.log('Form submitted:', data);
+      
+      // Here you would typically send the data to a server
+      // For now, just store it locally
+      $m('#form-result').setValue(JSON.stringify(data, null, 2));
+    }
+  `
+};
 
 // Register all components once when the module is loaded
 // This prevents repeated registrations on each render
@@ -20,11 +69,13 @@ declare global {
     textInputTimeouts?: Record<string, NodeJS.Timeout>;
     $morpheo?: Record<string, any>;
     $m?: (selector: string) => any;
+    _methodExecutionTimestamps?: Record<string, number>;
   }
 }
 
-// Add a debug flag at the top of the file after the imports:
-const DEBUG_EVENT_HANDLING = true;
+// Debug flags
+const DEBUG_COMPONENT_LOADING = false;
+const DEBUG_EVENT_HANDLING = false;
 
 /**
  * DynamicComponent is a generic component that can render any type of UI component
@@ -72,130 +123,89 @@ interface ComponentChild {
   events?: Record<string, any>;
   region?: string;
   methods?: Record<string, any>;
+  key?: string; // Add the key property for React reconciliation
 }
 
-// Extend the component type mapping function to handle app-specific components
-const mapComponentType = (type: string): string => {
-  // Normalize component type to prevent inconsistencies
-  const normalizedType = type.toLowerCase();
-  
-  // Log component type mapping for debugging
-  console.log(`Mapping component type: ${type} -> normalized: ${normalizedType}`);
-  
-  // Map component types to standardized names
-  switch (normalizedType) {
-    // Container types
-    case 'container':
-    case 'div':
-    case 'box':
-      return 'div';
-    
-    // Text types
-    case 'text':
-    case 'heading':
-    case 'title':
-    case 'paragraph':
-    case 'p':
-      return 'text';
-    
-    // Input types
-    case 'text-input':
-    case 'textinput':
-    case 'input':
-      return 'text-input';
-    
-    case 'button':
-    case 'btn':
-      return 'button';
-    
-    case 'checkbox':
-    case 'check':
-      return 'checkbox';
-    
-    // Layout types
-    case 'card':
-    case 'panel':
-    case 'paper':
-      return 'card';
-    
-    case 'list':
-    case 'ul':
-    case 'itemlist':
-      return 'list';
-    
-    case 'image':
-    case 'img':
-    case 'picture':
-      return 'image';
-    
-    // Visualization types
-    case 'map':
-    case 'mapview':
-    case 'mapcomponent':
-      return 'map';
-    
-    case 'chart':
-    case 'graph':
-      return 'chart';
-    
-    case 'datatable':
-    case 'table':
-      return 'datatable';
-    
-    // Default to the original type
-    default:
-      return normalizedType;
-  }
-};
+// Now we can define the DynamicComponent
 
-// Generic component structure processor
-const processComponentStructure = (component: ComponentChild | null): ComponentChild | null => {
-  if (!component) return null;
+export const DynamicComponent: React.FC<DynamicComponentProps> = (props) => {
+  const { component, functionality, eventHandlers, onUpdate, config } = props;
   
-  // Create a shallow copy of the component to avoid mutating the original
-  const processedComponent: ComponentChild = {
-    ...component,
-    type: mapComponentType(component.type || 'container')
-  };
-  
-  // Handle nested children
-  if (Array.isArray(processedComponent.children)) {
-    processedComponent.children = processedComponent.children
-      .filter(child => child !== null && child !== undefined) // Filter out null/undefined children
-      .map((child: ComponentChild | string) => {
-        if (typeof child === 'string') return child;
-        return processComponentStructure(child) || child;
-      });
-  }
-  
-  return processedComponent;
-}
-
-const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, config }: DynamicComponentProps): React.ReactElement | null => {
   const [Component, setComponent] = useState<React.ComponentType<any> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [componentState, setLocalComponentState] = useState<Record<string, any>>({});
   
-  // Process the component to ensure it follows the expected structure
+  // Process and normalize component
   const processedComponent = useMemo(() => {
     // Add a null/undefined check before processing
     if (!component) {
       console.warn('Received null or undefined component in DynamicComponent');
       return null;
     }
+    
+    // Log original component data to help debug AI responses
+    console.log('Processing component in DynamicComponent:', {
+      type: component.type,
+      id: component.id,
+      hasProps: !!component.props,
+      hasProperties: !!component.properties,
+      textProperty: component.props?.text || component.properties?.text,
+      propsKeys: component.props ? Object.keys(component.props) : [],
+      propertiesKeys: component.properties ? Object.keys(component.properties) : []
+    });
+    
     return processComponentStructure(component);
   }, [component]);
   
   // Create a safe component with defaults for all required properties
-  const safeComponent = useMemo(() => ({
-    type: mapComponentType(processedComponent?.type || 'container'),
-    id: processedComponent?.id || `component-${Math.random().toString(36).substr(2, 9)}`,
-    props: processedComponent?.props || {},
-    children: processedComponent?.children || [],
-    styles: processedComponent?.styles || {},
-    events: processedComponent?.events || {},
-    methods: processedComponent?.methods || {}
-  }), [processedComponent]);
+  const safeComponent = useMemo(() => {
+    if (!processedComponent) {
+      return {
+        type: 'container',
+        id: `component-${Math.random().toString(36).substr(2, 9)}`,
+        props: {},
+        children: [],
+        styles: {},
+        events: {},
+        methods: {}
+      };
+    }
+    
+    // Normalize properties from either props or properties field
+    const normalizedProps = {
+      ...(processedComponent.properties || {}),
+      ...(processedComponent.props || {})
+    };
+
+    // Handle text property specially for buttons and text components
+    if (processedComponent.type === 'button' && 'text' in normalizedProps) {
+      console.log(`Found text property for button: ${normalizedProps.text}`);
+    }
+    
+    return {
+      type: mapComponentType(processedComponent.type || 'container'),
+      id: processedComponent.id || `component-${Math.random().toString(36).substr(2, 9)}`,
+      props: normalizedProps,
+      children: processedComponent.children || [],
+      styles: processedComponent.styles || {},
+      events: processedComponent.events || {},
+      methods: processedComponent.methods || {}
+    };
+  }, [processedComponent]);
+  
+  // Create application state setter for this component
+  const setComponentState = useCallback((stateUpdater: (prevState: Record<string, any>) => Record<string, any>) => {
+    if (typeof onUpdate === 'function') {
+      onUpdate((prevState: Record<string, any>) => {
+        const newComponentState = stateUpdater(prevState[safeComponent.id] || {});
+        return {
+          ...prevState,
+          [safeComponent.id]: newComponentState
+        };
+      });
+    }
+  }, [onUpdate, safeComponent.id]);
   
   // Add debug logging to check if the component type is registered
   useEffect(() => {
@@ -204,21 +214,18 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
     console.log(`Is component ${componentType} registered? ${isComponentRegistered(componentType)}`);
   }, [safeComponent.type]);
   
-  // Local state for component
-  const [componentState, setComponentState] = useState<Record<string, any>>({});
-  
   // Initialize component state based on props and functionality
   const initialState = useMemo(() => {
     // Start with basic state properties
     const state: Record<string, any> = {
-      value: safeComponent.props.value || '',
-      checked: safeComponent.props.checked || false,
+      value: safeComponent.props?.value || '',
+      checked: safeComponent.props?.checked || false,
       showModal: false,
       isModalOpen: false
     };
     
     // Add any custom state properties from component props
-    if (safeComponent.props.initialState && typeof safeComponent.props.initialState === 'object') {
+    if (safeComponent.props?.initialState && typeof safeComponent.props.initialState === 'object') {
       Object.assign(state, safeComponent.props.initialState);
     }
     
@@ -243,172 +250,89 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
       return;
     }
     
+    console.log("Method execution starting with code:", methodCode);
+    
+    // --- Remove $m Proxy and Frontend Post-Processing ---
+    // Backend now provides correctly translated JS using global API functions.
+
     try {
-      // Create DOM manipulation utility
-      const $m = (selector: string) => {
-        if (!selector) return null;
-        const targetId = selector.startsWith('#') ? selector.substring(1) : selector;
-        
-        // Create a component reference with utility methods
-        return {
-          // Element getter
-          element: () => document.getElementById(targetId),
-          getElement: () => document.getElementById(targetId),
-          
-          // Property getters/setters
-          getProperty: (propName: string) => {
-            const element = document.getElementById(targetId);
-            if (!element) return null;
-            
-            // Handle different property types
-            if (propName === 'value' && 'value' in element) {
-              return (element as HTMLInputElement).value;
-            }
-            
-            if (propName === 'checked' && 'checked' in element) {
-              return (element as HTMLInputElement).checked;
-            }
-            
-            if (propName === 'text' || propName === 'textContent') {
-              return element.textContent;
-            }
-            
-            // Try to get from data attributes
-            return element.getAttribute(`data-${propName}`) || element.getAttribute(propName);
-          },
-          
-          setProperty: (propName: string, value: any) => {
-            const element = document.getElementById(targetId);
-            if (!element) {
-              console.warn(`Element not found for selector #${targetId} when setting ${propName}`);
-              return null;
-            }
-            
-            console.log(`Setting ${propName} to ${value} for #${targetId}`);
-            
-            // Handle different property types
-            if (propName === 'value' && 'value' in element) {
-              (element as HTMLInputElement).value = value;
-              // Dispatch input and change events for proper event propagation
-              element.dispatchEvent(new Event('input', { bubbles: true }));
-              element.dispatchEvent(new Event('change', { bubbles: true }));
-              return;
-            }
-            
-            if (propName === 'checked' && 'checked' in element) {
-              (element as HTMLInputElement).checked = value === true || value === 'true';
-              element.dispatchEvent(new Event('change', { bubbles: true }));
-              return;
-            }
-            
-            if (propName === 'text' || propName === 'textContent') {
-              element.textContent = value;
-              return;
-            }
-            
-            // Set as data attribute for custom properties
-            element.setAttribute(`data-${propName}`, value.toString());
-            
-            // For normal attributes like disabled, etc.
-            if (['disabled', 'readonly', 'required'].includes(propName)) {
-              if (value === true || value === 'true') {
-                element.setAttribute(propName, 'true');
-              } else {
-                element.removeAttribute(propName);
-              }
-            }
-          },
-          
-          // Style manipulation
-          setStyle: (styleProperty: string, value: string) => {
-            const element = document.getElementById(targetId);
-            if (!element) return null;
-            
-            if (styleProperty && value !== undefined) {
-              (element as HTMLElement).style[styleProperty as any] = value;
-            } else if (typeof styleProperty === 'object') {
-              // Allow passing a style object
-              Object.assign((element as HTMLElement).style, styleProperty);
-            }
-          },
-          
-          // Event handlers
-          addEventListener: (eventType: string, handler: (e: Event) => void) => {
-            const element = document.getElementById(targetId);
-            if (!element) return null;
-            element.addEventListener(eventType, handler);
-          },
-          
-          // Additional utility methods
-          setValue: (value: string) => {
-            const element = document.getElementById(targetId);
-            if (!element) return null;
-            if ('value' in element) {
-              (element as HTMLInputElement).value = value;
-              // Dispatch events for proper event propagation
-              element.dispatchEvent(new Event('input', { bubbles: true }));
-              element.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-          },
-          
-          getValue: () => {
-            const element = document.getElementById(targetId);
-            if (!element) return null;
-            if ('value' in element) {
-              return (element as HTMLInputElement).value;
-            }
-            return null;
-          }
-        };
-      };
+      // Get helper functions from eventHandlers - needed for injection
+      const addComponentFunc = eventHandlers?.addComponent;
+      const removeComponentFunc = eventHandlers?.removeComponent;
+      const updateComponentFunc = eventHandlers?.updateComponent;
+      const getComponentPropertyFunc = eventHandlers?.getComponentProperty;
+      const setComponentPropertyFunc = eventHandlers?.setComponentProperty;
+      const callComponentMethodFunc = eventHandlers?.callComponentMethod;
+
+      // Check if functions are available (optional but good practice)
+      if (typeof addComponentFunc !== 'function' || 
+          typeof removeComponentFunc !== 'function' || 
+          typeof updateComponentFunc !== 'function' ||
+          typeof getComponentPropertyFunc !== 'function' || 
+          typeof setComponentPropertyFunc !== 'function' || 
+          typeof callComponentMethodFunc !== 'function'
+          ) {
+        console.warn('One or more global API functions (add/remove/update/getProp/setProp/callMethod) not found in eventHandlers. Method execution might fail if called.');
+      }
+
+      // --- Simplified Execution using new Function --- 
       
-      // Special case for calculator-style direct execution code
-      // If code contains direct modification like $m('#display').setProperty('value', ...) 
-      if (methodCode.includes('$m(') && !methodCode.trim().startsWith('function')) {
-        console.log('Direct execution of method code with $m selector detected');
-        try {
-          // Simply execute the code directly with the DOM manipulation utility
-          new Function('event', '$m', methodCode)(event, $m);
-          return;
-        } catch (directError) {
-          console.error('Error in direct code execution, falling back to function wrapper:', directError);
-          // Continue to the function wrapper approaches below
+      let functionBody = '';
+      // Extract function body (assuming backend provides full function string)
+      if (methodCode.trim().startsWith('function')) {
+        const bodyStart = methodCode.indexOf('{');
+        const bodyEnd = methodCode.lastIndexOf('}');
+        if (bodyStart !== -1 && bodyEnd > bodyStart) {
+          functionBody = methodCode.substring(bodyStart + 1, bodyEnd);
+          console.log("Extracted function body:", functionBody);
+            } else {
+          console.error("Could not extract body from function string:", methodCode);
+          functionBody = 'console.error("Invalid function format provided by backend.");';
         }
+            } else {
+          // Should not happen if backend translator works correctly
+          console.error("Backend did not provide a function string:", methodCode);
+          functionBody = 'console.error("Invalid code format from backend.");';
       }
       
-      // Try different approaches to execute code
-      try {
-        // Approach 1: If code is already a function declaration
-        if (methodCode.trim().startsWith('function')) {
-          const func = new Function('event', '$m', `return ${methodCode}`);
-          func()(event, $m);
-          return;
-        }
-        
-        // Approach 2: Wrap code in a function
-        const wrappedFunc = new Function('event', '$m', `
-          return function(event, $m) { 
-            ${methodCode} 
-          }
-        `);
-        wrappedFunc()(event, $m);
-      } catch (error) {
-        console.error('Error in function wrapper execution, trying direct execution:', error);
-        
-        // Approach 3: Direct execution as a last resort
-        new Function('event', '$m', methodCode)(event, $m);
-      }
+      console.log("Final function body to execute:", functionBody);
       
-      // Update app state if needed
+      // Create function, injecting global API functions into its scope
+      const func = new Function(
+          'event', // Standard event object
+          // Global API Functions
+          'addComponent', 
+          'removeComponent', 
+          'updateComponent', 
+          'getComponentProperty', 
+          'setComponentProperty', 
+          'callComponentMethod', 
+          functionBody
+      );
+      
+      // Execute the function, passing the event object and the actual API functions
+      func(
+          event, 
+          addComponentFunc, 
+          removeComponentFunc, 
+          updateComponentFunc,
+          getComponentPropertyFunc, 
+          setComponentPropertyFunc,
+          callComponentMethodFunc
+      );
+      
+      // Original state update (might still be useful for local component state?)
       setComponentState(prevState => {
         const newState = { ...prevState };
+        // Potentially update local state based on method execution if needed
         return newState;
       });
-      
-    } catch (error) {
+
+      } catch (error) {
       console.error(`Error executing method ${methodName} for ${safeComponent.id}:`, error);
+      console.error("Invalid method code could not be executed:", methodCode); // Log the raw code from backend
     }
-  }, [safeComponent.id, setComponentState]);
+  }, [safeComponent.id, setComponentState, eventHandlers]); // Include eventHandlers dependency
 
   // Handle events from components
   const handleEvent = useCallback((eventType: string, event: any) => {
@@ -417,9 +341,7 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
       return;
     }
 
-    if (DEBUG_EVENT_HANDLING) {
-      console.log(`Event '${eventType}' triggered on ${safeComponent.id}`, event);
-    }
+    console.log(`Event '${eventType}' triggered on ${safeComponent.id}`, event);
 
     // Get the component's methods from safeComponent.methods or props.methods
     const componentMethods = safeComponent.methods || safeComponent.props?.methods || {};
@@ -449,9 +371,10 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
     if (eventType === 'focus') methodNamesToTry.push('onFocus');
     if (eventType === 'input') methodNamesToTry.push('onInput');
 
-    if (DEBUG_EVENT_HANDLING) {
+    // Debug the methodNames we're looking for
       console.log(`Looking for method names:`, methodNamesToTry);
-    }
+    console.log(`Component methods:`, componentMethods);
+    console.log(`Component events:`, componentEvents);
 
     // Look for a matching method in both methods and events
     let method = null;
@@ -460,7 +383,7 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
     
     // First try methods
     for (const name of methodNamesToTry) {
-      if (componentMethods && componentMethods[name]) {
+      if (componentMethods && componentMethods[name] !== undefined) {
         method = componentMethods[name];
         methodName = name;
         methodSource = 'methods';
@@ -471,7 +394,7 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
     // If not found in methods, try events
     if (!method) {
       for (const name of methodNamesToTry) {
-        if (componentEvents && componentEvents[name]) {
+        if (componentEvents && componentEvents[name] !== undefined) {
           method = componentEvents[name];
           methodName = name;
           methodSource = 'events';
@@ -480,11 +403,9 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
       }
     }
 
-    if (method) {
-      if (DEBUG_EVENT_HANDLING) {
+    if (method !== null) {
         console.log(`Found ${methodSource}.${methodName} for event ${eventType} on component ${safeComponent.id}`);
         console.log('Method details:', method);
-      }
       
       try {
         // Handle both string and object method definitions
@@ -494,12 +415,27 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
         if (typeof method === 'string') {
           methodCode = method;
         } else if (typeof method === 'object' && method !== null) {
-          methodCode = method.code || '';
+          if (method.code) {
+            methodCode = method.code;
+          } else {
+            // If no code property, use the entire object as code
+            methodCode = JSON.stringify(method);
+          }
           affectedComponents = method.affectedComponents || [];
         } else {
           console.error(`Invalid method format for ${methodName}:`, method);
           return;
         }
+        
+        // Check if this is a known method with a default implementation
+        if (typeof methodCode === 'string' && !methodCode.trim().startsWith('function')) {
+          const defaultMethod = DEFAULT_METHOD_IMPLEMENTATIONS[methodCode.trim()];
+          if (defaultMethod) {
+            methodCode = defaultMethod;
+          }
+        }
+
+        console.log(`Executing method code: ${methodCode}`);
         
         // Execute the method
         executeComponentMethod(methodName, methodCode, event);
@@ -521,11 +457,9 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
         console.error(`Error executing ${methodSource}.${methodName} for ${safeComponent.id}:`, err);
       }
     } else {
-      if (DEBUG_EVENT_HANDLING) {
-        console.log(`No method found for event ${eventType} on component ${safeComponent.id}`);
+      console.log(`No method found for event ${eventType} on component ${safeComponent.id}`);
         console.log(`Available methods:`, componentMethods);
         console.log(`Available events:`, componentEvents);
-      }
     }
   }, [safeComponent, executeComponentMethod]);
 
@@ -544,7 +478,7 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
       
       if (ctx) {
         // Set initial canvas state based on props or defaults
-        const backgroundColor = safeComponent.props.backgroundColor || '#ffffff';
+        const backgroundColor = safeComponent.props?.backgroundColor || '#ffffff';
         ctx.fillStyle = backgroundColor;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
@@ -563,7 +497,7 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
         setEvents(prevEvents => [...prevEvents, initEvent]);
       }
     }
-  }, [safeComponent.type, safeComponent.props.backgroundColor, safeComponent.id]);
+  }, [safeComponent.type, safeComponent.props?.backgroundColor, safeComponent.id]);
 
   // Helper function to extract display value from a component - generic for any component type
   const getComponentDisplayValue = (component: any): string => {
@@ -723,19 +657,19 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
 
   // Define styles at component level, outside any conditionals
   const componentStyles = {
-    ...safeComponent.props.style
+    ...(safeComponent.props?.style || {})
   };
 
   // Add this useEffect hook after the existing debug logging useEffect
   useEffect(() => {
     async function loadComponentFromRegistry() {
       const componentType = safeComponent.type;
-      console.log(`Loading component: ${componentType}`);
+      console.log(`[DynamicComponent] Loading component "${componentType}" from registry (original type: "${safeComponent.type}")`);
       
       try {
         // Check if component is registered
         if (!isComponentRegistered(componentType)) {
-          console.error(`Component ${componentType} is not registered in the ComponentFactory`);
+          console.error(`Component ${componentType} is not registered in the ComponentFactory. Available components:`, getRegisteredComponents());
           setError(`Component type "${componentType}" not found`);
           setLoading(false);
           return;
@@ -759,6 +693,7 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
           typeof resolvedComponent === 'string';
         
         if (isValidComponent) {
+          console.log(`[DynamicComponent] Successfully resolved component "${componentType}" (type: ${typeof resolvedComponent})`);
           setComponent(() => resolvedComponent);
           setLoading(false);
         } else {
@@ -778,7 +713,7 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
   
   // Render a fallback component if the component fails to load
   const renderFallbackComponent = () => {
-    return (
+        return (
       <div style={{
         padding: '10px',
         border: '1px dashed red',
@@ -797,14 +732,14 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
             <summary>Component Properties</summary>
             <pre>{JSON.stringify(safeComponent.props, null, 2)}</pre>
           </details>
-        )}
-      </div>
-    );
+            )}
+          </div>
+        );
   };
 
   // If loading, show loading indicator
   if (loading) {
-    return (
+                return (
       <div className="loading-component" style={{
         display: 'flex',
         alignItems: 'center',
@@ -824,9 +759,9 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
           marginRight: '10px'
         }} />
         <div>Loading {safeComponent.type} component...</div>
-      </div>
-    );
-  }
+          </div>
+        );
+    }
   
   // If there was an error, show fallback component
   if (error || !Component) {
@@ -838,6 +773,41 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
     ...safeComponent.props,
     style: safeComponent.styles,
     id: safeComponent.id,
+    
+    // Check if this is a button and add specific properties
+    ...(safeComponent.type === 'button' && {
+      // Ensure text and content properties are correctly passed to button component
+      text: safeComponent.props?.text,
+      content: safeComponent.props?.content,
+      // Add debugging info
+      'data-has-text': !!safeComponent.props?.text,
+      'data-has-content': !!safeComponent.props?.content,
+      'data-component-type': safeComponent.type,
+      
+      // Add onClick handler for buttons that directly invokes methods
+      onClick: (event: any) => {
+        console.log(`Button ${safeComponent.id} clicked`);
+        
+        // Prevent default behavior and stop propagation
+        if (event && typeof event.preventDefault === 'function') {
+          event.preventDefault();
+        }
+        if (event && typeof event.stopPropagation === 'function') {
+          event.stopPropagation();
+        }
+        
+        // Look for onClick method in methods object
+        if (safeComponent.methods && (safeComponent.methods.onClick || safeComponent.methods.click)) {
+          const methodName = safeComponent.methods.onClick ? 'onClick' : 'click';
+          const methodCode = safeComponent.methods[methodName];
+          console.log(`Directly executing ${methodName} method: ${methodCode}`);
+          executeComponentMethod(methodName, methodCode, event);
+        } else {
+          // Fall back to general event handling
+          handleEvent('click', event);
+        }
+      }
+    }),
     
     // Bind native DOM events based on the events object
     ...(safeComponent.events && Object.entries(safeComponent.events).reduce((acc, [eventName, handler]) => {
@@ -851,6 +821,14 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
       
       // Create the event handler function
       acc[reactEventName] = (event: any) => {
+        // Prevent default behavior and stop propagation
+        if (event && typeof event.preventDefault === 'function') {
+          event.preventDefault();
+        }
+        if (event && typeof event.stopPropagation === 'function') {
+          event.stopPropagation();
+        }
+        
         if (DEBUG_EVENT_HANDLING) {
           console.log(`Component ${safeComponent.id} triggered event ${eventName}`);
         }
@@ -861,7 +839,7 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
     }, {} as Record<string, any>)),
     
     // Handle children components
-    children: safeComponent.children.length > 0 ? (
+    children: safeComponent.children && safeComponent.children.length > 0 ? (
       // Render nested child components recursively
       safeComponent.children.map((child, index) => {
         if (typeof child === 'string') {
@@ -896,6 +874,14 @@ const DynamicComponent = ({ component, functionality, eventHandlers, onUpdate, c
     
     // Add click handler if it's a button (special case for calculator buttons)
     onClick: safeComponent.type === 'button' ? (event: any) => {
+      // Prevent default behavior and stop propagation
+      if (event && typeof event.preventDefault === 'function') {
+        event.preventDefault();
+      }
+      if (event && typeof event.stopPropagation === 'function') {
+        event.stopPropagation();
+      }
+      
       handleEvent('click', event);
     } : undefined
   };
@@ -934,147 +920,422 @@ interface AppConfig {
 export const ProcessAppConfig: React.FC<{ 
   config: AppConfig; 
   eventHandlers?: Record<string, any>;
-}> = ({ config, eventHandlers }) => {
-  const [forceUpdateCounter, setForceUpdateCounter] = useState(0);
+}> = ({ config: initialConfig, eventHandlers }) => {
+  // State for the dynamic list of components
+  const [appComponents, setAppComponents] = useState<ComponentChild[]>(initialConfig.components || []);
   
-  // Create a structure to organize components by region
-  const componentsByRegion: Record<string, ComponentChild[]> = {};
-
-  // Force re-render when config changes
+  // Force re-render when config changes (mainly for initial load or full config swap)
   React.useEffect(() => {
-    // This effect runs when config changes
-    console.log('ProcessAppConfig: Config changed, re-organizing components');
-    
-    // Force a re-render of the entire tree
-    setForceUpdateCounter(prev => prev + 1);
-  }, [config]);
+    console.log('ProcessAppConfig: Initial config received, setting components state.');
+    setAppComponents(initialConfig.components || []);
+  }, [initialConfig]);
 
-  // Generate a random key to ensure entire component re-mounts
-  const instanceKey = useMemo(() => `process-app-${Date.now()}-${Math.random()}`, [forceUpdateCounter]);
-  
-  // More logging to aid debugging  
-  console.log('ProcessAppConfig rendering with key:', instanceKey);
-  
-  if (config.components) {
-    console.log('Component count:', config.components.length);
-  }
+  // Function to add a new component to the state
+  const addComponent = useCallback((parentId: string, newComponentConfig: ComponentChild) => {
+    // Parent ID is now required to know where to add the component
+    if (!parentId || !newComponentConfig || typeof newComponentConfig !== 'object') {
+      console.error('addComponent received invalid parentId or config:', parentId, newComponentConfig);
+      return;
+    }
+    const componentToAdd = {
+      ...newComponentConfig,
+      id: newComponentConfig.id || `dynamic-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+    };
+    console.log(`Adding new component:`, componentToAdd, `to parent: ${parentId}`);
 
-  // Initialize regions if they exist in the layout
-  if (config.layout && config.layout.regions) {
-    config.layout.regions.forEach(region => {
-      componentsByRegion[region] = [];
+    // Find the parent and add the child - recursive approach needed
+    const addRecursive = (components: ComponentChild[]): ComponentChild[] => {
+      return components.map(comp => {
+        if (comp.id === parentId.replace('#', '')) {
+          console.log(`Found parent ${parentId}, adding child.`);
+          // Ensure children array exists and is an array
+          const children = Array.isArray(comp.children) ? comp.children : [];
+          return { ...comp, children: [...children, componentToAdd] };
+        }
+        if (Array.isArray(comp.children)) {
+          // Filter out strings before recursive call
+          const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
+          return { ...comp, children: addRecursive(childComponents) };
+        }
+        return comp;
+      });
+    };
+
+    setAppComponents(prevComponents => addRecursive(prevComponents));
+
+  }, []); // Empty dependency array, relies on state updater form
+
+  // --- Add removeComponent function ---
+  const removeComponent = useCallback((componentId: string) => {
+    if (!componentId) {
+      console.error('removeComponent requires a componentId');
+      return;
+    }
+    const targetId = componentId.replace('#', ''); // Allow selectors like #id
+    console.log('Removing component:', targetId);
+
+    // Recursive function to filter out the component
+    const removeRecursive = (components: ComponentChild[]): ComponentChild[] => {
+      return components
+        .filter(comp => comp.id !== targetId)
+        .map(comp => {
+          if (Array.isArray(comp.children)) {
+            // Filter out strings before recursive call
+            const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
+            return { ...comp, children: removeRecursive(childComponents) };
+          }
+          return comp;
+        });
+    };
+
+    setAppComponents(prevComponents => removeRecursive(prevComponents));
+  }, []);
+  // --- End removeComponent ---
+
+  // --- Add updateComponent function ---
+  const updateComponent = useCallback((componentId: string, updates: Partial<ComponentChild>) => {
+    if (!componentId || !updates || typeof updates !== 'object') {
+      console.error('updateComponent requires a componentId and an updates object');
+      return;
+    }
+    const targetId = componentId.replace('#', ''); // Allow selectors like #id
+    console.log(`Updating component ${targetId} with:`, updates);
+
+    // Recursive function to find and update the component
+    const updateRecursive = (components: ComponentChild[]): ComponentChild[] => {
+      return components.map(comp => {
+        if (comp.id === targetId) {
+          // Deep merge properties and styles if they exist in updates
+          const mergedProps = updates.properties || updates.props 
+            ? { ...(comp.properties || comp.props), ...(updates.properties || updates.props) } 
+            : (comp.properties || comp.props);
+          const mergedStyles = updates.styles
+            ? { ...(comp.styles), ...(updates.styles) }
+            : comp.styles;
+            
+          return { 
+            ...comp, 
+            ...updates, 
+            // Ensure properties and styles are merged, not just replaced
+            properties: mergedProps, 
+            styles: mergedStyles 
+          };
+        }
+        if (Array.isArray(comp.children)) {
+          // Filter out strings before recursive call
+          const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
+          return { ...comp, children: updateRecursive(childComponents) };
+        }
+        return comp;
+      });
+    };
+
+    setAppComponents(prevComponents => updateRecursive(prevComponents));
+  }, []);
+  // --- End updateComponent ---
+
+  // --- Add getComponentProperty function ---
+  const getComponentProperty = useCallback((componentId: string, propertyName: string): any => {
+    const targetId = componentId.replace('#', '');
+    let foundValue: any = undefined;
+
+    const findRecursive = (components: ComponentChild[]) => {
+      for (const comp of components) {
+        if (comp.id === targetId) {
+          // Check in properties, then props as fallback
+          const props = comp.properties || comp.props || {};
+          if (propertyName in props) {
+            foundValue = props[propertyName];
+            return true; // Found
+          }
+          // Optionally check component state if we had it here
+          // Or check element attributes directly (less ideal)
+          const element = document.getElementById(targetId);
+          if (element && propertyName === 'value' && 'value' in element) {
+              foundValue = (element as HTMLInputElement).value;
+              return true;
+          }
+          if (element && propertyName === 'checked' && 'checked' in element) {
+             foundValue = (element as HTMLInputElement).checked;
+             return true;
+          }
+          return true; // Found component, but not property in config
+        }
+        if (Array.isArray(comp.children)) {
+          const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
+          if (findRecursive(childComponents)) {
+            return true; // Found in children
+          }
+        }
+      }
+      return false; // Not found in this branch
+    };
+
+    findRecursive(appComponents); // Start search from root
+
+    if (foundValue === undefined) {
+        console.warn(`getComponentProperty: Property '${propertyName}' not found on component '${targetId}'`);
+        // Fallback to direct DOM check as last resort for common properties
+        const element = document.getElementById(targetId);
+        if (element) {
+            if (propertyName === 'value' && 'value' in element) return (element as HTMLInputElement).value;
+            if (propertyName === 'checked' && 'checked' in element) return (element as HTMLInputElement).checked;
+            if (propertyName === 'textContent') return element.textContent;
+            if (propertyName === 'innerHTML') return element.innerHTML;
+            return element.getAttribute(propertyName); // Generic attribute fallback
+        }
+    }
+
+    console.log(`getComponentProperty: Got '${propertyName}' from '${targetId}' =`, foundValue);
+    return foundValue;
+  }, [appComponents]); // Depend on state
+  // --- End getComponentProperty ---
+
+  // --- Add setComponentProperty function ---
+  const setComponentProperty = useCallback((componentId: string, propertyName: string, value: any) => {
+    console.log(`setComponentProperty: Setting '${propertyName}' to`, value, `on component '${componentId.replace('#', '')}'`);
+    // Use updateComponent to set the property
+    updateComponent(componentId, {
+      properties: { [propertyName]: value }
     });
+    // Additionally, try direct DOM manipulation for immediate feedback for inputs
+    const targetId = componentId.replace('#', '');
+    const element = document.getElementById(targetId);
+    if (element) {
+        if (propertyName === 'value' && 'value' in element) {
+            (element as HTMLInputElement).value = value;
+            // Dispatch input/change events for React state updates if needed
+            setTimeout(() => {
+              const inputEvent = new Event('input', { bubbles: true });
+              element.dispatchEvent(inputEvent);
+              const changeEvent = new Event('change', { bubbles: true });
+              element.dispatchEvent(changeEvent);
+             }, 0);
+        } else if (propertyName === 'checked' && 'checked' in element) {
+            (element as HTMLInputElement).checked = value;
+             setTimeout(() => {
+              const changeEvent = new Event('change', { bubbles: true });
+              element.dispatchEvent(changeEvent);
+             }, 0);
+        } else if (propertyName === 'textContent') {
+            element.textContent = value;
+        } else if (propertyName === 'innerHTML') {
+             element.innerHTML = value;
+        }
+    }
+
+  }, [updateComponent]); // Depend on updateComponent callback
+  // --- End setComponentProperty ---
+
+  // --- Define callComponentMethod ---
+  const callComponentMethod = useCallback((componentId: string, methodName: string, ...args: any[]) => {
+    console.log(`Attempting to call method '${methodName}' on component '${componentId}' with args:`, args);
+    const targetId = componentId.replace('#', '');
+    let foundComponent: ComponentChild | null = null;
+    let methodCode: string | null = null;
+
+    // Recursive search function
+    const findComponentAndMethod = (components: ComponentChild[]) => {
+      for (const comp of components) {
+        if (comp.id === targetId) {
+          foundComponent = comp;
+          if (comp.methods && typeof comp.methods === 'object' && comp.methods[methodName]) {
+            const methodInfo = comp.methods[methodName];
+            if (typeof methodInfo === 'string') {
+              methodCode = methodInfo;
+            } else if (typeof methodInfo === 'object' && methodInfo.code) {
+              methodCode = methodInfo.code;
+            }
+          }
+          return true; // Found component, stop searching this branch
+        }
+        if (Array.isArray(comp.children)) {
+          // Filter out strings before recursive call
+          const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
+          if (findComponentAndMethod(childComponents)) {
+            return true; // Found in children, stop searching
+          }
+        }
+      }
+      return false; // Not found in this branch
+    };
+
+    findComponentAndMethod(appComponents); // Start search from root
+
+    if (!foundComponent) {
+      console.error(`callComponentMethod Error: Component with ID '${targetId}' not found.`);
+      return;
+    }
+
+    if (!methodCode) {
+      console.error(`callComponentMethod Error: Method '${methodName}' not found on component '${targetId}'.`);
+      return;
+    }
+    
+    // --- Type guard passed, methodCode is now guaranteed to be string ---
+
+    console.log(`Executing method '${methodName}' for component '${targetId}'`);
+    console.log("Method code:", methodCode);
+
+    try {
+      // Recreate the $m utility locally for this execution context
+      const $m = (selector: string) => {
+        console.log(`($m in callComponentMethod) selector called with: ${selector}`);
+        const elementId = selector.startsWith('#') ? selector.substring(1) : selector;
+        const element = document.getElementById(elementId);
+        if (!element) {
+          console.warn(`($m in callComponentMethod) Element not found: ${selector}`);
+          // Return a similar dummy object as in DynamicComponent's $m
+          return {
+            getProperty: () => null,
+            setProperty: () => {},
+            setStyle: () => {},
+            // Add other methods if needed, possibly calling global functions
+          };
+        }
+        // Return a simplified $m interface - might need expansion
+        return {
+           getProperty: (prop: string) => {
+              if (prop === 'value' && 'value' in element) return (element as HTMLInputElement).value;
+              if (prop === 'checked' && 'checked' in element) return (element as HTMLInputElement).checked;
+              if (prop === 'innerHTML') return element.innerHTML;
+              if (prop === 'innerText' || prop === 'content') return element.textContent;
+              return element.getAttribute(prop);
+           },
+           setProperty: (prop: string, value: any) => {
+              if (prop === 'value' && 'value' in element) (element as HTMLInputElement).value = value;
+              else if (prop === 'checked' && 'checked' in element) (element as HTMLInputElement).checked = value;
+              else if (prop === 'innerHTML') element.innerHTML = value;
+              else if (prop === 'innerText' || prop === 'content') element.textContent = value;
+              else element.setAttribute(prop, value);
+           },
+           setStyle: (prop: string, value: string) => {
+             (element.style as any)[prop] = value;
+           }
+        };
+      };
+
+      // Prepare the execution body
+      let functionBody = '';
+      // Use type assertion here to fix the 'never' type issue
+      const codeAsString = methodCode as string;
+      if (codeAsString.trim().startsWith('function')) {
+        const bodyStart = codeAsString.indexOf('{');
+        const bodyEnd = codeAsString.lastIndexOf('}');
+        if (bodyStart !== -1 && bodyEnd > bodyStart) {
+          functionBody = codeAsString.substring(bodyStart + 1, bodyEnd);
+        }
   } else {
-    // Default region if none are specified
+        functionBody = codeAsString; // Assume it's plain code if not a function string
+      }
+
+      // Create the function with necessary scope
+      // Pass addComponent, removeComponent, updateComponent directly from useCallback closure
+      // Pass args as an array named 'methodArgs'
+      const func = new Function('$m', 'addComponent', 'removeComponent', 'updateComponent', 'methodArgs', functionBody);
+      
+      // Execute the function
+      func($m, addComponent, removeComponent, updateComponent, args);
+
+    } catch (error) {
+      console.error(`Error executing method '${methodName}' for component '${targetId}':`, error);
+      console.error("Method code that failed:", methodCode);
+    }
+  }, [appComponents, addComponent, removeComponent, updateComponent]); // Depend on state and callbacks
+  // --- End callComponentMethod ---
+
+  // --- Attach to window object --- 
+  useEffect(() => {
+    // Ensure $morpheo object exists
+    window.$morpheo = window.$morpheo || {};
+    // Assign the method to the global object
+    window.$morpheo.callComponentMethod = callComponentMethod;
+    console.log('callComponentMethod attached to window.$morpheo');
+
+    // Cleanup function to remove from window on unmount
+    return () => {
+      if (window.$morpheo) {
+        delete window.$morpheo.callComponentMethod;
+        console.log('callComponentMethod removed from window.$morpheo');
+      }
+    };
+  }, [callComponentMethod]); // Re-run if callComponentMethod instance changes
+  // --- End attach to window --- 
+
+  // Organize components from the *state* not the initial config
+  const componentsByRegion: Record<string, ComponentChild[]> = {};
+  if (initialConfig.layout?.regions) {
+    initialConfig.layout.regions.forEach(region => { componentsByRegion[region] = []; });
+  } else {
     componentsByRegion['main'] = [];
   }
-
-  // Organize components by region
-  if (config.components && Array.isArray(config.components)) {
-    config.components.forEach(component => {
-      // Add a key property to help React identify when to re-render
+  if (appComponents) {
+    appComponents.forEach(component => {
       const componentWithKey = {
         ...component,
-        key: `${component.id || ''}-${JSON.stringify(component.properties || {})}`
+        key: `${component.id || 'comp'}-${JSON.stringify(component.properties || component.props || {})}`
       };
-      
       const region = component.region || 'main';
-      if (!componentsByRegion[region]) {
-        componentsByRegion[region] = [];
-      }
+      if (!componentsByRegion[region]) componentsByRegion[region] = [];
       componentsByRegion[region].push(componentWithKey);
     });
   }
 
-  // Create app layout structure
-  const appLayout: React.CSSProperties = {
-    display: 'flex',
-    flexDirection: 'column' as 'column',
-    minHeight: '100%',
-    width: '100%',
-  };
-
-  // Function to render a region
   const renderRegion = (region: string) => {
     const components = componentsByRegion[region] || [];
                 return (
       <div key={region} className={`region region-${region}`} style={getRegionStyle(region)}>
         {components.map((component, index) => (
                   <DynamicComponent
-            key={component.id || `${region}-component-${index}`} 
+            key={component.key || component.id || `${region}-component-${index}`}
             component={component}
-            functionality={config.functionality}
-                    eventHandlers={eventHandlers}
-            config={config}
+            functionality={initialConfig.functionality}
+            // --- Pass add, remove, update functions ---
+            // --- Pass get/set property functions ---
+            eventHandlers={{
+                ...eventHandlers,
+                addComponent,
+                removeComponent,
+                updateComponent,
+                getComponentProperty,
+                setComponentProperty
+            }}
+            config={initialConfig} 
           />
         ))}
       </div>
     );
   };
 
-  // Function to determine region style based on region name
   const getRegionStyle = (region: string): React.CSSProperties => {
     switch (region) {
-      case 'header':
-        return {
-          padding: '1rem',
-          backgroundColor: config.theme?.colors?.primary || '#f8f9fa',
-          borderBottom: '1px solid #dee2e6',
-        };
-      case 'footer':
-        return {
-          padding: '1rem',
-          backgroundColor: config.theme?.colors?.secondary || '#f8f9fa',
-          borderTop: '1px solid #dee2e6',
-          marginTop: 'auto',
-        };
-      case 'sidebar':
-        return {
-          width: '250px',
-          backgroundColor: config.theme?.colors?.surface || '#ffffff',
-          padding: '1rem',
-          borderRight: '1px solid #dee2e6',
-        };
-      case 'main':
-        return {
-          flex: 1,
-          padding: '1rem',
-          backgroundColor: config.theme?.colors?.background || '#ffffff',
-        };
-        default:
-        return {
-          padding: '1rem',
-        };
+      case 'header': return { padding: '1rem', backgroundColor: initialConfig.theme?.colors?.primary || '#f8f9fa', borderBottom: '1px solid #dee2e6' };
+      case 'footer': return { padding: '1rem', backgroundColor: initialConfig.theme?.colors?.secondary || '#f8f9fa', borderTop: '1px solid #dee2e6', marginTop: 'auto' };
+      case 'sidebar': return { width: '250px', backgroundColor: initialConfig.theme?.colors?.surface || '#ffffff', padding: '1rem', borderRight: '1px solid #dee2e6' };
+      case 'main': return { flex: 1, padding: '1rem', backgroundColor: initialConfig.theme?.colors?.background || '#ffffff' };
+      default: return { padding: '1rem' };
     }
   };
 
-  // Determine layout structure based on layout type
   const getLayoutStructure = () => {
-    switch (config.layout?.type) {
-      case 'singlepage':
+    const layoutType = initialConfig.layout?.type || 'singlepage';
+    const regions = initialConfig.layout?.regions || ['main'];
+    const appLayout: React.CSSProperties = { display: 'flex', flexDirection: 'column', minHeight: '100%', width: '100%' };
+
+    if (layoutType === 'sidebar') {
         return (
-          <div style={appLayout}>
-            {config.layout.regions.map(region => renderRegion(region))}
+        <div style={{ ...appLayout, flexDirection: 'row' }}>
+          {regions.includes('sidebar') && renderRegion('sidebar')}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            {regions.filter(r => r !== 'sidebar' && r !== 'footer').map(region => renderRegion(region))}
+            {regions.includes('footer') && renderRegion('footer')}
           </div>
-        );
-      case 'twocolumn':
-          return (
-          <div style={appLayout}>
-            {renderRegion('header')}
-            <div style={{ display: 'flex', flex: 1 }}>
-              {renderRegion('sidebar')}
-              <div style={{ flex: 1 }}>
-                {renderRegion('main')}
-              </div>
-            </div>
-            {renderRegion('footer')}
             </div>
           );
-      default:
-        // Default to rendering all regions in a column
+    } else { // singlepage or default
       return (
           <div style={appLayout}>
-            {Object.keys(componentsByRegion).map(region => renderRegion(region))}
+          {regions.map(region => renderRegion(region))}
         </div>
       );
     }
@@ -1084,10 +1345,10 @@ export const ProcessAppConfig: React.FC<{
     <div className="app-container" style={{ 
       height: '100%', 
       width: '100%',
-      fontFamily: config.theme?.typography?.fontFamily || 'inherit',
-      fontSize: config.theme?.typography?.fontSize || 'inherit',
-      color: config.theme?.colors?.text || 'inherit',
-      backgroundColor: config.theme?.colors?.background || 'inherit'
+      fontFamily: initialConfig.theme?.typography?.fontFamily || 'inherit',
+      fontSize: initialConfig.theme?.typography?.fontSize || 'inherit',
+      color: initialConfig.theme?.colors?.text || 'inherit',
+      backgroundColor: initialConfig.theme?.colors?.background || 'inherit'
     }}>
       {getLayoutStructure()}
     </div>

@@ -144,7 +144,9 @@ export enum ComponentEventType {
   RESIZE = 'resize',
   USER_INTERACTION = 'user_interaction',
   CONNECTION = 'connection',
-  CUSTOM = 'custom'
+  CUSTOM = 'custom',
+  STATE_CHANGE = 'state_change',
+  VALUE_CHANGE = 'value_change'
 }
 
 /**
@@ -184,6 +186,9 @@ export interface ComponentInstance {
   // Parent-child relationships
   parent?: ComponentId;
   children?: ComponentId[];
+  
+  // Event emission
+  emit?: (connectionId: string, payload: any) => void;
 }
 
 /**

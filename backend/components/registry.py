@@ -2,8 +2,8 @@
 Component Registry for Morpheo UI
 
 This module maintains the registry of available components for the Morpheo UI system.
-It provides access to component definitions, examples, and templates that can be used
-for generating UI configurations.
+It provides access to component definitions and examples that can be used
+for generating UI configurations through AI.
 """
 
 import os
@@ -14,7 +14,7 @@ from typing import Dict, List, Any, Optional
 logger = logging.getLogger(__name__)
 
 class ComponentRegistry:
-    """Registry for UI components that can be used in generated UIs."""
+    """Registry for UI components that can be used in AI-generated UIs."""
     
     def __init__(self):
         """Initialize the component registry."""
@@ -23,11 +23,11 @@ class ComponentRegistry:
         self._populate_registry()
     
     def _populate_registry(self):
-        """Populate the registry with built-in components and templates."""
+        """Populate the registry with built-in components."""
         # Register basic components
         self._register_basic_components()
         self._register_advanced_components()
-        self._register_app_templates()
+        # We've removed template registration - components are now purely AI-driven
     
     def _register_basic_components(self):
         """Register basic UI components."""
@@ -791,337 +791,6 @@ class ComponentRegistry:
             }
         })
     
-    def _register_app_templates(self):
-        """Register application templates."""
-        # Counter App
-        self.register_app_config({
-            "id": "counter",
-            "name": "Counter",
-            "type": "counter",
-            "description": "A simple counter application with increment and decrement buttons.",
-            "keywords": ["counter", "increment", "decrement", "count"],
-            "config": {
-                "app": {
-                    "name": "Counter App",
-                    "description": "A simple counter application",
-                    "theme": "light"
-                },
-                "layout": {
-                    "type": "singlepage",
-                    "regions": ["main"]
-                },
-                "components": [
-                    {
-                        "id": "counter-container",
-                        "type": "container",
-                        "region": "main",
-                        "styles": {
-                            "display": "flex",
-                            "flexDirection": "column",
-                            "alignItems": "center",
-                            "justifyContent": "center",
-                            "padding": "20px",
-                            "backgroundColor": "#f5f5f5",
-                            "borderRadius": "8px",
-                            "margin": "20px auto",
-                            "maxWidth": "400px"
-                        },
-                        "children": [
-                            {
-                                "id": "counter-title",
-                                "type": "text",
-                                "properties": {
-                                    "content": "Counter App",
-                                    "variant": "h1"
-                                },
-                                "styles": {
-                                    "fontSize": "24px",
-                                    "marginBottom": "20px",
-                                    "color": "#333",
-                                    "textAlign": "center"
-                                }
-                            },
-                            {
-                                "id": "counter-value",
-                                "type": "text",
-                                "properties": {
-                                    "content": "0",
-                                    "variant": "p"
-                                },
-                                "styles": {
-                                    "fontSize": "48px",
-                                    "fontWeight": "bold",
-                                    "color": "#2196F3",
-                                    "margin": "20px 0",
-                                    "textAlign": "center"
-                                }
-                            },
-                            {
-                                "id": "buttons-container",
-                                "type": "container",
-                                "styles": {
-                                    "display": "flex",
-                                    "gap": "10px",
-                                    "marginTop": "10px"
-                                },
-                                "children": [
-                                    {
-                                        "id": "decrement-button",
-                                        "type": "button",
-                                        "properties": {
-                                            "text": "-"
-                                        },
-                                        "styles": {
-                                            "padding": "10px 20px",
-                                            "fontSize": "20px",
-                                            "backgroundColor": "#f44336",
-                                            "color": "white",
-                                            "border": "none",
-                                            "borderRadius": "4px",
-                                            "cursor": "pointer",
-                                            "width": "60px"
-                                        },
-                                        "methods": {
-                                            "onClick": {
-                                                "code": "function(event, $m) { const currentValue = parseInt($m('#counter-value').getProperty('content')); $m('#counter-value').setProperty('content', (currentValue - 1).toString()); }",
-                                                "affectedComponents": ["counter-value"]
-                                            }
-                                        }
-                                    },
-                                    {
-                                        "id": "increment-button",
-                                        "type": "button",
-                                        "properties": {
-                                            "text": "+"
-                                        },
-                                        "styles": {
-                                            "padding": "10px 20px",
-                                            "fontSize": "20px",
-                                            "backgroundColor": "#4CAF50",
-                                            "color": "white",
-                                            "border": "none",
-                                            "borderRadius": "4px",
-                                            "cursor": "pointer",
-                                            "width": "60px"
-                                        },
-                                        "methods": {
-                                            "onClick": {
-                                                "code": "function(event, $m) { const currentValue = parseInt($m('#counter-value').getProperty('content')); $m('#counter-value').setProperty('content', (currentValue + 1).toString()); }",
-                                                "affectedComponents": ["counter-value"]
-                                            }
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            }
-        })
-        
-        # Population Comparison Chart
-        self.register_app_config({
-            "id": "population-chart",
-            "name": "Population Comparison Chart",
-            "type": "chart",
-            "description": "A chart comparing population sizes between countries or regions.",
-            "keywords": ["population", "chart", "comparison", "countries", "demographics"],
-            "config": {
-                "app": {
-                    "name": "Population Comparison",
-                    "description": "A chart comparing the population size of the US vs Europe.",
-                    "theme": "light"
-                },
-                "layout": {
-                    "type": "singlepage",
-                    "regions": ["header", "main", "footer"]
-                },
-                "components": [
-                    {
-                        "id": "header-container",
-                        "type": "container",
-                        "region": "header",
-                        "styles": {
-                            "backgroundColor": "#f0f0f0",
-                            "padding": "20px",
-                            "textAlign": "center",
-                            "boxShadow": "0 2px 4px rgba(0,0,0,0.1)"
-                        },
-                        "children": [
-                            {
-                                "id": "app-title",
-                                "type": "text",
-                                "properties": {
-                                    "content": "US vs Europe Population Comparison",
-                                    "variant": "h1"
-                                },
-                                "styles": {
-                                    "fontSize": "24px",
-                                    "fontWeight": "bold",
-                                    "color": "#333"
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "id": "chart-container",
-                        "type": "container",
-                        "region": "main",
-                        "styles": {
-                            "display": "flex",
-                            "flexDirection": "column",
-                            "alignItems": "center",
-                            "padding": "20px"
-                        },
-                        "children": [
-                            {
-                                "id": "chart-title",
-                                "type": "text",
-                                "properties": {
-                                    "content": "Population Sizes (Millions)",
-                                    "variant": "h2"
-                                },
-                                "styles": {
-                                    "fontSize": "20px",
-                                    "marginBottom": "30px"
-                                }
-                            },
-                            {
-                                "id": "chart-bars",
-                                "type": "container",
-                                "styles": {
-                                    "display": "flex",
-                                    "alignItems": "flex-end",
-                                    "justifyContent": "center",
-                                    "width": "100%",
-                                    "height": "400px",
-                                    "padding": "20px"
-                                },
-                                "children": [
-                                    {
-                                        "id": "us-bar-container",
-                                        "type": "container",
-                                        "styles": {
-                                            "display": "flex",
-                                            "flexDirection": "column",
-                                            "alignItems": "center",
-                                            "marginRight": "40px"
-                                        },
-                                        "children": [
-                                            {
-                                                "id": "us-bar",
-                                                "type": "container",
-                                                "styles": {
-                                                    "width": "100px",
-                                                    "height": "330px",
-                                                    "backgroundColor": "#4285f4",
-                                                    "marginBottom": "10px",
-                                                    "borderRadius": "5px",
-                                                    "boxShadow": "0 2px 4px rgba(0,0,0,0.2)",
-                                                    "transition": "all 0.3s ease"
-                                                },
-                                                "methods": {
-                                                    "onMouseEnter": {
-                                                        "code": "function(event, $m) { $m('#us-bar').setStyle('transform', 'scale(1.05)'); }",
-                                                        "affectedComponents": ["us-bar"]
-                                                    },
-                                                    "onMouseLeave": {
-                                                        "code": "function(event, $m) { $m('#us-bar').setStyle('transform', 'scale(1)'); }",
-                                                        "affectedComponents": ["us-bar"]
-                                                    }
-                                                }
-                                            },
-                                            {
-                                                "id": "us-label",
-                                                "type": "text",
-                                                "properties": {
-                                                    "content": "USA (331.9)",
-                                                    "variant": "p"
-                                                },
-                                                "styles": {
-                                                    "marginTop": "10px",
-                                                    "fontWeight": "bold"
-                                                }
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        "id": "europe-bar-container",
-                                        "type": "container",
-                                        "styles": {
-                                            "display": "flex",
-                                            "flexDirection": "column",
-                                            "alignItems": "center"
-                                        },
-                                        "children": [
-                                            {
-                                                "id": "europe-bar",
-                                                "type": "container",
-                                                "styles": {
-                                                    "width": "100px",
-                                                    "height": "750px",
-                                                    "backgroundColor": "#34a853",
-                                                    "marginBottom": "10px",
-                                                    "borderRadius": "5px",
-                                                    "boxShadow": "0 2px 4px rgba(0,0,0,0.2)",
-                                                    "transition": "all 0.3s ease"
-                                                },
-                                                "methods": {
-                                                    "onMouseEnter": {
-                                                        "code": "function(event, $m) { $m('#europe-bar').setStyle('transform', 'scale(1.05)'); }",
-                                                        "affectedComponents": ["europe-bar"]
-                                                    },
-                                                    "onMouseLeave": {
-                                                        "code": "function(event, $m) { $m('#europe-bar').setStyle('transform', 'scale(1)'); }",
-                                                        "affectedComponents": ["europe-bar"]
-                                                    }
-                                                }
-                                            },
-                                            {
-                                                "id": "europe-label",
-                                                "type": "text",
-                                                "properties": {
-                                                    "content": "Europe (750.0)",
-                                                    "variant": "p"
-                                                },
-                                                "styles": {
-                                                    "marginTop": "10px",
-                                                    "fontWeight": "bold"
-                                                }
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        "id": "footer-container",
-                        "type": "container",
-                        "region": "footer",
-                        "styles": {
-                            "backgroundColor": "#f0f0f0",
-                            "padding": "10px",
-                            "textAlign": "center",
-                            "fontSize": "12px",
-                            "color": "#777",
-                            "marginTop": "20px"
-                        },
-                        "children": [
-                            {
-                                "id": "footer-text",
-                                "type": "text",
-                                "properties": {
-                                    "content": "Data from 2023 - Population in millions",
-                                    "variant": "p"
-                                }
-                            }
-                        ]
-                    }
-                ]
-            }
-        })
-    
     def register_component(self, component: Dict[str, Any]) -> None:
         """
         Register a component in the registry.
@@ -1185,9 +854,9 @@ class ComponentRegistry:
         """
         return self.components
     
-    def get_all_app_configs(self) -> Dict[str, Dict[str, Any]]:
+    def get_all_app_configs(self) -> Dict[str, Any]:
         """
-        Get all registered app configurations.
+        Get all available app configurations.
         
         Returns:
             Dictionary of app configurations

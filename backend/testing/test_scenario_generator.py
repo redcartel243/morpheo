@@ -414,82 +414,96 @@ class TestScenarioGenerator:
             steps=test_steps
         )
     
-    def detect_app_type(self) -> str:
+    def detect_testable_components(self) -> Dict[str, List[str]]:
         """
-        Detect the type of application based on components.
+        Detect testable components based on their properties and behaviors.
         
         Returns:
-            String indicating app type: "calculator", "form", "todo", "counter", or "unknown"
+            Dictionary with component categories and their IDs
         """
-        component_ids = list(self.component_map.keys())
-        component_texts = [comp.get("text", "").lower() for comp in self.component_map.values()]
-        component_types = [comp.get("type", "").lower() for comp in self.component_map.values()]
+        testable_components = {
+            "input_components": [],
+            "interactive_components": [],
+            "display_components": [],
+            "container_components": [],
+        }
         
-        # Check for calculator
-        calc_indicators = ["calculator", "calc", "+", "-", "*", "/", "=", "equals"]
-        if any(indicator in " ".join(component_ids).lower() for indicator in calc_indicators) or \
-           any(indicator in " ".join(component_texts) for indicator in calc_indicators):
-            return "calculator"
+        for component_id, component in self.component_map.items():
+            component_type = component.get("type", "").lower()
+            
+            # Categorize components by their functional role
+            if component_type in ["input", "textfield", "textarea", "select", "checkbox", "radio"]:
+                testable_components["input_components"].append(component_id)
+            
+            elif component_type in ["button", "link", "toggle"]:
+                testable_components["interactive_components"].append(component_id)
+            
+            elif component_type in ["text", "label", "span", "div", "p"]:
+                testable_components["display_components"].append(component_id)
+                
+            elif component_type in ["container", "form", "card", "panel", "grid"]:
+                testable_components["container_components"].append(component_id)
         
-        # Check for form
-        form_indicators = ["form", "submit", "input", "email", "password", "register", "signup", "login"]
-        if "form" in component_types or \
-           any(indicator in " ".join(component_ids).lower() for indicator in form_indicators):
-            return "form"
+        return testable_components
+
+    def generate_generic_test(self) -> TestScenario:
+        """
+        Generate a generic test scenario based on available components.
         
-        # Check for todo list
-        todo_indicators = ["todo", "task", "list", "item", "complete", "done"]
-        if any(indicator in " ".join(component_ids).lower() for indicator in todo_indicators):
-            return "todo"
+        Returns:
+            A test scenario with basic interactions
+        """
+        components = self.detect_testable_components()
+        test_steps = []
         
-        # Check for counter
-        counter_indicators = ["counter", "count", "increment", "decrement", "increase", "decrease"]
-        if any(indicator in " ".join(component_ids).lower() for indicator in counter_indicators):
-            return "counter"
+        # Test input components if available
+        for input_id in components["input_components"][:2]:  # Test up to 2 inputs
+            test_value = "Test Value"
+            test_steps.append(TestStep(
+                event=DomEvent(
+                    type="input", 
+                    target_id=input_id,
+                    properties={"value": test_value}
+                ),
+                expected_changes={input_id: {"value": test_value}},
+                description=f"Enter text in {input_id}"
+            ))
         
-        return "unknown"
-    
+        # Test interactive components if available
+        for interactive_id in components["interactive_components"][:2]:  # Test up to 2 interactive elements
+            # For a button/link click, we can't always predict what will change,
+            # so we just test that the click event happens
+            test_steps.append(TestStep(
+                event=DomEvent(type="click", target_id=interactive_id),
+                expected_changes={},
+                description=f"Click on {interactive_id}"
+            ))
+        
+        return TestScenario(
+            name="Generic Component Test",
+            description="Tests basic interactions with available components",
+            steps=test_steps
+        )
+
     def generate_test_for_app_type(self, app_type: str = None) -> TestScenario:
         """
-        Generate a test scenario based on detected or specified app type.
+        Generate a test scenario based on detected components.
         
         Args:
-            app_type: Optional app type to override detection
+            app_type: Optional app type for backward compatibility
             
         Returns:
             Appropriate test scenario
         """
-        if app_type is None:
-            app_type = self.detect_app_type()
+        components = self.detect_testable_components()
         
-        if app_type == "calculator":
-            return self.generate_calculator_test()
-        elif app_type == "form":
+        # If we have inputs and buttons, try form-like test approach
+        if components["input_components"] and components["interactive_components"]:
             return self.generate_form_test()
-        elif app_type == "todo":
-            return self.generate_todo_list_test()
-        elif app_type == "counter":
+        
+        # If we primarily have interactive components, try counter-like approach
+        elif len(components["interactive_components"]) > len(components["input_components"]):
             return self.generate_counter_test()
-        else:
-            # Default to a simple test that clicks on the first button found
-            buttons = [comp_id for comp_id, comp in self.component_map.items() 
-                      if comp.get("type", "").lower() == "button"]
-            
-            if buttons:
-                return TestScenario(
-                    name="Basic Interaction Test",
-                    description="Tests basic button click interaction",
-                    steps=[
-                        TestStep(
-                            event=DomEvent(type="click", target_id=buttons[0]),
-                            expected_changes={},
-                            description=f"Click on button {buttons[0]}"
-                        )
-                    ]
-                )
-            else:
-                return TestScenario(
-                    name="Empty Test",
-                    description="No testable components found",
-                    steps=[]
-                ) 
+        
+        # Otherwise use a generic test
+        return self.generate_generic_test() 

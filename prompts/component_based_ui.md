@@ -311,3 +311,82 @@ For state-driven components, use the following pattern for event handling:
 ```
 
 Generate the complete configuration in valid JSON format. 
+
+## YOUR TASK
+Generate a complete JSON configuration for a UI application that satisfies the user's request.
+
+DO NOT use templates or predefined application structures. Instead:
+- Analyze what components would best serve the user's needs
+- Create a component tree with appropriate nesting and organization
+- Define component properties, styles, and methods
+- Implement all necessary functionality through DOM manipulation ($m() selector) for **EXISTING** elements.
+- **CRITICAL**: To add **NEW** components dynamically (e.g., adding a todo item), you **MUST** use the `addComponent(componentConfig)` function. **DO NOT** use `$m(...).addChild`, `$m(...).appendChild`, or any direct DOM insertion methods. See the pattern below.
+- Ensure components work together seamlessly
+
+## DOM MANIPULATION PATTERNS
+
+The $m() selector is the primary way to manipulate **EXISTING** DOM elements. Here are common patterns:
+
+```javascript
+// Getting and setting content
+const value = $m('#element-id').getProperty('content');
+$m('#element-id').setProperty('content', 'New text');
+
+// Handling input values
+const inputValue = $m('#input-id').getProperty('value');
+$m('#input-id').setProperty('value', '');
+
+// Toggling visibility
+$m('#element-id').setStyle('display', 'none');
+$m('#element-id').setStyle('display', 'block');
+
+// Changing appearance
+$m('#element-id').setStyle('backgroundColor', '#ff0000');
+$m('#element-id').setStyle('color', '#ffffff');
+```
+
+**Adding New Components Dynamically:**
+
+To add new components to the UI (like adding a new todo item to a list), **DO NOT** attempt direct DOM manipulation like `appendChild` or `$m(...).addChild`. The **ONLY** correct way is to use the provided `addComponent` function:
+
+```javascript
+// Example for adding a Todo Item:
+
+// 1. Define the new component as a JSON configuration object
+const newTodoItemConfig = {
+  id: 'todo-' + Date.now(), // Ensure a unique ID
+  type: 'container', // Or the appropriate type for the item
+  properties: { /* ... properties like text content ... */ },
+  styles: { /* ... styles for the item ... */ },
+  children: [ /* ... child components like checkbox, text, delete button ... */ ],
+  methods: { /* ... methods for children, e.g., delete onClick ... */ }
+};
+
+// 2. Call the addComponent function with the configuration object
+// This function adds the component to the application state, triggering a re-render.
+addComponent(newTodoItemConfig);
+```
+
+**Removing Components Dynamically:**
+
+To remove a component (e.g., a todo item when its delete button is clicked), use the `removeComponent(componentId)` function, passing the ID of the component to remove:
+
+```javascript
+// Example for removing a Todo Item with id 'todo-123'
+removeComponent('todo-123'); 
+```
+
+**Updating Components Dynamically:**
+
+To update properties or styles of an existing component (e.g., marking a todo as complete by changing its style), use the `updateComponent(componentId, updates)` function. The `updates` argument is an object containing the properties/styles to change:
+
+```javascript
+// Example for marking Todo Item 'todo-123' as complete
+const updates = {
+  styles: { textDecoration: 'line-through', opacity: 0.6 }
+  // You could also update properties: properties: { completed: true }
+};
+updateComponent('todo-123', updates);
+```
+
+**Important:** Use `addComponent`, `removeComponent`, and `updateComponent` for managing dynamic components. **NEVER** use `$m(...).addChild`, `$m(...).remove()`, or direct style/property manipulation via `$m()` for adding/removing components or managing persistent state changes tied to the component's structure (like completion status). Use `$m()` only for temporary UI feedback or interacting with existing element properties (like getting input values). 

@@ -734,21 +734,75 @@ export function watchValue(key: string, callback: (value: any) => void): () => v
 
 /**
  * Sanitizes user input to prevent XSS attacks
- * @param input - The input string to sanitize
- * @returns The sanitized input string
+ * @param input - The string to sanitize
+ * @param allowHtml - Whether to allow certain safe HTML tags (default: false)
+ * @returns Sanitized string
  */
-export function sanitizeInput(input: string): string {
-  if (typeof input !== 'string') {
-    return input;
+export function sanitizeInput(input: string, allowHtml: boolean = false): string {
+  if (input === undefined || input === null || typeof input !== 'string') {
+    return '';
   }
-  
-  // Replace potentially dangerous characters
-  return input
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-    .replace(/`/g, '&#x60;')
-    .replace(/\(/g, '&#x28;')
-    .replace(/\)/g, '&#x29;');
+
+  if (!allowHtml) {
+    // Basic sanitization - escape HTML special characters
+    return input
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  } else {
+    // Enhanced sanitization - allow certain safe HTML tags
+    // Create a DOMParser instance
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(input, 'text/html');
+    
+    // Remove potentially dangerous elements and attributes
+    const sanitize = (node: Element) => {
+      // Remove script tags, inline event handlers, and other dangerous elements
+      const dangerousTags = ['script', 'style', 'iframe', 'object', 'embed', 'base', 'form'];
+      const dangerousAttrs = ['onerror', 'onload', 'onclick', 'onmouseover', 'onmouseout', 'onchange', 'onsubmit', 'onfocus', 'onblur', 'javascript:'];
+      
+      // Remove dangerous tags
+      dangerousTags.forEach(tag => {
+        const elements = node.getElementsByTagName(tag);
+        for (let i = elements.length - 1; i >= 0; i--) {
+          elements[i].parentNode?.removeChild(elements[i]);
+        }
+      });
+      
+      // Process all elements to remove dangerous attributes
+      const processAttributes = (element: Element) => {
+        // Remove all attributes that start with "on" (event handlers)
+        const attributes = element.attributes;
+        const attributesToRemove = [];
+        
+        for (let i = 0; i < attributes.length; i++) {
+          const attr = attributes[i];
+          if (attr.name.startsWith('on') || 
+              dangerousAttrs.some(dangerous => attr.name.includes(dangerous)) ||
+              (attr.name === 'href' && attr.value.startsWith('javascript:'))) {
+            attributesToRemove.push(attr.name);
+          }
+        }
+        
+        attributesToRemove.forEach(attr => {
+          element.removeAttribute(attr);
+        });
+        
+        // Apply sanitization to all child elements
+        Array.from(element.children).forEach(child => {
+          processAttributes(child);
+        });
+      };
+      
+      processAttributes(node);
+    };
+    
+    // Apply sanitization to the body
+    sanitize(doc.body);
+    
+    // Return sanitized HTML
+    return doc.body.innerHTML;
+  }
 } 

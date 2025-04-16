@@ -1,0 +1,1101 @@
+"""
+Component-Based UI Generation Service
+
+This module provides services for component-based UI generation.
+It uses AI (Gemini or OpenAI) to compose components into a complete UI based on user requirements.
+The service no longer relies on templates, instead fully embracing AI-driven component configuration.
+"""
+
+import json
+import os
+import datetime
+import re
+import time
+import random
+import logging
+from typing import Dict, List, Any, Optional, Tuple, Union
+
+# Import OpenAI correctly
+import openai
+try:
+    from openai import OpenAI  # For newer OpenAI version
+except ImportError:
+    OpenAI = None  # We'll handle this in the init method
+
+from dotenv import load_dotenv
+import traceback
+import requests
+from uuid import uuid4
+import google.generativeai as genai
+
+from .registry import component_registry
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from modules.tools.registry import tool_registry
+from .response_validator import response_validator, ResponseValidator
+from .response_handler import ResponseHandler
+
+# Import map processing if available
+try:
+    # Add the root directory to the path to find the prompts folder
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sys.path.append(root_dir)
+    from prompts.preprocess_map_prompt import preprocess_map_request
+    from prompts.map_post_processor import fix_map_configuration
+    MAP_PROCESSORS_AVAILABLE = True
+    print("Map processing functions successfully imported from", os.path.join(root_dir, "prompts"))
+except ImportError:
+    print("Warning: Map processors not available. Map component fixes will be disabled.")
+    MAP_PROCESSORS_AVAILABLE = False
+    
+    # Define dummy functions
+    def preprocess_map_request(request_text):
+        return request_text
+        
+    def fix_map_configuration(config_json):
+        return config_json
+
+# Load environment variables
+load_dotenv()
+
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class ComponentService:
+    """
+    Service for AI-driven component-based UI generation.
+    This service uses AI models to generate UI configurations based on user requests,
+    without relying on predefined templates.
+    """
+    
+    def __init__(self, component_registry=None):
+        """
+        Initialize the ComponentService.
+        
+        Args:
+            component_registry: Optional component registry instance. 
+                               If not provided, the default registry will be used.
+        """
+        # Initialize the OpenAI client with API key from environment variable
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if openai_api_key:
+            # Set up the OpenAI client based on available package
+            if OpenAI is not None:
+                # New OpenAI client style (v1.0.0+)
+                self.client = OpenAI(api_key=openai_api_key)
+                self.openai_version = "new"
+            else:
+                # Old OpenAI module style (v0.x)
+                openai.api_key = openai_api_key
+                self.client = None  # Don't store the module
+                self.openai_version = "old"
+        else:
+            logger.warning("OpenAI API key not found. Some features may not work.")
+            self.client = None
+            self.openai_version = None
+        
+        # Use the provided component registry or get the default one
+        from .registry import component_registry as default_registry
+        self.component_registry = component_registry or default_registry
+        
+        self.tool_registry = tool_registry
+        self._component_connections = []  # Initialize connections list
+        self.response_handler = ResponseHandler()  # Add the response handler instance
+        
+        # Configure Gemini API
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
+        if gemini_api_key:
+            genai.configure(api_key=gemini_api_key)
+    
+    def generate_app_config(self, user_request: str) -> Dict[str, Any]:
+        """
+        Generate an app configuration based on a user request using AI.
+        This method extracts a valid JSON response from Gemini or OpenAI for creating the application.
+        
+        Args:
+            user_request: The user's request description
+            
+        Returns:
+            App configuration dictionary
+        """
+        try:
+            # Apply map preprocessing if available
+            original_request = user_request
+            if MAP_PROCESSORS_AVAILABLE:
+                user_request = preprocess_map_request(user_request)
+                if user_request != original_request:
+                    print("Map preprocessing applied to user request")
+            
+            # Get the active UI components from config
+            ui_components = self._get_ui_components_list()
+            
+            # Generate prompt for app using the enhaced AI-driven prompt
+            prompt = self._create_enhanced_prompt(user_request, ui_components)
+            
+            # Check if Gemini API key is available
+            gemini_api_key = os.getenv("GEMINI_API_KEY")
+            if gemini_api_key:
+                try:
+                    # Make API call to Gemini
+                    print("Using Gemini API for app configuration generation")
+                    response_text = self._call_gemini_api(prompt)
+                except Exception as gemini_error:
+                    print(f"Error with Gemini API: {str(gemini_error)}. Falling back to OpenAI.")
+                    # Fall back to OpenAI
+                    response_text = self._call_openai_api(prompt)
+            else:
+                # Fall back to OpenAI
+                response_text = self._call_openai_api(prompt)
+            
+            # Process the API response using our enhanced handler
+            app_config = self._process_api_response({
+                "choices": [{"message": {"content": response_text}}]
+            })
+            
+            # Apply map post-processing if available
+            if MAP_PROCESSORS_AVAILABLE:
+                app_config_json = json.dumps(app_config)
+                processed_config_json = fix_map_configuration(app_config_json)
+                if processed_config_json != app_config_json:
+                    print("Map post-processing applied to response")
+                    app_config = json.loads(processed_config_json)
+            
+            # Process the app configuration further if needed
+            app_config = self._process_app_config(app_config, user_request)
+            
+            # Validate and post-process the configuration 
+            self._process_app_config_imports(app_config)
+            self._normalize_component_ids(app_config)
+            self._normalize_component_properties(app_config.get("components", []))
+            
+            # Log the validated response
+            with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
+                log_file.write("Validated Response:\n")
+                log_file.write(json.dumps(app_config, indent=2))
+                log_file.write("\n--- End of Validated Response ---\n\n")
+            
+            # After processing the app configuration, normalize methods to events
+            self._normalize_methods_to_events(app_config.get("components", []))
+            
+            return app_config
+            
+        except Exception as e:
+            print(f"Error generating app config: {str(e)}")
+            traceback.print_exc()
+            
+            # Create a fallback app configuration that shows error info
+            return self._create_ai_fallback_app_config(user_request)
+    
+    def _call_gemini_api(self, prompt: str) -> str:
+        """
+        Make an API call to Google's Gemini API.
+        
+        Args:
+            prompt: The prompt to send to Gemini
+            
+        Returns:
+            Response text from Gemini
+        """
+        try:
+            # Log the request
+            with open("gemini_request_log.txt", "a", encoding="utf-8") as log_file:
+                log_file.write(f"Request Time: {datetime.datetime.now()}\n")
+                log_file.write("Prompt:\n")
+                log_file.write(prompt)
+                log_file.write("\n--- End of Prompt ---\n\n")
+            
+            # Configure the generation model
+            generation_config = {
+                "temperature": 0.9,
+                "top_p": 1,
+                "top_k": 1,
+                "max_output_tokens": 8192,
+            }
+            
+            # Safety settings - adjust as needed
+            safety_settings = [
+                {
+                    "category": "HARM_CATEGORY_HARASSMENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+            ]
+            
+            # Initialize the model with the correct model name: gemini-2.0-flash
+            model = genai.GenerativeModel(
+                model_name="gemini-2.0-flash",
+                generation_config=generation_config,
+                safety_settings=safety_settings
+            )
+            
+            # Generate content
+            response = model.generate_content(prompt)
+            
+            # Extract the response text
+            response_text = response.text
+            
+            # Log the response
+            with open("gemini_request_log.txt", "a", encoding="utf-8") as log_file:
+                log_file.write("Response:\n")
+                log_file.write(response_text)
+                log_file.write("\n--- End of Response ---\n\n")
+            
+            return response_text
+            
+        except Exception as e:
+            print(f"Error calling Gemini API: {str(e)}")
+            traceback.print_exc()
+            raise
+    
+    def _call_openai_api(self, prompt: str) -> str:
+        """
+        Make an API call to OpenAI with robust handling for different API versions.
+        
+        Args:
+            prompt: The prompt to send to OpenAI
+            
+        Returns:
+            Response text from OpenAI
+        """
+        response_text = None
+        
+        try:
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            if not openai_api_key:
+                raise ValueError("OpenAI API key not found")
+                
+            # Log the request
+            with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
+                log_file.write(f"Request Time: {datetime.datetime.now()}\n")
+                log_file.write("Prompt:\n")
+                log_file.write(prompt)
+                log_file.write("\n--- End of Prompt ---\n\n")
+            
+            messages = [
+                {"role": "system", "content": "You are a UI configuration generator assistant. Respond with valid JSON only."},
+                {"role": "user", "content": prompt}
+            ]
+            
+            # Try different API calling patterns based on OpenAI version
+            if self.openai_version == "new" and self.client:
+                # OpenAI Python v1.0+ with client object
+                try:
+                    response = self.client.chat.completions.create(
+                        model="gpt-4-turbo",
+                        messages=messages,
+                        temperature=0.7,
+                        max_tokens=8192,
+                        top_p=1,
+                        frequency_penalty=0,
+                        presence_penalty=0
+                    )
+                
+                    if hasattr(response.choices[0].message, 'content'):
+                        response_text = response.choices[0].message.content
+                except Exception as e:
+                    print(f"Error with client.chat.completions: {str(e)}")
+                    raise
+            else:
+                # Try older openai.ChatCompletion
+                if hasattr(openai, 'ChatCompletion'):
+                    response = openai.ChatCompletion.create(
+                        model="gpt-4-turbo",
+                        messages=messages,
+                        temperature=0.7,
+                        max_tokens=8192,
+                        top_p=1,
+                        frequency_penalty=0,
+                        presence_penalty=0
+                    )
+                    
+                    response_text = response.choices[0].message["content"]
+                else:
+                    raise ValueError("OpenAI ChatCompletion not available")
+            
+            # Log the response
+            if response_text:
+                with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
+                    log_file.write("Response:\n")
+                    log_file.write(response_text)
+                    log_file.write("\n--- End of Response ---\n\n")
+            else:
+                raise ValueError("Failed to get response from OpenAI API")
+        
+            return response_text
+            
+        except Exception as e:
+            print(f"Error calling OpenAI API: {str(e)}")
+            traceback.print_exc()
+            raise
+    
+    def _process_api_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process the API response from OpenAI or Gemini.
+        Extract and validate the JSON data from the response.
+        
+        Args:
+            response_data: The raw API response data
+            
+        Returns:
+            Processed app configuration
+        """
+        try:
+            # Get the response content from the API response
+            content = ''
+            if 'choices' in response_data:
+                choice = response_data['choices'][0]
+                if isinstance(choice, dict):
+                    # Handle different response structures
+                    if 'message' in choice:
+                        message = choice['message']
+                        if isinstance(message, dict) and 'content' in message:
+                            content = message['content']
+                        else:
+                            content = str(message)
+                    elif 'text' in choice:
+                        content = choice['text']
+            
+            # If no content was found, return an error
+            if not content:
+                print("No content found in API response")
+                return self._create_ai_fallback_app_config("Error: No content in API response")
+            
+            # Extract the JSON part
+            return self._parse_app_configuration(content)
+            
+        except Exception as e:
+            print(f"Error processing API response: {str(e)}")
+            traceback.print_exc()
+            return self._create_ai_fallback_app_config(f"Error processing response: {str(e)}")
+    
+    def _parse_app_configuration(self, generation_text: str) -> Dict[str, Any]:
+        """
+        Parse the app configuration from the generated text.
+        
+        Args:
+            generation_text: The text output from the model
+            
+        Returns:
+            Parsed app configuration
+        """
+        try:
+            # Try to extract JSON content if text contains markdown or other content
+            json_content = self._extract_json_from_text(generation_text)
+            
+            if not json_content:
+                # If no JSON was found, return a fallback
+                print("No valid JSON found in the response")
+                return self._create_ai_fallback_app_config("No valid JSON found in the response")
+            
+            # Parse the JSON content
+            app_config = json.loads(json_content)
+            
+            # Basic validation
+            if not isinstance(app_config, dict):
+                print("Parsed JSON is not a dictionary")
+                return self._create_ai_fallback_app_config("Generated content is not a valid app configuration")
+            
+            # If this has standard sections, it's probably valid
+            if "app" in app_config and "components" in app_config:
+                return app_config
+            
+            # If this looks like an array of components, wrap it in a proper structure
+            if isinstance(app_config, list) and app_config and "type" in app_config[0]:
+                return {
+                    "app": {"name": "Generated App", "description": "Auto-wrapped components", "theme": "light"},
+                    "layout": {"type": "singlepage", "regions": ["main"]},
+                    "components": app_config
+                }
+            
+            # If we got a partial app structure, try to fix it
+            if "components" not in app_config:
+                print("No components found in the generated config")
+                return self._create_ai_fallback_app_config("No components found in the generated config")
+            
+            # Add missing app section if needed
+            if "app" not in app_config:
+                app_config["app"] = {"name": "Generated App", "description": "Auto-fixed app config", "theme": "light"}
+            
+            # Add missing layout section if needed
+            if "layout" not in app_config:
+                app_config["layout"] = {"type": "singlepage", "regions": ["main"]}
+            
+            return app_config
+
+        except json.JSONDecodeError as e:
+            print(f"JSON parsing error: {str(e)}")
+            return self._create_ai_fallback_app_config(f"JSON parsing error: {str(e)}")
+        except Exception as e:
+            print(f"Error parsing app configuration: {str(e)}")
+            traceback.print_exc()
+            return self._create_ai_fallback_app_config(f"Error parsing configuration: {str(e)}")
+    
+    def _create_enhanced_prompt(self, user_request: str, ui_components: List[Dict[str, Any]]) -> str:
+        """
+        Create a comprehensive prompt for generating an app configuration.
+        Leverages Gemini's large context window to provide extensive guidance and context.
+        
+        Args:
+            user_request: The user's request description
+            ui_components: List of available UI components
+            
+        Returns:
+            Formatted prompt for the AI model
+        """
+        return f"""
+        # MORPHEO UI CONFIGURATION GENERATOR
+
+        ## USER REQUEST
+        "{user_request}"
+
+        ## CORE PRINCIPLES
+        Morpheo is an AI-driven component system with these fundamental principles:
+        
+        1. **Zero Application-Specific Logic**: 
+           - No hardcoded calculator logic, form validation, or app-specific functionality
+           - All application behavior must be generated by you (the AI), not pre-built
+        
+        2. **Pure AI-Driven Generation**:
+           - You analyze requests and determine needed components
+           - You create connections and transformations
+           - You apply behaviors appropriate to the use case
+        
+        3. **Generic Component System**:
+           - Components are generic building blocks
+           - Behaviors should be reusable across applications
+           - Component behavior should adapt to the specific context
+        
+        ## YOUR TASK
+        Generate a complete JSON configuration for a UI application that satisfies the user's request.
+        
+        DO NOT use templates or predefined application structures. Instead:
+        - Analyze what components would best serve the user's needs
+        - Create a component tree with appropriate nesting and organization
+        - Define component properties, styles, and methods
+        - Implement all necessary functionality through DOM manipulation ($m() selector)
+        - Ensure components work together seamlessly
+
+        ## COMPONENT INTELLIGENCE GUIDELINES
+        
+        1. **Make Components Context-Aware**:
+           - Components should adapt their behavior based on their environment
+           - Implement sensible defaults based on component purpose
+           - Add validation appropriate to the component's role
+        
+        2. **Smart Data Handling**:
+           - Components should intelligently manage their data
+           - Implement proper data flow between parent and child components
+           - Handle loading, error, and empty states gracefully
+        
+        3. **Responsive Behavior**:
+           - Components should respond appropriately to user interactions
+           - Provide meaningful feedback on user actions
+           - Use animations and transitions when appropriate
+        
+        4. **Self-Validation**:
+           - Input components should validate their data
+           - Forms should validate before submission
+           - Provide clear error messages for invalid input
+
+        ## DOM MANIPULATION PATTERNS
+        
+        The $m() selector is the primary way to manipulate the DOM. Here are common patterns:
+        
+        ```javascript
+        // Getting and setting content
+        const value = $m('#element-id').getProperty('content');
+        $m('#element-id').setProperty('content', 'New text');
+        
+        // Handling input values
+        const inputValue = $m('#input-id').getProperty('value');
+        $m('#input-id').setProperty('value', '');
+        
+        // Toggling visibility
+        $m('#element-id').setStyle('display', 'none');
+        $m('#element-id').setStyle('display', 'block');
+        
+        // Changing appearance
+        $m('#element-id').setStyle('backgroundColor', '#ff0000');
+        $m('#element-id').setStyle('color', '#ffffff');
+        
+        // Working with lists/arrays
+        const list = JSON.parse($m('#data-store').getProperty('value') || '[]');
+        list.push(newItem);
+        $m('#data-store').setProperty('value', JSON.stringify(list));
+        
+        // Creating HTML content dynamically
+        let html = '';
+        items.forEach(item => {{
+          html += `<div>${{item.name}}</div>`;
+        }});
+        $m('#container').setProperty('innerHTML', html);
+        
+        // Adding/removing classes
+        $m('#element').addClass('active');
+        $m('#element').removeClass('disabled');
+        ```
+
+        ## COMPONENT PATTERNS BY TYPE
+        
+        ### Data Management Patterns
+        - Store application state in hidden input components
+        - Use JSON.stringify() and JSON.parse() for complex data
+        - Update related components when data changes
+        
+        ### Form Handling Patterns
+        - Collect form data from multiple inputs
+        - Validate before submission
+        - Show appropriate feedback
+        
+        ### Visual Representation Patterns
+        - Format data appropriately for charts and visualizations
+        - Ensure responsive design across screen sizes
+        - Provide interactive elements for exploring data
+        
+        ### Navigation Patterns
+        - Implement clean transitions between views
+        - Maintain state during navigation
+        - Provide clear navigation cues
+        
+        ## AVAILABLE COMPONENTS
+        {json.dumps(ui_components, indent=2)}
+
+        ## RESPONSE FORMAT
+        Your response should be a complete JSON object with the following structure:
+        ```json
+        {{
+          "app": {{
+            "name": "App Name",
+            "description": "App Description",
+            "theme": "light" or "dark" or custom color scheme
+          }},
+          "layout": {{
+            "type": "singlepage",
+            "regions": ["header", "main", "footer"]
+          }},
+          "components": [
+            {{
+              "id": "unique-id",
+              "type": "component-type",
+              "region": "region-name",
+              "properties": {{ /* Component properties */ }},
+              "styles": {{ /* CSS-compatible styles */ }},
+              "methods": {{ /* Event handlers and functions */ }},
+              "children": [ /* For container components: nested components */ ]
+            }}
+          ]
+        }}
+        ```
+
+        ## IMPLEMENTATION GUIDELINES
+        
+        1. **Component IDs**:
+           - Must be unique across all components
+           - Should be descriptive of the component's purpose
+           - Use kebab-case (e.g., "user-input", "submit-button")
+        
+        2. **Methods and Events**:
+           - Always use the $m() selector for DOM manipulation
+           - Include detailed error handling
+           - Make methods concise and focused
+        
+        3. **Styling**:
+           - Use consistent color schemes
+           - Ensure adequate contrast for accessibility
+           - Make layouts responsive
+        
+        4. **Data Flow**:
+           - Clearly define how data moves between components
+           - Validate data at appropriate points
+           - Handle edge cases and errors
+        
+        IMPORTANT: RESPOND WITH VALID JSON ONLY. NO EXPLANATIONS, MARKDOWN, OR TEXT OUTSIDE THE JSON OBJECT.
+        """
+    
+    def _find_matching_template(self, user_request: str) -> Optional[Dict[str, Any]]:
+        """
+        This method is deprecated and will be removed in future versions.
+        Morpheo no longer uses template matching and is fully AI-driven.
+        
+        Args:
+            user_request: The user's request description
+            
+        Returns:
+            None as templates are no longer used
+        """
+        logger.warning("_find_matching_template is deprecated and will be removed in future versions")
+        return None
+        
+    def _get_ui_components_list(self) -> List[Dict[str, Any]]:
+        """
+        Get all available UI components information from the registry.
+        Enhances component descriptions with detailed usage information.
+        
+        Returns:
+            List of component definitions with enhanced descriptions
+        """
+        # Use the correct method name from ComponentRegistry
+        registry_components = self.component_registry.get_all_components()
+        
+        ui_components = []
+        
+        # Process registry components into a suitable format with enhanced descriptions
+        for component_id, component_info in registry_components.items():
+            # Create a component entry with enhanced information
+            ui_component = {
+                "id": component_id,
+                "type": component_info.get("type", ""),
+                "name": component_info.get("name", ""),
+                "description": component_info.get("description", ""),
+                "properties": component_info.get("properties", {}),
+                "methods": component_info.get("methods", {}),
+                "examples": component_info.get("examples", [])
+            }
+            
+            # Add usage patterns where applicable
+            component_type = component_info.get("type", "")
+            if component_type == "input" or component_type == "text-input":
+                ui_component["usage_patterns"] = {
+                    "form_input": "Use for capturing user input in forms",
+                    "search": "Use for search functionality with appropriate event handlers",
+                    "data_entry": "For structured data entry with validation"
+                }
+            elif component_type == "button":
+                ui_component["usage_patterns"] = {
+                    "form_submit": "Trigger form submission with validation",
+                    "toggle_action": "Toggle state or visibility of other components",
+                    "navigation": "Navigate between different views or sections"
+                }
+            elif component_type == "container":
+                ui_component["usage_patterns"] = {
+                    "layout": "Organize content in rows, columns, or grids",
+                    "card": "Present information in card-like containers",
+                    "section": "Divide content into logical sections"
+                }
+                
+            ui_components.append(ui_component)
+        
+        return ui_components
+        
+    def _process_app_config(self, app_config: Dict[str, Any], user_request: str) -> Dict[str, Any]:
+        """
+        Process the app configuration to enhance it based on the user request.
+        Adds metadata and ensures all required sections exist.
+        
+        Args:
+            app_config: The app configuration to process
+            user_request: The user's request description
+            
+        Returns:
+            Processed app configuration
+        """
+        # Ensure app config has required sections
+        if "app" not in app_config:
+            app_config["app"] = {
+                "name": f"App for: {user_request[:30]}...",
+                "description": user_request,
+                "theme": "light"
+            }
+        else:
+            # Add user request to app description if not present
+            if "description" not in app_config["app"]:
+                app_config["app"]["description"] = user_request
+                
+        # Add metadata about the request
+        app_config["app"]["requestDescription"] = user_request
+        app_config["app"]["generatedAt"] = datetime.datetime.now().isoformat()
+            
+        # Ensure layout section exists
+        if "layout" not in app_config:
+            app_config["layout"] = {
+                "type": "singlepage",
+                "regions": ["header", "main", "footer"]
+            }
+            
+        # Ensure components section exists
+        if "components" not in app_config:
+            app_config["components"] = []
+            
+        # If no components were generated, add a message component
+        if not app_config["components"]:
+            app_config["components"].append({
+                "id": "message-container",
+                "type": "container",
+                "region": "main",
+                "styles": {
+                    "display": "flex",
+                    "flexDirection": "column",
+                    "alignItems": "center",
+                    "justifyContent": "center",
+                    "padding": "20px",
+                    "margin": "20px auto",
+                    "maxWidth": "600px",
+                    "textAlign": "center"
+                },
+                "children": [
+                    {
+                        "id": "message-title",
+                        "type": "text",
+                        "properties": {
+                            "content": "App Created Successfully",
+                            "variant": "h1"
+                        },
+                        "styles": {
+                            "fontSize": "24px",
+                            "marginBottom": "20px"
+                        }
+                    },
+                    {
+                        "id": "message-content",
+                        "type": "text",
+                        "properties": {
+                            "content": f"An application was created based on your request: \"{user_request}\"",
+                            "variant": "p"
+                        },
+                        "styles": {
+                            "fontSize": "16px",
+                            "marginBottom": "20px"
+                        }
+                    }
+                ]
+            })
+        
+        return app_config
+        
+    def _process_app_config_imports(self, app_config: Dict[str, Any]) -> None:
+        """
+        Process any imports or external resources in the app configuration.
+        This ensures all required resources are properly identified and loaded.
+        
+        Args:
+            app_config: The app configuration to process
+        """
+        if not isinstance(app_config, dict):
+            return
+            
+        # Initialize resources section if it doesn't exist
+        if "resources" not in app_config:
+            app_config["resources"] = {
+                "scripts": [],
+                "styles": []
+            }
+        
+        # Process components to identify needed resources
+        if "components" in app_config and isinstance(app_config["components"], list):
+            self._identify_component_resources(app_config["components"], app_config["resources"])
+            
+    def _identify_component_resources(self, components: List[Dict[str, Any]], resources: Dict[str, List[str]]) -> None:
+        """
+        Identify resources needed by components.
+        
+        Args:
+            components: List of components to process
+            resources: Resources object to update
+        """
+        for component in components:
+            if not isinstance(component, dict):
+                continue
+            
+            # Check for chart components that might need charting libraries
+            if component.get("type") == "chart":
+                if "scripts" in resources and "https://cdn.jsdelivr.net/npm/chart.js" not in resources["scripts"]:
+                    resources["scripts"].append("https://cdn.jsdelivr.net/npm/chart.js")
+            
+            # Check for map components
+            if component.get("type") == "map":
+                if "scripts" in resources and "https://maps.googleapis.com/maps/api/js" not in resources["scripts"]:
+                    resources["scripts"].append("https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY")
+                    
+            # Process children recursively
+            if "children" in component and isinstance(component["children"], list):
+                self._identify_component_resources(component["children"], resources)
+
+    def _normalize_component_ids(self, app_config: Dict[str, Any]) -> None:
+        """
+        Normalize component IDs to ensure they are unique and follow kebab-case convention.
+        
+        Args:
+            app_config: The app configuration to process
+        """
+        if "components" not in app_config or not isinstance(app_config["components"], list):
+            return
+            
+        # Track all component IDs to ensure uniqueness
+        all_ids = set()
+        
+        # Helper function to process a component and its children
+        def process_component(component, parent_id=None, index=0):
+            if not isinstance(component, dict):
+                return
+                
+            # Check if the component has an ID
+            if "id" not in component:
+                # Generate an ID based on component type and parent
+                component_type = component.get("type", "unknown")
+                if parent_id:
+                    component["id"] = f"{parent_id}-{component_type}-{index}"
+                else:
+                    component["id"] = f"{component_type}-{index}"
+            
+            # Ensure the ID is unique
+            component_id = component["id"]
+            while component_id in all_ids:
+                # If the ID already exists, add a unique suffix
+                component_id = f"{component_id}-{len(all_ids)}"
+            
+            # Update the component ID if it changed
+            component["id"] = component_id
+            all_ids.add(component_id)
+            
+            # Process children recursively
+            if "children" in component and isinstance(component["children"], list):
+                for i, child in enumerate(component["children"]):
+                    process_component(child, component_id, i)
+        
+        # Process all top-level components
+        for i, component in enumerate(app_config["components"]):
+            process_component(component, index=i)
+
+    def _normalize_component_properties(self, components: List[Dict[str, Any]]) -> None:
+        """
+        Normalize component properties for consistency.
+        
+        Args:
+            components: List of components to normalize
+        """
+        for component in components:
+            # Initialize properties and styles if they don't exist
+            if "properties" not in component:
+                component["properties"] = {}
+            if "styles" not in component:
+                component["styles"] = {}
+                
+            # Recursively process children
+            if "children" in component and isinstance(component["children"], list):
+                self._normalize_component_properties(component["children"])
+    
+    def _create_ai_fallback_app_config(self, error_message: str) -> Dict[str, Any]:
+        """
+        Create a fallback app configuration when AI generation fails.
+        
+        Args:
+            error_message: The error message to display
+            
+        Returns:
+            A simple fallback app configuration
+        """
+        return {
+            "app": {
+                "name": "Error Handling App",
+                "description": "A fallback UI was created because the AI generation failed",
+                "theme": "light"
+            },
+            "layout": {
+                "type": "singlepage",
+                "regions": ["header", "main", "footer"]
+            },
+            "components": [
+                {
+                    "id": "header-container",
+                    "type": "container",
+                    "region": "header",
+                    "styles": {
+                        "backgroundColor": "#f8d7da",
+                        "color": "#721c24",
+                        "padding": "15px",
+                    "textAlign": "center",
+                        "borderRadius": "5px",
+                        "margin": "10px"
+                },
+                    "children": [
+                {
+                            "id": "header-title",
+                    "type": "text",
+                    "properties": {
+                                "content": "Error Generating UI",
+                                "variant": "h1"
+                    },
+                    "styles": {
+                    "fontSize": "24px",
+                                "fontWeight": "bold",
+                                "marginBottom": "10px"
+                }
+                        }
+                    ]
+            },
+            {
+                    "id": "error-container",
+                "type": "container",
+                    "region": "main",
+                "styles": {
+                        "backgroundColor": "#fff",
+                        "border": "1px solid #f5c6cb",
+                        "borderRadius": "5px",
+                        "padding": "20px",
+                        "margin": "20px",
+                        "textAlign": "left"
+                },
+                "children": [
+                    {
+                            "id": "error-title",
+                            "type": "text",
+                        "properties": {
+                                "content": "The AI encountered an error:",
+                                "variant": "h2"
+                        },
+                        "styles": {
+                            "fontSize": "18px",
+                                "marginBottom": "10px",
+                                "color": "#721c24"
+                            }
+                        },
+                        {
+                            "id": "error-message",
+                            "type": "text",
+                        "properties": {
+                                "content": error_message,
+                                "variant": "p"
+                        },
+                        "styles": {
+                                "fontFamily": "monospace",
+                            "padding": "15px",
+                                "backgroundColor": "#f8f9fa",
+                            "borderRadius": "4px",
+                                "overflowX": "auto"
+                            }
+                        },
+                        {
+                            "id": "retry-button",
+                        "type": "button",
+                        "properties": {
+                                "text": "Try Again"
+                        },
+                        "styles": {
+                                "marginTop": "20px",
+                                "padding": "10px 15px",
+                                "backgroundColor": "#0d6efd",
+                                "color": "white",
+                                "border": "none",
+                            "borderRadius": "4px",
+                            "cursor": "pointer"
+                        },
+                            "methods": {
+                                "onClick": {
+                                    "code": "function(event, $m) { window.location.reload(); }"
+                                }
+                            }
+                        }
+                    ]
+                },
+                {
+                    "id": "footer-container",
+                    "type": "container",
+                    "region": "footer",
+                        "styles": {
+                        "padding": "10px",
+                        "textAlign": "center",
+                        "borderTop": "1px solid #f5c6cb",
+                        "marginTop": "20px",
+                        "color": "#6c757d",
+                        "fontSize": "12px"
+                    },
+                    "children": [
+                        {
+                            "id": "footer-text",
+                        "type": "text",
+                        "properties": {
+                                "content": "Please try a different request or check the system logs.",
+                                "variant": "p"
+                        }
+                    }
+                ]
+            }
+        ]
+        }
+    
+    def _extract_json_from_text(self, text: str) -> str:
+        """
+        Extract JSON content from text that may contain markdown, explanations, etc.
+        
+        Args:
+            text: The text to extract JSON from
+            
+        Returns:
+            The extracted JSON content as a string, or empty string if none found
+        """
+        # First try to find JSON content between triple backticks
+        json_pattern = r'```(?:json)?\s*([\s\S]*?)```'
+        matches = re.findall(json_pattern, text)
+        
+        if matches:
+            # Return the largest match (most likely the complete JSON)
+            return max(matches, key=len).strip()
+        
+        # If no triple backtick matches, try to find content that looks like JSON
+        if text.strip().startswith('{') and text.strip().endswith('}'):
+            # This might be a raw JSON without markdown
+            return text.strip()
+        
+        # Look for a JSON object in the text
+        json_pattern = r'(\{[\s\S]*\})'
+        matches = re.findall(json_pattern, text)
+        
+        if matches:
+            # Return the largest match (most likely the complete JSON)
+            return max(matches, key=len).strip()
+        
+        # No JSON found
+        return ""
+
+    def _normalize_methods_to_events(self, components: List[Dict[str, Any]]) -> None:
+        """
+        Normalize component methods and event handlers.
+        
+        Args:
+            components: List of components to process
+        """
+        if not components:
+            return
+        
+        for component in components:
+            if not isinstance(component, dict):
+                continue
+            
+            # Normalize methods object
+            if "methods" in component and isinstance(component["methods"], dict):
+                methods = component["methods"]
+                
+                # Ensure all methods have the correct structure
+                for method_name, method_info in methods.items():
+                    if isinstance(method_info, str):
+                        # Convert string method to proper structure
+                        methods[method_name] = {
+                            "code": method_info,
+                            "affectedComponents": [component.get("id", "")]
+                        }
+                    elif isinstance(method_info, dict) and "code" in method_info:
+                        # Ensure affected components exists
+                        if "affectedComponents" not in method_info:
+                            method_info["affectedComponents"] = [component.get("id", "")]
+            
+            # Process children recursively
+            if "children" in component and isinstance(component["children"], list):
+                self._normalize_methods_to_events(component["children"])
+
+# Create a singleton instance of the component service
+component_service = ComponentService() 

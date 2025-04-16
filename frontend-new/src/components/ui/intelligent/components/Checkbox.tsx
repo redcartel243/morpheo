@@ -1,15 +1,17 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { 
   ComponentType, 
   ComponentCapability, 
   DataType,
   ComponentEventType,
-  ComponentDefinition
+  ComponentDefinition,
+  ComponentInstance
 } from '../ComponentTypes';
 import { componentRegistry } from '../ComponentRegistry';
 import { withIntelligentComponent } from '../IntelligentComponent';
 import { useTheme } from '../../theme/ThemeProvider';
+import './Checkbox.css'; // Import the CSS file with animations
 
 /**
  * Define Checkbox capabilities
@@ -88,14 +90,62 @@ const checkboxCapabilities: ComponentCapability[] = [
         type: DataType.TEXT,
         direction: 'input',
         defaultValue: 'medium'
+      },
+      {
+        id: 'animation',
+        name: 'Animation Type',
+        description: 'Type of animation to apply to the checkbox',
+        type: DataType.TEXT, 
+        direction: 'input',
+        defaultValue: 'scale'
+      },
+      {
+        id: 'customColors',
+        name: 'Custom Colors',
+        description: 'Custom colors for the checkbox',
+        type: DataType.OBJECT,
+        direction: 'input',
+        defaultValue: {}
+      }
+    ]
+  },
+  {
+    id: 'state',
+    name: 'State Management',
+    description: 'Capabilities related to checkbox state',
+    connectionPoints: [
+      {
+        id: 'state',
+        name: 'Checkbox State',
+        description: 'Current state of the checkbox',
+        type: DataType.OBJECT,
+        direction: 'bidirectional',
+        defaultValue: {}
       }
     ]
   }
 ];
 
 // Define Checkbox variant and size types
-type CheckboxVariant = 'default' | 'filled' | 'outlined';
-type CheckboxSize = 'small' | 'medium' | 'large';
+type CheckboxVariant = 'default' | 'filled' | 'outlined' | 'custom';
+type CheckboxSize = 'small' | 'medium' | 'large' | 'custom';
+type CheckboxAnimation = 'none' | 'scale' | 'bounce' | 'slide' | 'custom';
+
+/**
+ * Get animation class name based on animation type
+ */
+const getAnimationClassName = (animation: CheckboxAnimation): string => {
+  switch (animation) {
+    case 'scale':
+      return 'checkbox-scale';
+    case 'bounce':
+      return 'checkbox-bounce';
+    case 'slide':
+      return 'checkbox-slide';
+    default:
+      return '';
+  }
+};
 
 /**
  * Props for the Intelligent Checkbox Component
@@ -120,6 +170,29 @@ interface IntelligentCheckboxProps {
   className?: string;
   indeterminate?: boolean;
   testId?: string;
+  animation?: CheckboxAnimation;
+  
+  // Extended customization props
+  customColors?: {
+    unchecked?: string;
+    checked?: string;
+    border?: string;
+    label?: string;
+    checkmark?: string;
+    disabled?: string;
+    focus?: string;
+    hover?: string;
+  };
+  customStyles?: {
+    container?: React.CSSProperties;
+    checkbox?: React.CSSProperties;
+    label?: React.CSSProperties;
+    checkmark?: React.CSSProperties;
+  };
+  
+  // State management props
+  initialState?: Record<string, any>;
+  onStateChange?: (newState: Record<string, any>) => void;
 }
 
 /**
@@ -130,7 +203,24 @@ const getCheckboxStyles = (
   size: CheckboxSize,
   checked: boolean,
   disabled: boolean,
-  indeterminate: boolean
+  indeterminate: boolean,
+  animation: CheckboxAnimation,
+  customColors: {
+    unchecked?: string;
+    checked?: string;
+    border?: string;
+    label?: string;
+    checkmark?: string;
+    disabled?: string;
+    focus?: string;
+    hover?: string;
+  } = {},
+  customStyles: {
+    container?: React.CSSProperties;
+    checkbox?: React.CSSProperties;
+    label?: React.CSSProperties;
+    checkmark?: React.CSSProperties;
+  } = {}
 ): {
   container: React.CSSProperties;
   checkbox: React.CSSProperties;
@@ -153,6 +243,11 @@ const getCheckboxStyles = (
       checkbox: '24px',
       labelFont: '1.125rem',
       checkmarkSize: '16px'
+    },
+    custom: {
+      checkbox: '20px',
+      labelFont: '1rem',
+      checkmarkSize: '12px'
     }
   };
   
@@ -171,41 +266,59 @@ const getCheckboxStyles = (
     position: 'relative',
     width: sizeMap[size].checkbox,
     height: sizeMap[size].checkbox,
-    border: variant === 'outlined' ? '2px solid #94a3b8' : '1px solid #cbd5e1',
+    border: variant === 'outlined' 
+      ? `2px solid ${disabled ? (customColors.disabled || '#94a3b8') : (customColors.border || '#94a3b8')}` 
+      : `1px solid ${disabled ? (customColors.disabled || '#cbd5e1') : (customColors.border || '#cbd5e1')}`,
     borderRadius: variant === 'default' ? '4px' : '3px',
-    backgroundColor: variant === 'filled' && !checked ? '#f1f5f9' : 'transparent',
+    backgroundColor: variant === 'filled' && !checked 
+      ? (customColors.unchecked || '#f1f5f9') 
+      : 'transparent',
     display: 'flex',
     justifyContent: 'center',
     alignItems: 'center',
-    transition: 'all 0.2s ease',
+    transition: animation !== 'none' ? 'all 0.2s ease' : 'none',
     boxSizing: 'border-box',
     flexShrink: 0
   };
   
   // Adjust checkbox styles based on checked state
   if (checked || indeterminate) {
-    checkbox.backgroundColor = disabled ? '#94a3b8' : '#3b82f6';
-    checkbox.borderColor = disabled ? '#94a3b8' : '#3b82f6';
+    checkbox.backgroundColor = disabled 
+      ? (customColors.disabled || '#94a3b8') 
+      : (customColors.checked || '#3b82f6');
+    checkbox.borderColor = disabled 
+      ? (customColors.disabled || '#94a3b8') 
+      : (customColors.border || '#3b82f6');
   }
   
   // Label styles
   const label: React.CSSProperties = {
     marginLeft: '0.5rem',
     fontSize: sizeMap[size].labelFont,
-    color: disabled ? '#94a3b8' : '#1e293b',
+    color: disabled 
+      ? (customColors.disabled || '#94a3b8') 
+      : (customColors.label || '#1e293b'),
     fontFamily: 'sans-serif'
   };
   
   // Checkmark styles (visible when checked)
   const checkmark: React.CSSProperties = {
-    opacity: checked || indeterminate ? 1 : 0,
+    display: checked || indeterminate ? 'block' : 'none',
     width: sizeMap[size].checkmarkSize,
     height: indeterminate ? '2px' : sizeMap[size].checkmarkSize,
-    backgroundColor: indeterminate ? '#ffffff' : 'transparent',
-    transition: 'opacity 0.2s ease'
+    backgroundColor: customColors.checkmark || '#ffffff',
+    position: indeterminate ? 'absolute' : 'static',
+    borderRadius: indeterminate ? '1px' : '0',
+    transition: animation !== 'none' ? 'all 0.1s ease' : 'none'
   };
   
-  return { container, checkbox, label, checkmark };
+  // Apply custom styles if provided
+  return {
+    container: { ...container, ...customStyles.container },
+    checkbox: { ...checkbox, ...customStyles.checkbox },
+    label: { ...label, ...customStyles.label },
+    checkmark: { ...checkmark, ...customStyles.checkmark }
+  };
 };
 
 /**
@@ -228,126 +341,273 @@ const IntelligentCheckboxBase: React.FC<IntelligentCheckboxProps> = ({
   indeterminate: propIndeterminate = false,
   className,
   testId,
+  animation: propAnimation = 'scale',
+  customColors: propCustomColors = {},
+  customStyles: propCustomStyles = {},
+  initialState = {},
+  onStateChange,
   ...rest
 }) => {
-  // Get values from connections if available
-  const connectionLabel = getConnectionValue?.('label');
-  const connectionChecked = getConnectionValue?.('checked');
-  const connectionValue = getConnectionValue?.('value');
-  const connectionVariant = getConnectionValue?.('variant');
-  const connectionEnabled = getConnectionValue?.('enabled');
+  // Internal state management
+  const [internalState, setInternalState] = useState<Record<string, any>>({
+    ...initialState,
+    checked: propChecked || false,
+    toggleCount: 0,
+    lastToggleTime: null
+  });
   
-  // Use connection values or props
-  const label = connectionLabel || propLabel || '';
-  const checked = connectionChecked !== undefined ? connectionChecked : propChecked || false;
-  const value = connectionValue !== undefined ? connectionValue : propValue;
-  const variant = (connectionVariant || propVariant || 'default') as CheckboxVariant;
+  // Get values from connections if available
+  const connectionChecked = getConnectionValue?.('checked');
+  const connectionEnabled = getConnectionValue?.('enabled');
+  const connectionValue = getConnectionValue?.('value');
+  const connectionLabel = getConnectionValue?.('label');
+  const connectionVariant = getConnectionValue?.('variant');
+  const connectionSize = getConnectionValue?.('size');
+  const connectionAnimation = getConnectionValue?.('animation');
+  const connectionCustomColors = getConnectionValue?.('customColors') || {};
+  const connectionState = getConnectionValue?.('state') || {};
+  
+  // Use connection values or props with local state for controlled value
+  const isChecked = connectionChecked !== undefined 
+    ? connectionChecked 
+    : internalState.checked;
   const disabled = connectionEnabled === false || propDisabled === true;
-  const indeterminate = propIndeterminate;
+  const value = connectionValue !== undefined ? connectionValue : propValue;
+  const label = connectionLabel || propLabel;
+  const variant = (connectionVariant || propVariant) as CheckboxVariant;
+  const checkboxSize = (connectionSize || size) as CheckboxSize;
+  const animation = (connectionAnimation || propAnimation) as CheckboxAnimation;
+  const customColors = { ...propCustomColors, ...connectionCustomColors };
+  
+  // Get animation class name
+  const animationClassName = getAnimationClassName(animation);
+  
+  // Combine class names
+  const combinedClassName = [
+    className || '',
+    animationClassName,
+    isChecked ? 'checkbox-checked' : ''
+  ].filter(Boolean).join(' ');
+  
+  // Merge internal state with connection state
+  useEffect(() => {
+    const newState = { ...internalState, ...connectionState };
+    setInternalState(newState);
+    if (onStateChange) {
+      onStateChange(newState);
+    }
+  }, [connectionState]);
+  
+  // Update internal state when prop changes
+  useEffect(() => {
+    if (propChecked !== undefined && propChecked !== internalState.checked) {
+      setInternalState(prev => ({ ...prev, checked: propChecked }));
+    }
+  }, [propChecked]);
+  
+  // Method to update internal state
+  const updateState = (updates: Record<string, any>) => {
+    const newState = { ...internalState, ...updates };
+    setInternalState(newState);
+    if (onStateChange) {
+      onStateChange(newState);
+    }
+    // Send state through component system if available
+    if (sendEvent && componentId) {
+      sendEvent(ComponentEventType.STATE_CHANGE, 'state', newState);
+    }
+  };
   
   // Handle checkbox change
   const handleChange = useCallback(() => {
     if (disabled) return;
     
-    // Create payload for the event
-    const payload = {
-      checked: !checked,
-      value,
-      timestamp: new Date().toISOString()
-    };
+    // Toggle the checked state
+    const newChecked = !isChecked;
+    
+    // Update toggle count in internal state
+    const toggleCount = internalState.toggleCount + 1;
+    const lastToggleTime = new Date().toISOString();
+    
+    // Update local state
+    updateState({ 
+      checked: newChecked, 
+      toggleCount, 
+      lastToggleTime 
+    });
     
     // Send the event through the component system
     if (sendEvent && componentId) {
-      sendEvent(ComponentEventType.CHANGE, 'change', payload);
-      sendEvent(ComponentEventType.USER_INTERACTION, 'checked', payload.checked);
+      // Update bidirectional checked value
+      sendEvent(ComponentEventType.CHANGE, 'checked', newChecked);
+      
+      // Send detailed change event
+      sendEvent(ComponentEventType.CHANGE, 'change', {
+        checked: newChecked,
+        value: value,
+        timestamp: new Date().toISOString(),
+        toggleCount,
+        state: { 
+          ...internalState, 
+          checked: newChecked, 
+          toggleCount,
+          lastToggleTime
+        }
+      });
     }
     
     // Call the prop onChange if provided
     if (onChange) {
-      onChange(!checked, value);
+      onChange(newChecked, value);
     }
-  }, [checked, value, disabled, sendEvent, componentId, onChange]);
+  }, [componentId, disabled, isChecked, onChange, sendEvent, internalState, updateState, value]);
   
-  // Get styles for the component
-  const styles = getCheckboxStyles(variant, size, checked, disabled, indeterminate);
+  // Calculate styles
+  const styles = getCheckboxStyles(
+    variant,
+    checkboxSize,
+    isChecked,
+    disabled,
+    propIndeterminate,
+    animation,
+    customColors,
+    propCustomStyles
+  );
+  
+  // Get theme for styling (if needed)
+  const { theme } = useTheme();
   
   return (
-    <div 
-      style={styles.container} 
-      className={className}
+    <div
+      style={styles.container}
+      className={combinedClassName}
       onClick={handleChange}
-      data-testid={testId}
+      data-testid={testId || `checkbox-${componentId}`}
+      data-component-id={componentId}
+      data-component-type={componentType}
+      data-state={JSON.stringify(internalState)}
+      {...rest}
     >
-      <div 
-        style={styles.checkbox}
-        role="checkbox"
-        aria-checked={checked}
-        aria-disabled={disabled}
-      >
-        {!indeterminate && checked && (
+      <div style={styles.checkbox}>
+        {isChecked && !propIndeterminate && (
           <svg 
+            width={styles.checkmark.width?.toString()} 
+            height={styles.checkmark.height?.toString()} 
             viewBox="0 0 24 24" 
             fill="none" 
-            stroke="white" 
-            strokeWidth="4" 
-            strokeLinecap="round" 
-            strokeLinejoin="round"
-            style={styles.checkmark}
+            xmlns="http://www.w3.org/2000/svg"
           >
-            <polyline points="20 6 9 17 4 12"></polyline>
+            <path 
+              d="M5 12L10 17L19 8" 
+              stroke={customColors.checkmark || "#FFFFFF"} 
+              strokeWidth="2" 
+              strokeLinecap="round" 
+              strokeLinejoin="round"
+            />
           </svg>
         )}
-        {indeterminate && (
+        {propIndeterminate && (
           <div style={styles.checkmark}></div>
         )}
       </div>
-      {label && <span style={styles.label}>{label}</span>}
+      
+      {label && <div style={styles.label}>{label}</div>}
     </div>
   );
 };
 
 /**
- * Component definition for the component registry
+ * Wrap the base component with the intelligent component HOC
+ */
+export const IntelligentCheckbox = withIntelligentComponent(
+  IntelligentCheckboxBase,
+  ComponentType.CHECKBOX
+);
+
+/**
+ * Component definition for the registry
  */
 const checkboxComponentDefinition: ComponentDefinition = {
   meta: {
     type: ComponentType.CHECKBOX,
     name: 'Checkbox',
-    description: 'A checkbox component for binary input (on/off, true/false)',
+    description: 'Input component for selecting multiple options',
     capabilities: checkboxCapabilities,
     defaultProps: {
-      checked: false,
       variant: 'default',
-      size: 'medium'
+      size: 'medium',
+      checked: false,
+      disabled: false,
+      label: '',
+      animation: 'scale'
     }
   },
-  initializer: (props: Record<string, any>) => ({
-    id: props.id || `checkbox-${uuidv4()}`,
-    type: ComponentType.CHECKBOX,
-    properties: {
-      label: props.label || '',
-      checked: props.checked || false,
-      value: props.value,
-      variant: props.variant || 'default',
-      size: props.size || 'medium',
-      disabled: props.disabled || false,
-      indeterminate: props.indeterminate || false
-    }
-  }),
-  renderer: (instance) => {
-    // The actual renderer is provided by the withIntelligentComponent HOC
-    return null;
+  initializer: (props) => {
+    return {
+      id: props.id || uuidv4(),
+      type: ComponentType.CHECKBOX,
+      properties: {
+        ...props,
+        variant: props.variant || 'default',
+        size: props.size || 'medium',
+        animation: props.animation || 'scale',
+        customColors: props.customColors || {},
+        customStyles: props.customStyles || {}
+      },
+      state: {
+        checked: props.checked || false,
+        toggleCount: 0,
+        lastToggleTime: null,
+        ...props.initialState
+      }
+    };
+  },
+  renderer: (instance: ComponentInstance) => {
+    const {
+      id: componentId,
+      type: componentType,
+      properties,
+      state
+    } = instance;
+    
+    // Handle checkbox toggle with state management
+    const handleToggle = (checked: boolean, value: any) => {
+      // Update the instance state
+      if (instance.state) {
+        instance.state.checked = checked;
+        
+        // Update toggle count
+        const toggleCount = (instance.state.toggleCount || 0) + 1;
+        const lastToggleTime = new Date().toISOString();
+        instance.state.toggleCount = toggleCount;
+        instance.state.lastToggleTime = lastToggleTime;
+        
+        // Emit to output connection points if available
+        if (instance.emit && typeof instance.emit === 'function') {
+          instance.emit('change', {
+            checked,
+            value,
+            toggleCount,
+            lastToggleTime,
+            componentId,
+            state: { ...state, checked, toggleCount, lastToggleTime }
+          });
+        }
+      }
+    };
+    
+    return (
+      <IntelligentCheckbox
+        componentId={componentId}
+        {...properties}
+        checked={state?.checked}
+        onChange={handleToggle}
+      />
+    );
   }
 };
 
-// Register component with the registry
+// Register the checkbox component
 componentRegistry.registerComponent(checkboxComponentDefinition);
 
-// Export the component wrapped with the intelligent component system
-export const IntelligentCheckbox = withIntelligentComponent<IntelligentCheckboxProps>(
-  IntelligentCheckboxBase,
-  ComponentType.CHECKBOX
-);
-
-// Export base component for testing purposes
-export { IntelligentCheckboxBase }; 
+export default IntelligentCheckbox; 

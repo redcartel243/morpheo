@@ -9,6 +9,20 @@ def is_ui_config_complete(ui_config: Dict[str, Any], app_type: str) -> Tuple[boo
     Validate if an AI-generated UI configuration is complete and functional.
     Returns a tuple of (is_complete, missing_elements)
     """
+    # First, apply the drawing app validation fixes
+    is_drawing_app = (
+        app_type == "canvas" or 
+        "draw" in str(ui_config.get("app", {}).get("name", "")).lower() or
+        "paint" in str(ui_config.get("app", {}).get("name", "")).lower() or
+        "sketch" in str(ui_config.get("app", {}).get("description", "")).lower()
+    )
+    
+    # Fix drawing canvas components if needed
+    if is_drawing_app:
+        # Apply drawing app fixes recursively through all components
+        for component in ui_config.get("components", []):
+            fix_canvas_components(component)
+            
     missing_elements = []
     
     # Check for required top-level fields
@@ -440,4 +454,64 @@ def extract_partial_json(text: str) -> str:
         return max(json_like_parts, key=len)
     
     # If all else fails, return the original text
-    return text 
+    return text
+
+def validate_and_fix_drawing_app(config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Validate and fix drawing app configuration to ensure proper component types are used
+    
+    Args:
+        config: Application configuration to validate
+        
+    Returns:
+        Fixed configuration
+    """
+    # Check if this is a drawing app based on name or description
+    app_name = config.get("app", {}).get("name", "").lower()
+    app_description = config.get("app", {}).get("description", "").lower()
+    
+    is_drawing_app = (
+        "draw" in app_name or 
+        "paint" in app_name or
+        "sketch" in app_name or
+        "draw" in app_description or
+        "paint" in app_description or
+        "sketch" in app_description
+    )
+    
+    if not is_drawing_app:
+        return config
+    
+    # Fix drawing components - look for canvas-related component IDs
+    components = config.get("components", [])
+    for component in components:
+        fix_canvas_components(component)
+            
+    return config
+
+def fix_canvas_components(component: Dict[str, Any]):
+    """
+    Recursively fix canvas components to ensure proper type
+    
+    Args:
+        component: Component to check and fix
+    """
+    # Check if this is a drawing canvas
+    component_id = component.get("id", "").lower()
+    component_type = component.get("type", "").lower()
+    
+    drawing_canvas_indicators = [
+        "drawing-canvas", "draw-canvas", "sketch-canvas", "paint-canvas", 
+        "canvas", "drawingcanvas", "sketchcanvas", "paintcanvas"
+    ]
+    
+    # If this appears to be a drawing canvas but is defined as a container, fix it
+    if any(indicator in component_id for indicator in drawing_canvas_indicators):
+        if component_type in ["container", "div"]:
+            component["type"] = "canvas"
+            print(f"Fixed canvas component: {component_id}")
+    
+    # Check children
+    for child in component.get("children", []):
+        if isinstance(child, dict):
+            fix_canvas_components(child) 
