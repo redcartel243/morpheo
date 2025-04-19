@@ -346,6 +346,9 @@ export function registerAllComponents() {
         // Convert string 'true'/'false' to boolean for React props
         const fullWidth = props.fullWidth === 'true' || props.fullWidth === true;
         
+        // Ensure value is never null or undefined for controlled input
+        const controlledValue = value ?? '';
+
         return React.createElement('input', {
           type,
           style: {
@@ -356,7 +359,7 @@ export function registerAllComponents() {
             ...(style || {})
           },
           id,
-          value,
+          value: controlledValue, // Use the defaulted value
           onChange,
           ...rest
         });

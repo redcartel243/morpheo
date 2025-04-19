@@ -1051,6 +1051,9 @@ export const ProcessAppConfig: React.FC<{
                 // 2. Generate a unique ID for the item (or use a provided one if itemValue is an object with id)
                 const baseId = typeof itemValue === 'object' && itemValue.id ? itemValue.id : `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
                 
+                // Find the index of the item being added
+                const itemIndex = currentItems.length; // The index will be the current length before adding
+
                 // 3. Recursively process the template to set IDs and replace placeholders
                 const processTemplateNode = (node: any, parentId: string): any => {
                    if (typeof node !== 'object' || node === null) return node;
@@ -1059,7 +1062,7 @@ export const ProcessAppConfig: React.FC<{
                    if (!node.id) {
                        // Simple ID generation - might need refinement based on node type or index
                        node.id = `${parentId}-${node.type || 'child'}-${Math.random().toString(36).substr(2, 5)}`;
-  } else {
+                   } else {
                        // Allow relative IDs like "delete-button" to become unique within the item
                        node.id = `${parentId}-${node.id}`;
                    }
@@ -1080,6 +1083,8 @@ export const ProcessAppConfig: React.FC<{
                            }
                            // Replace {itemId} (keep this one)
                            node[key] = node[key].replace(/\{itemId\}/g, baseId);
+                           // Replace {{index}}
+                           node[key] = node[key].replace(/\{\{index\}\}/g, String(itemIndex)); 
                        } else if (key === 'properties' && typeof node.properties === 'object') {
                            // Also check within properties object
                            for (const propKey in node.properties) {
@@ -1117,6 +1122,8 @@ export const ProcessAppConfig: React.FC<{
                                             });
                                          }
                                          payloadString = payloadString.replace(/\{itemId\}/g, baseId);
+                                         // Replace {{index}}
+                                         payloadString = payloadString.replace(/\{\{index\}\}/g, String(itemIndex)); 
                                          try {
                                             action.payload = JSON.parse(payloadString);
                                          } catch (e) { console.error("Error parsing method payload after replace", e); }
