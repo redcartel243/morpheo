@@ -1,5 +1,9 @@
 import React from 'react';
 import { registerComponent } from './ComponentFactory';
+// Import DynamicComponent to allow ListComponent to render item templates
+import { DynamicComponent } from './DynamicComponent'; 
+// Import ComponentChild type for ListComponent template handling
+import type { ComponentChild } from './DynamicComponent';
 
 // Import chart components - use correct paths
 import LineChart from './charts/LineChart';
@@ -367,6 +371,42 @@ export function registerAllComponents() {
     }
   });
   
+  // Register Textarea component for multiline text input
+  registerComponent({
+    name: 'textarea',
+    getComponent: () => Promise.resolve(
+      function TextareaComponent(props) {
+        const { style = {}, id, value, onChange, rows = 3, ...rest } = props || {};
+        
+        // Convert string 'true'/'false' to boolean for React props
+        const fullWidth = props.fullWidth === 'true' || props.fullWidth === true;
+        
+        return React.createElement('textarea', {
+          style: {
+            width: fullWidth ? '100%' : 'auto',
+            padding: '8px',
+            borderRadius: '4px',
+            border: '1px solid #ccc',
+            minHeight: '80px',
+            resize: 'vertical',
+            ...(style || {})
+          },
+          id,
+          value,
+          onChange,
+          rows,
+          ...rest
+        });
+      }
+    ),
+    defaultProps: {
+      rows: 3,
+      fullWidth: 'true',
+      placeholder: '',
+      style: {}
+    }
+  });
+  
   // Register select component
   registerComponent({
     name: 'select',
@@ -513,17 +553,60 @@ export function registerAllComponents() {
     name: 'list',
     getComponent: () => Promise.resolve(
       function ListComponent(props) {
-        const { children, style = {}, ...rest } = props || {};
-        console.log('Rendering list component with children:', children);
+        // Destructure properties correctly, now expecting items directly
+        const { 
+          items = [], // Get items directly, default to empty array
+          itemTemplate, // Get itemTemplate directly
+          children, 
+          style = {}, 
+          id, // Capture ID for logging
+          ...rest 
+        } = props || {};
+        
+        // Template comes directly from props now
+        const template = itemTemplate;
+
+        // --- DEBUG LOG --- 
+        console.log(`ListComponent ${id}: Received props.items:`, props?.items); // Log the received prop directly
+        console.log(`ListComponent ${id}: Rendering with items array:`, items); // items is now directly destructured
+        // --- END DEBUG LOG ---
+        
+        console.log(`Rendering list component ${id} with ${items.length} items.`);
+        
         return React.createElement('ul', {
           style: {
-            listStyleType: 'none', // Default to no bullets
+            listStyleType: 'none',
             padding: 0,
             margin: 0,
             ...(style || {})
           },
           ...rest
-        }, children);
+        }, 
+        // Map over items array and render based on template
+        Array.isArray(items) ? items.map((item, index) => {
+          // Use the item's ID if it exists (it should if generated from template), otherwise generate a key
+          const itemKey = (typeof item === 'object' && item?.id) ? item.id : `${id}-item-${index}`;
+          
+          // Check the type of the item in the array
+          if (typeof item === 'string') {
+            // If item is a string, render it directly
+            return React.createElement('li', { key: itemKey }, item);
+          } else if (typeof item === 'object' && item !== null) {
+            // If item is an object (generated from template by addItem),
+            // render it using DynamicComponent
+            return React.createElement('li', { key: itemKey }, 
+              React.createElement(DynamicComponent, {
+                component: item, // Pass the actual item object directly
+                eventHandlers: props.eventHandlers // Pass handlers down
+              })
+            );
+          } else {
+            // Handle unexpected item types (null, undefined, etc.)
+            console.warn(`ListComponent ${id}: Skipping invalid item at index ${index}:`, item);
+            return null;
+          }
+        }) : children // Fallback to original children if items is not an array
+        );
       }
     ),
     defaultProps: {

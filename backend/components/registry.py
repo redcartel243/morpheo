@@ -121,6 +121,29 @@ class ComponentRegistry:
             }
         })
         
+        # Textarea component for multiline text input
+        self.register_component({
+            "type": "textarea",
+            "name": "Textarea",
+            "description": "A multiline text input field for longer content.",
+            "examples": [
+                {"properties": {"placeholder": "Enter your message", "rows": 4}, "styles": {"padding": "8px", "border": "1px solid #ddd", "borderRadius": "4px", "width": "100%", "resize": "vertical"}},
+                {"properties": {"placeholder": "Write a description", "rows": 6, "value": "Initial content"}, "styles": {"padding": "10px", "border": "1px solid #ccc", "borderRadius": "4px", "width": "100%", "minHeight": "120px"}}
+            ],
+            "properties": {
+                "placeholder": {"type": "string", "description": "Placeholder text"},
+                "label": {"type": "string", "description": "Label for the textarea"},
+                "value": {"type": "string", "description": "Current textarea content"},
+                "rows": {"type": "number", "description": "Number of visible text rows"},
+                "readOnly": {"type": "boolean", "description": "Whether the textarea is read-only"}
+            },
+            "methods": {
+                "onChange": {"description": "Called when the textarea content changes"},
+                "onFocus": {"description": "Called when the textarea receives focus"},
+                "onBlur": {"description": "Called when the textarea loses focus"}
+            }
+        })
+        
         # Select/Dropdown component
         self.register_component({
             "type": "select",

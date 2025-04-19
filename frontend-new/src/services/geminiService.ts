@@ -186,8 +186,7 @@ Do not include any domain-specific logic or hardcoded business logic in the conf
       `${process.env.REACT_APP_API_URL}/gemini-structured-output`,
       {
         prompt,
-        schema,
-        temperature: 0.2
+        schema
       },
       {
         headers: {
@@ -259,8 +258,7 @@ It is crucial to provide EXACTLY ${dataPoints} data points, no more and no less.
       `${process.env.REACT_APP_API_URL}/gemini-grounded-data`,
       {
         data_description: prompt,
-        schema,
-        temperature: 0.1
+        schema
       },
       {
         headers: {

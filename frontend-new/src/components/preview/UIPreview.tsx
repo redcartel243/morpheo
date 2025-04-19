@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { saveUIConfig } from '../../store/slices/uiSlice';
 import { RootState } from '../../store';
-import DynamicComponent from '../ui/DynamicComponent';
+import { DynamicComponent } from '../ui/DynamicComponent';
 import AppViewer from '../AppViewer';
 
 // Helper to parse query parameters

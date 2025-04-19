@@ -53,15 +53,28 @@ Each object in the array has a `"type"` field specifying the action, plus parame
 
 2.  **`SET_PROPERTY`**: Writes a value to a component's property.
     - `targetId`: (string) ID of the target component.
-    - `propertyName`: (string) Name of the property to set (e.g., `"value"`, `"content"`).
-    - `newValue`: (any) The value to set. Can be a literal (string, number, boolean) or a variable name (string starting with `$`, e.g., `"$textFromInput"`) referencing a value stored by `GET_PROPERTY`.
+    - `propertyName`: (string) Name of the property to set (e.g., `"value"`, `"content"`, `"styles.fontWeight"`). Nested properties like styles are allowed.
+    - `newValue`: (any) The value to set. Can be a literal (string, number, boolean), or a variable name (`"$varName"`).
+      **IMPORTANT: Do NOT use complex conditional objects here for toggling.** Use the dedicated `TOGGLE_PROPERTY` action instead (see below).
     ```json
+    // Examples:
     { "type": "SET_PROPERTY", "targetId": "my-label", "propertyName": "content", "newValue": "Updated Text" }
     { "type": "SET_PROPERTY", "targetId": "my-input", "propertyName": "value", "newValue": "$textFromInput" }
     { "type": "SET_PROPERTY", "targetId": "my-input", "propertyName": "value", "newValue": "" } // Clear input
     ```
 
-3.  **`ADD_ITEM`**: Adds an item to a list component's `items` property.
+3.  **`TOGGLE_PROPERTY`**: **NEW** Toggles a property between two specified values.
+    - `targetId`: (string) ID of the component whose property will be toggled.
+    - `propertyName`: (string) Name of the property to toggle (e.g., `"styles.fontWeight"`, `"properties.checked"`).
+    - `values`: (array) An array containing exactly two possible values to toggle between (e.g., `["normal", "bold"]`, `[true, false]`).
+    ```json
+    // Example: Toggle font weight between normal and bold
+    { "type": "TOGGLE_PROPERTY", "targetId": "my-text", "propertyName": "styles.fontWeight", "values": ["normal", "bold"] }
+    // Example: Toggle a boolean property (like a checkbox state visually)
+    { "type": "TOGGLE_PROPERTY", "targetId": "status-indicator", "propertyName": "properties.isActive", "values": [true, false] }
+    ```
+
+4.  **`ADD_ITEM`**: Adds an item to a list component's `items` property.
     - `targetId`: (string) ID of the list component.
     - `itemValue`: (any) The value to add. Can be a literal or a variable name (string starting with `$`).
     ```json
@@ -69,19 +82,11 @@ Each object in the array has a `"type"` field specifying the action, plus parame
     { "type": "ADD_ITEM", "targetId": "my-list", "itemValue": "$textFromInput" }
     ```
 
-4.  **`REMOVE_ITEM`**: Removes an item from a list component (by index or value - specify details if needed).
+5.  **`REMOVE_ITEM`**: Removes an item from a list component (by index or value - specify details if needed).
     - `targetId`: (string) ID of the list component.
     - `itemIndex` or `itemValue`: (number or any) Identifier for the item to remove.
     ```json
     { "type": "REMOVE_ITEM", "targetId": "my-list", "itemIndex": 0 } 
-    ```
-
-5.  **`TOGGLE_STYLE`**: Adds/removes a specific style (e.g., for completing a task).
-    - `targetId`: (string) ID of the component to style.
-    - `styleName`: (string) CSS property name (e.g., `"textDecoration"`).
-    - `styleValue`: (string) CSS value (e.g., `"line-through"`).
-    ```json
-    { "type": "TOGGLE_STYLE", "targetId": "task-item-1", "styleName": "textDecoration", "styleValue": "line-through" }
     ```
 
 6.  **`LOG_MESSAGE`**: Prints a message to the console (for debugging).
@@ -103,8 +108,78 @@ For a button `add-button`, an input `item-input`, and a list `item-list`:
 }
 ```
 
-**REMINDER:** You MUST define `methods` using the IR actions above for all interactive components (buttons, inputs needing validation/reaction, list items needing click/delete/toggle actions, etc.) to make the application functional. The AI *must* generate these methods based on the requested functionality.
+**Example: Toggling a Style using `TOGGLE_PROPERTY`**
+This is the **preferred** pattern for toggling a property (like a style or state) between two values.
+Component IDs: `toggle-bold-button` (Button), `text-display` (Text)
+```json
+"methods": {
+  "click": [
+    // No need to GET the property first, TOGGLE_PROPERTY handles it
+    { 
+      "type": "LOG_MESSAGE", // Optional: Log before toggle
+      "message": "Toggling font weight..." 
+    },
+    { 
+      "type": "TOGGLE_PROPERTY", 
+      "targetId": "text-display", 
+      "propertyName": "styles.fontWeight", // The property to toggle
+      "values": ["normal", "bold"]         // The two values to cycle between
+    },
+    { 
+      "type": "LOG_MESSAGE", // Optional: Log after toggle
+      "message": "Font weight toggled." 
+    }
+    // Optional: Update button text based on the *intended* new state (if predictable)
+    // Requires more complex logic, potentially GET after TOGGLE or separate state variable
+  ]
+}
+```
+
+**REMINDER:** You MUST define `methods` using the IR actions above for all interactive components (buttons, inputs needing validation/reaction, list items needing click/delete/toggle actions, etc.) to make the application functional. The AI *must* generate these methods based on the requested functionality. **Use `TOGGLE_PROPERTY` for simple two-state toggles instead of complex conditional logic within `SET_PROPERTY`.**
+
+**IMPORTANT ANTI-PATTERN:** Do not attempt to modify a component's own method definition (e.g., setting `methods.click` to a new IR array) from within the IR sequence for that same method. Use conditional logic *within* the *existing* IR sequence (like the conditional `newValue` object or potentially an `IF` action if more complex logic is needed) to handle state changes and toggling behavior. **Prefer `TOGGLE_PROPERTY` where applicable.**
 
 ## RESPONSE FORMAT
 Your response MUST be a complete JSON object matching this structure EXACTLY:
+```json
+{
+  "app_name": "App Name Generated From Request",
+  "app": {
+    "title": "App Name Generated From Request"
+  },
+  "layout": {
+    "type": "flex",
+    "direction": "vertical"
+  },
+  "components": [
+    {
+      "id": "unique-component-id",
+      "type": "component-type", // e.g., container, input, button, list
+      "properties": { /* Component-specific properties, e.g., "placeholder", "content", "items" */ },
+      "styles": { /* CSS-compatible styles, e.g., "padding", "color" */ },
+      "methods": { 
+        // CRITICAL: All interactive components MUST have methods defined!
+        // For example, buttons should have a "click" method:
+        "click": [
+          // Array of IR action objects that execute when clicked
+          { "type": "GET_PROPERTY", "targetId": "some-input", "propertyName": "value", "resultVariable": "inputValue" },
+          // More actions...
+        ]
+      },
+      "events": { /* Optional: maps frontend event names (e.g., "onClick") to method names (e.g., "click") */ },
+      "children": [ /* Optional: Nested component objects for containers */ ]
+    },
+    { /* ... more components ... */ }
+  ]
+}
 ```
+
+## IMPLEMENTATION GUIDELINES (Condensed)
+- **Component IDs**: Unique, descriptive, kebab-case.
+- **Methods**: Use the IR actions defined above. Implement core logic.
+- **Styling**: Consistent, accessible, responsive.
+- **Data Flow**: Define interactions clearly via IR methods.
+
+**FINAL REQUIREMENT: ALL BUTTONS MUST HAVE A CLICK METHOD DEFINED. Input components should have appropriate methods like "change" when they need to trigger actions.**
+
+**FINAL REMINDER: RESPOND WITH VALID JSON ONLY. NO EXPLANATIONS, MARKDOWN, OR TEXT OUTSIDE THE JSON OBJECT.**

@@ -138,116 +138,69 @@ class ComponentService:
             # Ensure client is None if genai module itself is missing
             self.client = None
     
-    def generate_app_config(self, prompt: str, use_search: bool = True) -> Dict[str, Any]:
+    def generate_app_config(self, user_request: str) -> Dict[str, Any]:
         """
-        Generate a full application config based on the user's prompt.
+        Generate a complete application configuration based on the user's request.
         
         Args:
-            prompt: The user's prompt describing the app they want to build
-            use_search: Whether to enable Google search capability (if available)
+            user_request: A description of the application the user wants to create
             
         Returns:
-            Dictionary containing the full application configuration
+            A dictionary containing the complete app configuration
         """
+        prompt = self._create_enhanced_prompt(user_request, [], False)
         
-        # Check if the required libraries are available
-        if not self.client or not self.genai_types:
-            logger.error("Gemini client or types module not available. Cannot generate config.")
-            return self._create_ai_fallback_app_config("Gemini client not initialized.")
-            
-        # --- Generate API Response Phase ---
         try:
-            print(f"Using NEW SDK with model: gemini-2.0-flash")
+            # Try to call the API
+            response_text = self._call_gemini_api(prompt)
             
-            # First convert Pydantic model to schema dictionary
-            api_schema_dict = ApiAppConfig.model_json_schema()
+            # DEBUG: Log the raw response length and preview
+            print(f"Raw API response length: {len(response_text)}")
+            print(f"Response preview: {response_text[:100]}...")
             
-            # Instead of complex inlining, let's switch to a simpler approach:
-            # Just flatten the schema to a primitive dict without nested references
-            simplified_schema = self._simplify_schema_for_api(api_schema_dict)
-            
-            print(f"Generated simplified schema for API")
-            
-            # Configure generation using types.GenerateContentConfig
-            config = self.genai_types.GenerateContentConfig(
-                response_mime_type="application/json", 
-                response_schema=simplified_schema
-            )
-            
-            print(f"Calling Gemini API with simplified schema")
-            
-            gemini_response = self.client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=prompt, 
-                config=config
-            )
-            
-            response_text = gemini_response.text 
-            
-            # Log the response
-            with open("gemini_request_log.txt", "a", encoding="utf-8") as log_file:
-                log_file.write(f"Request Time: {datetime.datetime.now()} (Tool Call Success)\n")
-                log_file.write("Function Call Args (as JSON):\n")
-                log_file.write(prompt)
-                log_file.write("\n--- End of Prompt ---\n\n")
-                log_file.write("Response:\n")
-                log_file.write(response_text)
-                log_file.write("\n--- End of Response ---\n\n")
-        except Exception as e:
-            print(f"Error during NEW SDK generate_content call: {str(e)}")
-            traceback.print_exc()
-            return self._create_ai_fallback_app_config(f"Gemini API failed: {str(e)}")
-        
-        # --- Process Response Phase ---
-        try:
             # Check for empty response
-            if not response_text:
+            if not response_text or response_text.strip() == "":
+                print("WARNING: Empty response from Gemini API")
                 return self._create_ai_fallback_app_config("Empty response from Gemini API")
-            
-            # Parse the response JSON
+
+            # Try to parse the JSON response
             try:
-                app_config_dict = json.loads(response_text)
-            except json.JSONDecodeError as json_err:
-                print(f"JSON decode error: {str(json_err)}. Response: {response_text[:100]}...")
-                return self._create_ai_fallback_app_config("Failed to parse JSON response from Gemini API")
+                # Attempt to extract JSON if it's wrapped in markdown/text
+                extracted_json = self._extract_json_from_text(response_text)
+                if not extracted_json:
+                    print("Failed to extract JSON from response")
+                    return self._create_ai_fallback_app_config("Failed to extract JSON from response")
                 
-            # Validate required component elements
-            if not self._validate_required_component_elements(app_config_dict):
-                print("Validation failed for required component elements")
-                return self._create_ai_fallback_app_config("Generated components missing required elements")
+                # Try to parse the JSON
+                app_config = json.loads(extracted_json)
                 
-            # Validate against the full schema
-            try:
-                validated_app_config = AppConfig.model_validate(app_config_dict)
-                print("Successfully validated app config with Pydantic model")
-            except ValidationError as validation_error:
-                print(f"Validation error: {str(validation_error)}")
-                # Still return the app_config_dict even if validation fails
-                print("Returning unvalidated app config (validation failed)")
-                return app_config_dict
+                if not app_config:
+                    print("Parsed JSON is empty")
+                    return self._create_ai_fallback_app_config("Empty response from AI")
                 
-            # Check for disallowed $m usage
-            if "components" in app_config_dict and self._check_for_disallowed_m_usage(app_config_dict["components"]):
-                print("Found disallowed $m usage, using fallback")
-                return self._create_ai_fallback_app_config("Generated components contain disallowed $m() usage")
-                
-            # Post-process component methods if necessary
-            if "components" in app_config_dict:
-                self._post_process_component_methods(app_config_dict["components"], app_config_dict["components"])
-                
-            # Fallbacks
-            if not app_config_dict.get("app_name"):
-                print("No app_name provided, adding default")
-                app_config_dict["app_name"] = "Generated App"
-                
-            # Return the final configuration
-            return app_config_dict
+                # Post-process the app config
+                app_config = self._process_app_config(app_config, user_request)
             
-        except Exception as processing_error:
-            print(f"Error processing Gemini response: {str(processing_error)}")
+                # --- Translate IR methods to JS --- 
+                print("Translating all IR methods to JS strings...")
+                self._translate_all_ir_methods(app_config.get("components", []))
+                print("Finished IR translation.")
+                # --- End Translation ---
+            
+                return app_config
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse JSON response: {e}")
+                print("Original Response text:", response_text)
+                return self._create_ai_fallback_app_config("Failed to parse JSON response")
+            except Exception as e:
+                print(f"Error processing AI response: {e}")
+                return self._create_ai_fallback_app_config(f"Error: {str(e)}")
+            
+        except Exception as e:
+            print(f"Error in generate_app_config: {str(e)}")
             traceback.print_exc()
-            return self._create_ai_fallback_app_config(f"Error processing API response: {str(processing_error)}")
-    
+            return self._create_ai_fallback_app_config(f"API or processing error: {str(e)}")
+            
     def _simplify_schema_for_api(self, schema: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create a simplified schema that avoids circular references and nested complexity.
@@ -443,76 +396,93 @@ class ComponentService:
         
         return not missing_elements
     
-    def _call_gemini_api(self, prompt: str, use_search: bool = False) -> str:
-        """
-        Make an API call to Google's Gemini API for standard text generation.
-        NOTE: This function is NOT for structured output (use generate_app_config for that).
+    def _call_gemini_api(self, prompt_text: str) -> str:
+        """Call the Gemini API with the given prompt text."""
+        print("Calling Gemini API with prompt length:", len(prompt_text))
         
-        Args:
-            prompt: The prompt to send to Gemini
-            use_search: Whether to enable Google search capability
-            
-        Returns:
-            Response text from Gemini
-        """
-        if not self.client: # Check if module is configured
-            raise ValueError("Gemini API is not configured.")
+        # Save prompt to file for debugging
+        with open("gemini_request_log.txt", "a") as f:
+            f.write(f"\nRequest Time: {datetime.datetime.now()}\n")
+            f.write(f"Function Call Args (as JSON):\n{prompt_text}\n")
+            f.write("--- End of Prompt ---\n\n")
+        
+        response_text = ""
         
         try:
-            # Log the request
-            with open("gemini_request_log.txt", "a", encoding="utf-8") as log_file:
-                log_file.write(f"Request Time: {datetime.datetime.now()}\n")
-                log_file.write("Prompt:\n")
-                log_file.write(prompt)
-                log_file.write("\n--- End of Prompt ---\n\n")
-            
-            # Generate content directly without getting the model first
-            generation_config = self.genai_types.GenerationConfig(
-                temperature=0.9,
-                        top_p=1,
-                top_k=1,
-                max_output_tokens=8192,
-            )
-                
-            # Tool configuration for search (if requested)
-            search_tool = None
-            if use_search: # Correct indentation for this block
-                print("Gemini Search Enabled for this call.")
-                try:
-                    google_search_retrieval = self.client.protos.GoogleSearchRetrieval()
-                    search_tool = [self.client.protos.Tool(google_search_retrieval=google_search_retrieval)]
-                except AttributeError as e:
-                    print(f"Warning: Could not construct GoogleSearchRetrieval tool (AttributeError: {e}). Search might not work.")
-                    search_tool = None 
-                except Exception as e:
-                    print(f"Warning: Error constructing GoogleSearchRetrieval tool: {e}. Search might not work.")
-                    search_tool = None 
-            
-            # Generate content directly using client.models.generate_content
+            # Make the API call with minimal parameters
+            print("Calling generate_content with model gemini-2.0-flash")
             response = self.client.models.generate_content(
-                model="gemini-2.0-flash", # Direct model name
-                contents=prompt,
-                config=generation_config
+                model="gemini-2.0-flash",
+                contents=prompt_text
             )
-                
-            # Extract the response text INSIDE the try block
-            response_text = response.text
             
-            # Log the response INSIDE the try block
-            with open("gemini_request_log.txt", "a", encoding="utf-8") as log_file:
-                    log_file.write("Response:\n")
-                    log_file.write(response_text)
-                    log_file.write("\n--- End of Response ---\n\n")
+            # Try to get the response text
+            try:
+                response_text = response.text
+            except AttributeError as e:
+                print(f"ERROR: Response has no text attribute: {e}")
+                # Try alternative ways to get the response text
+                if hasattr(response, 'candidates') and len(response.candidates) > 0:
+                    if hasattr(response.candidates[0], 'content') and hasattr(response.candidates[0].content, 'parts') and len(response.candidates[0].content.parts) > 0:
+                        response_text = response.candidates[0].content.parts[0].text
+                    else:
+                        print("Cannot find text in candidates structure")
+                        response_text = "" # Assign empty string instead of returning
+                else:
+                    print("Response has no candidates")
+                    response_text = "" # Assign empty string
+            
+            # Log the response only if we got something
+            if response_text:
+                 with open("gemini_request_log.txt", "a") as f:
+                     f.write(f"Response:\n{response_text}\n")
+                     f.write("--- End of Response ---\n\n")
+            
+            return response_text # Return the response text (or empty string if failed)
         
-            return response_text # Return from INSIDE the try block
-        
-        except Exception as e:
-            print(f"Error calling Gemini API in _call_gemini_api: {str(e)}")
+        except Exception as api_e: # Catch exceptions from the generate_content call
+            print(f"Initial API call error: {str(api_e)}")
             traceback.print_exc()
-            raise
+            response_text = "" # Ensure response_text is empty for fallback
+                
+        # --- Fallback Logic --- 
+        # Only attempt fallback if the initial call failed (response_text is empty)
+        if not response_text:
+            try:
+                print("Trying fallback model gemini-1.5-flash")
+                response = self.client.models.generate_content(
+                    model="gemini-1.5-flash",
+                    contents=prompt_text
+                )
+                
+                # Try to get text from the fallback model
+                try:
+                    response_text = response.text
+                except AttributeError:
+                    if hasattr(response, 'candidates') and len(response.candidates) > 0:
+                        if hasattr(response.candidates[0], 'content') and hasattr(response.candidates[0].content, 'parts') and len(response.candidates[0].content.parts) > 0:
+                            response_text = response.candidates[0].content.parts[0].text
+                        else:
+                             response_text = "" # Fallback failed to find text
+                    else:
+                        response_text = "" # Fallback failed to find candidates
+                
+                # Log the fallback response if successful
+                if response_text:
+                    with open("gemini_request_log.txt", "a") as f:
+                        f.write(f"Fallback Response:\n{response_text}\n")
+                        f.write("--- End of Fallback Response ---\n\n")
+                
+                return response_text # Return fallback result (or empty string)
+                
+            except Exception as fallback_e:
+                print(f"Fallback API call also failed: {str(fallback_e)}")
+                traceback.print_exc()
+                return "" # Return empty string if fallback also fails
+        else:
+            # If initial call succeeded, return its result (already in response_text)
+            return response_text
     
-    
-            
     def _check_for_disallowed_m_usage(self, components: List[Dict[str, Any]]) -> bool:
         """Recursively checks component methods for disallowed '$m(' usage."""
         if not components:
@@ -2127,6 +2097,566 @@ class ComponentService:
         remove_parent_refs(components)
         
         return app_config
+
+    def _fix_missing_app_config_fields(self, app_config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Add any missing required fields to the app configuration.
+        
+        Args:
+            app_config: The original app configuration
+        
+        Returns:
+            The updated app configuration with required fields
+        """
+        if not app_config.get("app"):
+            app_name = app_config.get("app_name", "Generated App")
+            app_config["app"] = {
+                "title": app_name
+            }
+        
+        if not app_config.get("layout"):
+            app_config["layout"] = {
+                "type": "flex",
+                "direction": "vertical"
+            }
+        
+        return app_config
+
+    def _add_missing_component_methods(self, app_config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Add missing methods (as IR arrays) to interactive components.
+        Does NOT translate to JS here anymore.
+        
+        Args:
+            app_config: The original app configuration
+        
+        Returns:
+            The updated app configuration with IR methods added where missing
+        """
+        components = app_config.get("components", [])
+        if not isinstance(components, list):
+             print("Warning: 'components' field is not a list. Skipping method addition.")
+             return app_config # Return original if components isn't a list
+             
+        input_field = None
+        todo_list = None
+        
+        # Helper function to recursively find components
+        def find_component(comps: List[Dict[str, Any]], target_type: str) -> Optional[Dict[str, Any]]:
+            for comp in comps:
+                if not isinstance(comp, dict): continue
+                comp_type = str(comp.get("type", "")).lower()
+                if comp_type == target_type:
+                    return comp
+                if isinstance(comp.get("children"), list):
+                    found = find_component(comp["children"], target_type)
+                    if found: return found
+            return None
+            
+        # Find input and list components
+        input_field = find_component(components, "input") or find_component(components, "textinput")
+        todo_list = find_component(components, "list") or find_component(components, "ul")
+        
+        print(f"DEBUG: Found input field: {'Yes' if input_field else 'No'} (ID: {input_field.get('id') if input_field else 'N/A'})" )
+        print(f"DEBUG: Found todo list: {'Yes' if todo_list else 'No'} (ID: {todo_list.get('id') if todo_list else 'N/A'})" )
+
+        # Use a recursive function to add methods to components
+        def process_component_for_methods(component: Dict[str, Any]):
+            comp_type = str(component.get("type", "")).lower()
+            comp_id = str(component.get("id", "")).lower()
+            
+            # Process children first
+            if isinstance(component.get("children"), list):
+                for child in component["children"]:
+                     if isinstance(child, dict):
+                         process_component_for_methods(child)
+            
+            # Add click methods to buttons without methods
+            if comp_type == "button":
+                # Specifically target the 'add' button
+                if "add" in comp_id:
+                    # It's an add button
+                    if not component.get("methods") or not component["methods"].get("click"):
+                        print(f"Adding IR click method to add button: {component.get('id')}")
+                        
+                        # Create the methods object if it doesn't exist
+                        if "methods" not in component:
+                            component["methods"] = {}
+                        
+                        # Define the IR click method for the add button
+                        click_method_ir = []
+                        
+                        # Get the input value if we found an input
+                        if input_field:
+                            click_method_ir.append({
+                                "type": "GET_PROPERTY",
+                                "targetId": input_field.get("id"),
+                                "propertyName": "value",
+                                "resultVariable": "inputValue"
+                            })
+                        else:
+                            print("Warning: Could not find input field for add button method.")
+                        
+                        # Add the value to the list if we found a list
+                        if todo_list:
+                            click_method_ir.append({
+                                "type": "ADD_ITEM",
+                                "targetId": todo_list.get("id"),
+                                "itemValue": "$inputValue" # Assumes inputValue exists
+                            })
+                        else:
+                             print("Warning: Could not find todo list for add button method.")
+                        
+                        # Clear the input if we found an input
+                        if input_field:
+                            click_method_ir.append({
+                                "type": "SET_PROPERTY",
+                                "targetId": input_field.get("id"),
+                                "propertyName": "value",
+                                "newValue": ""
+                            })
+                        
+                        # Set the IR click method
+                        component["methods"]["click"] = click_method_ir
+                        
+        # Process all top-level components recursively
+        for comp in components:
+             if isinstance(comp, dict):
+                 process_component_for_methods(comp)
+
+        # NOTE: No translation happens here anymore
+        # self._translate_ir_methods_to_js(components) # Removed call from here
+        
+        # Return the modified app_config (which contains the modified components list)
+        app_config["components"] = components
+        return app_config
+        
+    def _translate_ir_methods_to_js(self, components: List[Dict[str, Any]]) -> None:
+        """
+        Translate IR methods to JavaScript function strings.
+        
+        Args:
+            components: List of components to process
+        """
+        for component in components:
+            component_id = component.get("id", "unknown")
+            
+            # Process children recursively first
+            if "children" in component and isinstance(component["children"], list):
+                self._translate_ir_methods_to_js(component["children"])
+            
+            # Process methods if they exist
+            if "methods" in component and isinstance(component["methods"], dict):
+                for method_name, method_value in list(component["methods"].items()):
+                    # Check if the method is an IR array that needs translation
+                    if isinstance(method_value, list):
+                        # Translate IR to JavaScript code
+                        js_code = self._translate_ir_to_js_string(method_value, component_id)
+                        # Replace the IR array with a JavaScript function string
+                        component["methods"][method_name] = js_code
+                        
+    def _translate_ir_to_js_string(self, ir_actions: List[Dict[str, Any]], component_id: str) -> str:
+        """Translate IR actions to JavaScript code string."""
+        if not ir_actions:
+            return "function(event) { console.log('No actions defined for this method'); }"
+
+        js_code_lines = [] # Use a list to build the code body
+        declared_vars = set() # Keep track of declared variables
+
+        # Process IR actions using generic logic
+        for action in ir_actions:
+            action_type = action.get("type")
+            line = "" # Initialize line for each action
+            assign_to_var = action.get("resultVariable") # Corrected key name
+            var_assignment = ""
+            
+            if assign_to_var:
+                # Use 'let' to allow potential reassignment (though ideally IR avoids this)
+                if assign_to_var not in declared_vars:
+                    var_assignment = f"let {assign_to_var} = "
+                    declared_vars.add(assign_to_var)
+                else:
+                    # Variable already declared, just assign
+                    var_assignment = f"{assign_to_var} = "
+
+            if action_type == "GET_PROPERTY":
+                target_id_js = json.dumps(action.get("targetId"))
+                prop_name_js = json.dumps(action.get("propertyName"))
+                # REMOVE redundant assignment if this variable is currentStyles and already exists
+                if assign_to_var == "currentStyles" and "currentStyles" in declared_vars:
+                     line = f"getComponentProperty({target_id_js}, {prop_name_js})"
+                     js_code_lines.append(f"  currentStyles = {line};") # Reassign using let
+                     line = None # Prevent adding the line again below
+                     assign_to_var = None # Handled reassignment
+                else:
+                     line = f"getComponentProperty({target_id_js}, {prop_name_js})"
+                
+            elif action_type == "ADD_ITEM":
+                target_id_js = json.dumps(action.get("targetId"))
+                item_value_obj = action.get("itemValue") # Assuming itemValue can be complex
+                value_js = self._value_to_js(item_value_obj, declared_vars)
+                line = f"addItem({target_id_js}, {value_js})" # Assuming addItem API exists
+                assign_to_var = None # addItem likely doesn't return assignable value
+
+            elif action_type == "SET_PROPERTY":
+                target_id_js = json.dumps(action.get("targetId"))
+                prop_name_js = json.dumps(action.get("propertyName"))
+                prop_name_str = action.get("propertyName", "") # Get property name as string
+                new_value_obj = action.get("newValue")
+
+                # Check if we are setting a method property and the value is IR
+                is_method_prop = prop_name_str.startswith("methods.") or prop_name_str.startswith("events.")
+                is_ir_list = isinstance(new_value_obj, list)
+
+                if is_method_prop and is_ir_list:
+                    print(f"Recursively translating nested IR for property: {prop_name_str}")
+                    # Recursively translate the nested IR list into a JS function string
+                    # Pass the target component's ID as context for the nested function
+                    nested_js_func_string = self._translate_ir_to_js_string(new_value_obj, action.get("targetId", component_id))
+                    # Ensure the resulting function string is properly escaped to be embedded as a JS string literal
+                    value_js = json.dumps(nested_js_func_string)
+                    print(f"Generated nested function string literal: {value_js[:100]}...") # Log preview
+                elif isinstance(new_value_obj, dict) and "condition" in new_value_obj and "trueValue" in new_value_obj and "falseValue" in new_value_obj:
+                    # --- Handle conditional logic evaluation ---
+                    print(f"Translating conditional newValue for {prop_name_js}")
+                    condition_str = new_value_obj.get("condition", "false")
+                    true_val_obj = new_value_obj.get("trueValue")
+                    false_val_obj = new_value_obj.get("falseValue")
+
+                    processed_condition = condition_str
+                    # Corrected Regex: Find $ followed by variable name
+                    # Match group 1 captures the variable name *without* the $
+                    # Ensure we are replacing the *entire* $variable string
+                    for match in re.finditer(r'\$([a-zA-Z_][a-zA-Z0-9_]*)', condition_str):
+                        var_name = match.group(1) # Get the name without the $
+                        variable_token = match.group(0) # Get the full token like $varName
+                        if var_name in declared_vars:
+                            # Replace the whole $variable token with just the variable name
+                            processed_condition = processed_condition.replace(variable_token, var_name)
+                        else:
+                            print(f"Warning: Conditional referenced undeclared variable '{var_name}'. Using null.")
+                            # Replace the whole $variable token with 'null'
+                            processed_condition = processed_condition.replace(variable_token, 'null')
+                    
+                    true_js = self._value_to_js(true_val_obj, declared_vars)
+                    false_js = self._value_to_js(false_val_obj, declared_vars)
+                    
+                    value_js = f"({processed_condition} ? {true_js} : {false_js})"
+                    print(f"Generated ternary: {value_js}")
+                elif isinstance(new_value_obj, dict) and new_value_obj.get("type") == "GET_PROPERTY":
+                    # --- Handle direct GET_PROPERTY as value ---
+                    print(f"Translating GET_PROPERTY newValue for {prop_name_js}")
+                    get_target_id_js = json.dumps(new_value_obj.get("targetId"))
+                    get_prop_name_js = json.dumps(new_value_obj.get("propertyName"))
+                    value_js = f"getComponentProperty({get_target_id_js}, {get_prop_name_js})"
+                else:
+                    # --- Standard value translation ---
+                    value_js = self._value_to_js(new_value_obj, declared_vars)
+                     
+                line = f"setComponentProperty({target_id_js}, {prop_name_js}, {value_js})"
+                assign_to_var = None # setComponentProperty doesn't assign
+
+            elif action_type == "LOG_MESSAGE":
+                message_obj = action.get("message")
+                # Convert the message object/string to a JS loggable value
+                # This needs to handle variables within the string if message_obj is a string
+                if isinstance(message_obj, str):
+                    # Use regex to find all $variables and build a template literal
+                    parts = []
+                    last_index = 0
+                    for match in re.finditer(r'\$([a-zA-Z_][a-zA-Z0-9_]*)', message_obj):
+                        var_name = match.group(1)
+                        start, end = match.span()
+                        # Add the literal part before the variable
+                        parts.append(json.dumps(message_obj[last_index:start]))
+                        # Add the variable reference (check if declared)
+                        if var_name in declared_vars:
+                            parts.append(var_name)
+                        else:
+                            print(f"Warning: LOG_MESSAGE referenced undeclared variable '{var_name}'. Using null.")
+                            parts.append("null")
+                        last_index = end
+                    # Add the remaining literal part after the last variable
+                    parts.append(json.dumps(message_obj[last_index:]))
+                    # Join parts with + for JS concatenation
+                    value_js = " + ".join(filter(None, parts)) # Filter out empty strings from json.dumps("")
+                    # If only one part (no variables found), remove quotes from json.dumps
+                    if len(parts) == 1 and value_js.startswith('"') and value_js.endswith('"'):
+                         value_js = value_js[1:-1]
+                         value_js = json.dumps(value_js.replace('\"' ,'"').replace("\\'", "'")) # re-escape correctly
+
+                else:
+                    # If message_obj is not a string, translate it normally
+                    value_js = self._value_to_js(message_obj, declared_vars)
+                    
+                line = f"console.log({value_js})"
+                assign_to_var = None
+                
+            # --- Add other generic action type handlers here --- 
+            elif action_type == "TOGGLE_STYLE": # Example generic handler
+                target_id_js = json.dumps(action.get("targetId"))
+                style_name_js = json.dumps(action.get("styleName"))
+                style_value_js = json.dumps(action.get("styleValue"))
+                # This requires a frontend function `toggleComponentStyle`
+                line = f"toggleComponentStyle({target_id_js}, {style_name_js}, {style_value_js})" 
+                assign_to_var = None
+
+            else:
+                print(f"Warning: Unsupported IR action type in _translate_ir_to_js_string: {action_type}")
+                line = f"console.warn('Unsupported IR action: {action_type}')"
+                assign_to_var = None
+            
+            # Append the generated line
+            if line is not None: # Check if line was set (it's None for the handled reassignment case)
+                 js_code_lines.append(f"  {var_assignment}{line};")
+
+        # Combine lines and wrap in function
+        js_code_body = "\\n".join(js_code_lines)
+        return f"function(event) {{\\n{js_code_body}\\n}}"
+
+    def _value_to_js(self, value_obj: Any, declared_vars: set) -> str:
+        """Helper to convert IR value types/variables/objects to JS string."""
+        # --- REMOVED malformed conditional object handling, should be handled in SET_PROPERTY translation ---
+        # if isinstance(value_obj, dict) and "condition" in value_obj and "trueValue" in value_obj and "falseValue" in value_obj and "type" not in value_obj:
+        #    ...
+
+        if isinstance(value_obj, dict):
+            val_type = value_obj.get("type")
+            if val_type == "expression": # Keep simple expression handling if needed elsewhere
+                expression_str = value_obj.get("expression") or value_obj.get("value")
+                if not expression_str:
+                    # ... existing warning ...
+                    return "null"
+                
+                processed_expression = expression_str
+                for match in re.finditer(r'\\$([a-zA-Z_][a-zA-Z0-9_]*)', expression_str):
+                    var_name = match.group(1)
+                    if var_name in declared_vars:
+                        processed_expression = processed_expression.replace(f'${var_name}', var_name)
+                    else:
+                         # ... existing warning ...
+                        processed_expression = processed_expression.replace(f'${var_name}', 'null') 
+                return f"({processed_expression})"
+            # --- Add handlers for other standard value types like GET_PROPERTY if needed ---
+            elif val_type == "GET_PROPERTY": # Example: Handle if GET_PROPERTY is used directly as a value
+                 target_id_js = json.dumps(value_obj.get("targetId"))
+                 prop_name_js = json.dumps(value_obj.get("propertyName"))
+                 return f"getComponentProperty({target_id_js}, {prop_name_js})"
+            else:
+                 print(f"Warning: Unsupported object type in _value_to_js: {val_type}. Treating as literal JSON.")
+                 return json.dumps(value_obj) # Fallback: treat as literal JSON
+                 
+        elif isinstance(value_obj, str) and value_obj.startswith("$"):
+            # Handle simple $variable strings
+            var_name = value_obj[1:]
+            if var_name in declared_vars:
+                return var_name
+            else:
+                print(f"Warning: IR referenced undeclared variable '{var_name}'. Using null.")
+                return "null"
+                
+        # Default: treat as basic literal (string, number, boolean, null)
+        return json.dumps(value_obj)
+
+    def _translate_all_ir_methods(self, components: List[Dict[str, Any]]) -> None:
+        """Recursively find and translate all IR method arrays to JS strings."""
+        if not components:
+            return
+        for component in components:
+            if not isinstance(component, dict):
+                continue
+
+            if "methods" in component and isinstance(component["methods"], dict):
+                component_id = component.get("id", "unknown")
+                for method_name, method_value in list(component["methods"].items()):
+                    # Check if it's an IR array
+                    if isinstance(method_value, list):
+                        try:
+                            js_string = self._translate_ir_to_js_string(method_value, component_id)
+                            # Replace IR array with JS string
+                            component["methods"][method_name] = js_string
+                            print(f"Translated IR for {component_id}.{method_name}")
+                        except Exception as e:
+                             print(f"ERROR translating IR for {component_id}.{method_name}: {e}")
+                             component["methods"][method_name] = f"// Error translating IR: {e}"
+
+            # Process children
+            if "children" in component and isinstance(component["children"], list):
+                self._translate_all_ir_methods(component["children"])
+
+    # --- REVISED: Translate IR to a structure representing the frontend call --- 
+    def _translate_ir_to_frontend_call(self, ir_actions: List[Dict[str, Any]], component_id: str) -> Dict[str, Any]:
+        """Translate IR actions into a structure representing the sequence of frontend API calls.
+           Instead of generating a complex JS string, this produces a structure
+           that the frontend can interpret more easily.
+        """
+        if not ir_actions:
+            return { "actions": [{ "type": "LOG", "payload": "No actions defined" }] }
+
+        call_actions = []
+        # Simple variable handling (more robust state might be needed for complex flows)
+        # This dictionary simulates the temporary variables declared by GET_PROPERTY
+        local_vars_context = {}
+
+        for action in ir_actions:
+            action_type = action.get("type")
+            call_object = { "type": action_type } # Start with the basic type
+
+            try:
+                if action_type == "GET_PROPERTY":
+                    target_id = action.get("targetId")
+                    prop_name = action.get("propertyName")
+                    result_var = action.get("resultVariable")
+                    if target_id and prop_name and result_var:
+                        call_object["payload"] = {
+                            "targetId": target_id,
+                            "propertyName": prop_name,
+                            "resultVariable": result_var
+                        }
+                        # Simulate variable declaration for subsequent steps
+                        local_vars_context[result_var] = None # Mark as declared
+                        call_actions.append(call_object)
+                    else:
+                        print(f"Warning: Skipping invalid GET_PROPERTY: {action}")
+
+                elif action_type == "SET_PROPERTY":
+                    target_id = action.get("targetId")
+                    prop_name = action.get("propertyName")
+                    new_value = action.get("newValue") # Keep value as is (literal or $variable)
+                    if target_id and prop_name:
+                        call_object["payload"] = {
+                            "targetId": target_id,
+                            "propertyName": prop_name,
+                            # Pass the value directly - frontend will resolve $vars
+                            "value": new_value
+                        }
+                        call_actions.append(call_object)
+                    else:
+                        print(f"Warning: Skipping invalid SET_PROPERTY: {action}")
+                
+                # --- NEW HANDLER for TOGGLE_PROPERTY --- 
+                elif action_type == "TOGGLE_PROPERTY":
+                    target_id = action.get("targetId")
+                    prop_name = action.get("propertyName")
+                    values = action.get("values")
+                    if target_id and prop_name and isinstance(values, list) and len(values) == 2:
+                        # Set the ACTION type to SET_PROPERTY
+                        call_object["type"] = "SET_PROPERTY" 
+                        # Create the special PAYLOAD for the SET_PROPERTY action
+                        call_object["payload"] = {
+                            "targetId": target_id,
+                            "propertyName": prop_name,
+                            "value": { 
+                                "type": "_TOGGLE_INTERNAL_", # Internal type for frontend handler
+                                "values": values 
+                            }
+                        }
+                        call_actions.append(call_object)
+                    else:
+                        print(f"Warning: Skipping invalid TOGGLE_PROPERTY: {action}. Ensure 'values' is a list of 2 items.")
+                # --- END NEW HANDLER --- 
+
+                elif action_type == "LOG_MESSAGE":
+                    message = action.get("message")
+                    if message is not None:
+                        call_object["payload"] = { 
+                            "message": message # Pass message string directly (with $vars)
+                        }
+                        call_actions.append(call_object)
+                    else:
+                        print(f"Warning: Skipping invalid LOG_MESSAGE: {action}")
+
+                # --- Add handling for ADD_COMPONENT --- 
+                elif action_type == "ADD_COMPONENT":
+                    parent_id = action.get("parentId")
+                    config_data = action.get("config")
+                    if parent_id and isinstance(config_data, dict):
+                        call_object["payload"] = {
+                            "parentId": parent_id,
+                            "config": config_data # Pass the config object directly
+                        }
+                        call_actions.append(call_object)
+                    else:
+                        print(f"Warning: Skipping invalid ADD_COMPONENT: {action}")
+                # --- End ADD_COMPONENT handler --- 
+
+                # --- Add handler for ADD_ITEM --- 
+                elif action_type == "ADD_ITEM":
+                    target_id = action.get("targetId")
+                    item_value = action.get("itemValue") # Keep value as is (literal or $variable)
+                    if target_id and item_value is not None:
+                        call_object["payload"] = {
+                            "targetId": target_id,
+                            "itemValue": item_value # Pass value directly, frontend resolves $vars
+                        }
+                        call_actions.append(call_object)
+                    else:
+                        print(f"Warning: Skipping invalid ADD_ITEM: {action}")
+                # --- End ADD_ITEM handler --- 
+
+                # --- Add handler for REMOVE_ITEM --- 
+                elif action_type == "REMOVE_ITEM":
+                    target_id = action.get("targetId")
+                    item_value = action.get("itemValue") # Keep value as is (literal or $variable)
+                    if target_id and item_value is not None:
+                        call_object["payload"] = {
+                            "targetId": target_id,
+                            "itemValue": item_value # Pass value directly, frontend resolves $vars
+                        }
+                        call_actions.append(call_object)
+                    else:
+                        print(f"Warning: Skipping invalid REMOVE_ITEM: {action}")
+                # --- End REMOVE_ITEM handler --- 
+
+                else:
+                    print(f"Warning: Unsupported IR action type in _translate_ir_to_frontend_call: {action_type}")
+                    # Optionally add a generic action representation or skip
+                    # call_object["payload"] = action # Pass full action if unknown?
+                    # call_actions.append(call_object)
+            
+            except Exception as e:
+                 print(f"ERROR translating IR action to call object: {action}. Error: {e}")
+                 traceback.print_exc()
+                 call_actions.append({ "type": "ERROR", "payload": f"Error translating action: {action_type}: {e}" })
+        
+        # Return the list of action objects for the method
+        return { "actions": call_actions }
+
+    # --- REMOVE OLD _translate_ir_to_js_string and _value_to_js --- 
+    # (We are replacing them with _translate_ir_to_frontend_call)
+    # def _translate_ir_to_js_string(self, ir_actions: List[Dict[str, Any]], component_id: str) -> str:
+    #    ... (DELETE THIS FUNCTION) ...
+    # def _value_to_js(self, value_obj: Any, declared_vars: set) -> str:
+    #    ... (DELETE THIS FUNCTION) ...
+
+    # --- UPDATE _translate_all_ir_methods to use the new translator --- 
+    def _translate_all_ir_methods(self, components: List[Dict[str, Any]]) -> None:
+        """Recursively find and translate all IR method arrays to structured call objects."""
+        if not components:
+            return
+        for component in components:
+            if not isinstance(component, dict):
+                continue
+
+            # Process children first
+            if "children" in component and isinstance(component["children"], list):
+                self._translate_all_ir_methods(component["children"])
+
+            if "methods" in component and isinstance(component["methods"], dict):
+                component_id = component.get("id", "unknown")
+                for method_name, method_value in list(component["methods"].items()):
+                    # Check if it's an IR array
+                    if isinstance(method_value, list):
+                        try:
+                            # Use the new translator function
+                            call_object = self._translate_ir_to_frontend_call(method_value, component_id)
+                            # Replace IR array with the structured call object
+                            component["methods"][method_name] = call_object 
+                            print(f"Translated IR for {component_id}.{method_name} to structured call object")
+                        except Exception as e:
+                             print(f"ERROR translating IR for {component_id}.{method_name}: {e}")
+                             # Store error object instead of original method value
+                             component["methods"][method_name] = { "actions": [{ "type": "ERROR", "payload": f"Error translating IR: {e}" }] }
 
 # Create a singleton instance of the component service
 component_service = ComponentService()

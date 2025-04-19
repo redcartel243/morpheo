@@ -1,5 +1,19 @@
 import React from 'react';
 
+// Component registry map
+const componentRegistry = new Map();
+
+// Simple component registration function
+export function register(componentType: string, component: React.ComponentType<any> | Function) {
+  componentRegistry.set(componentType.toLowerCase(), component);
+  console.log(`Registered component: ${componentType}`);
+}
+
+// Get component from registry
+export function getRegisteredComponent(componentType: string) {
+  return componentRegistry.get(componentType.toLowerCase());
+}
+
 // Import chart components
 import LineChart from './charts/LineChart';
 import BarChart from './charts/BarChart';
@@ -117,4 +131,50 @@ export function registerBuiltInComponents(): void {
   });
 
   // ... rest of the registrations ...
+}
+
+export const registerAllComponents = () => {
+  // Register basic components
+  register('text', ({ children, content, style, id, ...props }) => {
+    // Handle fontWeight directly to ensure it's applied
+    const textStyle = {
+      ...style,
+      fontWeight: style?.fontWeight || 'normal',
+    };
+    
+    // Log the style being applied for debugging
+    console.log('Rendering Text component with id:', id, 'style:', textStyle);
+    
+    return (
+      <p id={id} style={textStyle} {...props}>
+        {content || children}
+      </p>
+    );
+  });
+
+  register('button', ({ children, content, text, style, id, onClick, ...props }) => {
+    const buttonText = content || text || children || '';
+    console.log('Button component props:', { text, content, children, hasProps: true });
+    
+    return (
+      <button 
+        id={id} 
+        style={style} 
+        onClick={onClick} 
+        {...props}
+      >
+        {buttonText}
+      </button>
+    );
+  });
+  
+  register('container', ({ children, style, id, ...props }) => {
+    return (
+      <div id={id} style={style} {...props}>
+        {children}
+      </div>
+    );
+  });
+  
+  // Add other component registrations as needed
 } 

@@ -25,7 +25,7 @@ import { AppProvider } from './components/ui/state/Store';
 import TestPage from './pages/TestPage';
 
 // Import Morpheo component system
-import DynamicComponent, { ProcessAppConfig } from './components/ui/DynamicComponent';
+import { DynamicComponent, ProcessAppConfig } from './components/ui/DynamicComponent';
 import { registerAllComponents } from './components/ui/ComponentRegistry';
 
 // Lazy load components to reduce initial bundle size

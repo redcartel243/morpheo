@@ -207,7 +207,7 @@ async def generate_ui_config(prompt: str, style_preferences: Optional[Dict[str, 
     with open("openai_request_log.txt", "w", encoding="utf-8") as log_file:
         log_file.write(f"Prompt: {prompt}\n")
         log_file.write(f"Style preferences: {json.dumps(style_preferences or {}, indent=2)}\n\n")
-    
+        
     # Create the system message (to be used as a prefix in Gemini)
     system_message = """You are an expert UI developer who creates complete, functional UI configurations based on user requests.
 Your task is to generate a UI configuration that implements the functionality exactly as described or implied by the user.
@@ -253,9 +253,9 @@ Your response must be a complete, valid JSON object with no additional text.
 
     END OF RESPONSE MARKER: Please include "End of Response" at the end of your JSON response to confirm completion.
     """
-    
+        
     print("Calling Gemini API using NEW SDK client...")
-    
+        
     with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
         log_file.write("System message + User message for Gemini:\n")
         log_file.write(system_message + "\n\n" + user_message)
@@ -263,76 +263,108 @@ Your response must be a complete, valid JSON object with no additional text.
     
     max_retries = 3
     retry_count = 0
-    response_text = None
-
+    response_text = None # Initialize response_text
+    
     while retry_count < max_retries:
         try:
             # Use the NEW SDK client if available
             if client and genai_types:
-                print("Calling Gemini API using NEW SDK client...")
-                config = genai_types.GenerateContentConfig(
-                    temperature=0.7,
-                    # Add other relevant config parameters here if needed
-                )
+                print(f"Calling Gemini API (Attempt {retry_count+1}/{max_retries})...")
+                # Call Gemini API - Assuming 'client' is the initialized Gemini client
+                # Pass the combined prompt as contents
                 gemini_response = client.models.generate_content(
-                    model="models/gemini-2.0-flash", # Or appropriate model
-                    contents=system_message + "\n\n" + user_message,
-                    generation_config=config
+                    model="gemini-1.5-flash", # Using flash model
+                    contents=system_message + "\n\n" + user_message # Combine system and user messages
+                    # Note: Removed generation_config for simplicity as per previous steps
                 )
-                response_text = gemini_response.text
+                
+                # Safely get response text
+                try: 
+                    response_text = gemini_response.text
+                except AttributeError: 
+                    response_text = None 
+                    print("Warning: Gemini response missing text attribute.")
+                except Exception as text_ex:
+                    response_text = None
+                    print(f"Warning: Error accessing Gemini response text: {text_ex}")
+
             else:
-                # Fallback or alternative logic if client isn't available
-                print("Gemini client not available, potentially falling back or erroring...")
-                # For now, let's just return an error config if no client
+                print("Gemini client not available.")
                 return create_error_ui(prompt, "Gemini client not initialized")
 
-            # --- Process Response (moved outside API call block) --- 
+            # --- Process Response --- 
             if not response_text:
-                 raise ValueError("Received empty response from model")
-                 
-            if "End of Response" not in response_text:
-                print("Warning: End of Response marker not found.")
-                # Potentially add marker if missing or handle incomplete response
-
-            try:
-                # Attempt to parse JSON directly
-                ui_config = json.loads(response_text)
-                return ui_config # Success!
-            except json.JSONDecodeError as e:
-                print(f"JSON decode error (Attempt {retry_count+1}): {e}")
-                # Try repair/extraction (only if not last retry)
-                if retry_count < max_retries - 1:
-                    repaired_json = attempt_json_repair(response_text)
-                    if repaired_json:
-                        try: ui_config = json.loads(repaired_json); return ui_config
-                        except json.JSONDecodeError: pass
-                    
-                    extracted_json = extract_partial_json(response_text)
-                    if extracted_json:
-                         try: ui_config = json.loads(extracted_json); return ui_config
-                         except json.JSONDecodeError: pass
+                print("Warning: Received empty response from model. Retrying...")
+                raise ValueError("Received empty response from model") # Trigger retry
                 
-                # If repairs failed or last retry, let it fall through to retry/error
-                if retry_count == max_retries - 1:
-                    raise ValueError("Failed to parse JSON after repairs/extraction.") from e
+            # Check for marker and remove it before parsing
+            if "End of Response" in response_text:
+                cleaned_response = response_text.split("End of Response")[0].strip()
+            else:
+                print("Warning: End of Response marker not found. Attempting parse anyway.")
+                cleaned_response = response_text.strip()
+
+            # Attempt to parse JSON directly from the cleaned response
+            try:
+                ui_config = json.loads(cleaned_response)
+                print("Successfully parsed JSON response.")
+                # Log successful response before returning
+                with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
+                    log_file.write(f"Successful Parsed JSON:\n{json.dumps(ui_config, indent=2)}\n")
+                return ui_config # Success! Break the loop and return
+            
+            except json.JSONDecodeError as e:
+                print(f"JSON decode error on cleaned response (Attempt {retry_count+1}): {e}")
+                # Log the problematic response
+                with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
+                    log_file.write(f"Failed JSON Parse Attempt {retry_count+1}:\n{response_text}\n")
+                
+                # If JSON parsing fails, try repair/extraction before retrying API call
+                if retry_count < max_retries - 1:
+                    repaired_json = attempt_json_repair(cleaned_response)
+                    if repaired_json:
+                        try: 
+                            ui_config = json.loads(repaired_json)
+                            print("Successfully parsed REPAIRED JSON response.")
+                            return ui_config
+                        except json.JSONDecodeError: 
+                            print("Repair attempt failed to produce valid JSON.")
                     
-            # If parsing failed, increment retry and wait
-            retry_count += 1
-            print(f"Retrying API call... (Attempt {retry_count})")
-            await asyncio.sleep(1 * retry_count) # Simple backoff
-
+                    extracted_json = extract_partial_json(cleaned_response)
+                    if extracted_json:
+                        try: 
+                            ui_config = json.loads(extracted_json)
+                            print("Successfully parsed EXTRACTED JSON response.")
+                            return ui_config
+                        except json.JSONDecodeError: 
+                            print("Extraction attempt failed to produce valid JSON.")
+                
+                # If repairs/extraction failed or last retry, raise to trigger outer loop retry/failure
+                raise ValueError(f"Failed to parse JSON even after repairs/extraction (Attempt {retry_count+1})") from e
+                
         except Exception as ex:
-            print(f"Exception during API call or processing (Attempt {retry_count+1}): {ex}")
-            traceback.print_exc()
-            retry_count += 1
+            # Catch errors from API call or response processing (including ValueError from above)
+            print(f"Exception during attempt {retry_count+1}: {ex}")
+            # traceback.print_exc() # Uncomment for full traceback if needed
+            retry_count += 1 # Increment retry count
+            
             if retry_count >= max_retries:
-                 error_message = f"Failed to generate UI config after {max_retries} attempts: {ex}"
-                 print(error_message)
-                 return create_error_ui(prompt, error_message)
-            await asyncio.sleep(1 * retry_count) # Wait before retrying after exception
+                # If we've exhausted retries, create and return an error UI
+                error_message = f"Failed to generate UI config after {max_retries} attempts. Last error: {ex}"
+                print(error_message)
+                # Log final failure
+                with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
+                    log_file.write(f"FINAL FAILURE: {error_message}\nOriginal Prompt: {prompt}\n")
+                return create_error_ui(prompt, error_message)
+            else:
+                # Wait before the next retry
+                wait_time = 1 * retry_count
+                print(f"Waiting {wait_time}s before retrying...")
+                await asyncio.sleep(wait_time) # Simple backoff
 
-    # Should only be reached if all retries failed without returning/raising final error above
-    return create_error_ui(prompt, f"Failed to generate UI after {max_retries} attempts.")
+    # This line should theoretically be unreachable if logic is correct, but acts as a final fallback
+    print("Exited retry loop unexpectedly.")
+    return create_error_ui(prompt, f"Failed to generate UI after {max_retries} attempts (unexpected loop exit).")
 
 # Helper function to add default event handlers for interactive components
 def add_default_event_handlers(component, event_handlers):
@@ -444,7 +476,7 @@ async def read_users_me(current_user: User = Depends(get_current_active_user)):
 async def generate_ui(
     request: UIRequest,
     current_user: User = Depends(get_current_active_user)
-): 
+):
     # This endpoint might be deprecated or should call component_service now, but kept for reference
     print("Received request for /generate-ui endpoint")
     ui_config = await generate_ui_config(request.prompt, request.style_preferences)
@@ -474,23 +506,23 @@ async def generate_ui(
 async def generate_component_ui(
     request: UIRequest,
     current_user: User = Depends(get_current_active_user)
-): 
+):
     # This correctly calls component_service, which uses the new SDK pattern
-    print("Received request for /generate-component-ui endpoint")
-    app_config = component_service.generate_app_config(request.prompt)
-    
-    # Create a unique ID for this configuration
-    config_id = str(uuid.uuid4())
-    now = datetime.utcnow()
-    
-    # Log successful generation
-    print(f"Successfully generated app config with {len(app_config.get('components', []))} components")
-    
-    # Return the generated configuration
-    return {
-        "id": config_id,
-        "config": app_config
-    }
+        print("Received request for /generate-component-ui endpoint")
+        app_config = component_service.generate_app_config(request.prompt)
+        
+        # Create a unique ID for this configuration
+        config_id = str(uuid.uuid4())
+        now = datetime.utcnow()
+        
+        # Log successful generation
+        print(f"Successfully generated app config with {len(app_config.get('components', []))} components")
+        
+        # Return the generated configuration
+        return {
+            "id": config_id,
+            "config": app_config
+        }
 
 @app.get("/ui-configs", response_model=List[UIConfig])
 async def get_ui_configs(current_user: User = Depends(get_current_active_user)):
@@ -1318,7 +1350,6 @@ async def reset_app():
 class GeminiStructuredRequest(BaseModel):
     prompt: str
     schema: Dict[str, Any]
-    temperature: float = 0.2
 
 @app.post("/gemini-structured-output", response_model=Dict[str, Any])
 async def gemini_structured_output(
@@ -1333,7 +1364,6 @@ async def gemini_structured_output(
         
         # Use the client with GenerateContentConfig
         config = genai_types.GenerateContentConfig(
-            temperature=request.temperature,
             response_mime_type="application/json",
             response_schema=request.schema # Pass schema dict directly (still might have issues?)
         )
@@ -1385,7 +1415,6 @@ async def gemini_grounded_data(
             print("Using standard generation (no grounding)")
             # ... (cleaned_schema setup - maybe remove if problematic)
             config = genai_types.GenerateContentConfig(
-                temperature=request.temperature,
                 response_mime_type="application/json",
                 response_schema=request.schema # Pass provided schema
             )

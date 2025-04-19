@@ -113,7 +113,7 @@ interface ComponentEvent {
 }
 
 // First, let's define the component child type at the top of the file
-interface ComponentChild {
+export interface ComponentChild {
   id?: string;
   type?: string;
   props?: Record<string, any>;
@@ -124,6 +124,7 @@ interface ComponentChild {
   region?: string;
   methods?: Record<string, any>;
   key?: string; // Add the key property for React reconciliation
+  itemTemplate?: ComponentChild | Record<string, any>; // Add optional itemTemplate property
 }
 
 // Now we can define the DynamicComponent
@@ -241,98 +242,133 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = (props) => {
   const [events, setEvents] = useState<ComponentEvent[]>([]);
 
   // First, update the component method executor
-  const executeComponentMethod = useCallback((methodName: string, methodCode: string, event: any) => {
-    console.log(`Executing component method ${methodName} for ${safeComponent.id}`);
-    
-    // First check if methodCode is missing or empty
-    if (!methodCode || methodCode.trim() === '') {
-      console.error(`Method code is empty for ${methodName} on ${safeComponent.id}`);
+  const executeComponentMethod = useCallback((methodName: string, methodData: any, event: any) => {
+    // --- NEW: Expect methodData to be { actions: [...] } object --- 
+    if (!methodData || typeof methodData !== 'object' || !Array.isArray(methodData.actions)) {
+      console.error(`Invalid method data format for ${methodName} on ${safeComponent.id}. Expected { actions: [...] }, got:`, methodData);
       return;
     }
     
-    console.log("Method execution starting with code:", methodCode);
-    
-    // --- Remove $m Proxy and Frontend Post-Processing ---
-    // Backend now provides correctly translated JS using global API functions.
+    const actions = methodData.actions as { type: string; payload: any }[];
+    console.log(`Executing ${actions.length} actions for method ${methodName} on ${safeComponent.id}`);
+
+    // Simple context for variables declared within this method execution
+    const methodContext: Record<string, any> = {};
+
+    // Helper to resolve values (literals or $variables)
+    const resolveValue = (value: any) => {
+      if (typeof value === 'string' && value.startsWith('$')) {
+        const varName = value.substring(1);
+        if (varName in methodContext) {
+          return methodContext[varName];
+        }
+        console.warn(`Variable ${value} not found in method context.`);
+        return undefined; // Or null, depending on desired handling
+      }
+      // Handle structured values like the toggle object - pass them through
+      if (typeof value === 'object' && value !== null) {
+        return value;
+      }
+      // Otherwise, assume literal
+      return value;
+    };
 
     try {
-      // Get helper functions from eventHandlers - needed for injection
+      // Get global API functions from eventHandlers
       const addComponentFunc = eventHandlers?.addComponent;
       const removeComponentFunc = eventHandlers?.removeComponent;
       const updateComponentFunc = eventHandlers?.updateComponent;
       const getComponentPropertyFunc = eventHandlers?.getComponentProperty;
       const setComponentPropertyFunc = eventHandlers?.setComponentProperty;
       const callComponentMethodFunc = eventHandlers?.callComponentMethod;
+      // NEW: Get list manipulation functions from handlers
+      const addItemFunc = eventHandlers?.addItem;
+      const removeItemFunc = eventHandlers?.removeItem;
 
-      // Check if functions are available (optional but good practice)
-      if (typeof addComponentFunc !== 'function' || 
-          typeof removeComponentFunc !== 'function' || 
-          typeof updateComponentFunc !== 'function' ||
-          typeof getComponentPropertyFunc !== 'function' || 
-          typeof setComponentPropertyFunc !== 'function' || 
-          typeof callComponentMethodFunc !== 'function'
-          ) {
-        console.warn('One or more global API functions (add/remove/update/getProp/setProp/callMethod) not found in eventHandlers. Method execution might fail if called.');
-      }
+      // --- Execute actions sequentially --- 
+      for (const action of actions) {
+        const { type, payload } = action;
+        console.log(`Executing action: ${type}`, payload);
 
-      // --- Simplified Execution using new Function --- 
-      
-      let functionBody = '';
-      // Extract function body (assuming backend provides full function string)
-      if (methodCode.trim().startsWith('function')) {
-        const bodyStart = methodCode.indexOf('{');
-        const bodyEnd = methodCode.lastIndexOf('}');
-        if (bodyStart !== -1 && bodyEnd > bodyStart) {
-          functionBody = methodCode.substring(bodyStart + 1, bodyEnd);
-          console.log("Extracted function body:", functionBody);
+        switch (type) {
+          case "GET_PROPERTY":
+            if (payload?.targetId && payload?.propertyName && payload?.resultVariable) {
+              const value = getComponentPropertyFunc(payload.targetId, payload.propertyName);
+              methodContext[payload.resultVariable] = value; // Store in context
+              console.log(`GET_PROPERTY: ${payload.resultVariable} =`, value);
             } else {
-          console.error("Could not extract body from function string:", methodCode);
-          functionBody = 'console.error("Invalid function format provided by backend.");';
+              console.warn("Skipping invalid GET_PROPERTY payload:", payload);
+            }
+            break;
+
+          case "SET_PROPERTY":
+            if (payload?.targetId && payload?.propertyName) {
+              const resolvedVal = resolveValue(payload.value);
+              setComponentPropertyFunc(payload.targetId, payload.propertyName, resolvedVal);
+            } else {
+              console.warn("Skipping invalid SET_PROPERTY payload:", payload);
+            }
+            break;
+
+          // NOTE: TOGGLE_PROPERTY is handled *within* setComponentPropertyFunc now
+          // No specific case needed here if we pass the special object
+
+          case "LOG_MESSAGE":
+            if (payload?.message) {
+              let message = payload.message;
+              // Resolve variables in the message string
+              if (typeof message === 'string') {
+                message = message.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (match, varName) => {
+                  return varName in methodContext ? String(methodContext[varName]) : 'undefined';
+                });
+              }
+              console.log(message);
+            } else {
+              console.warn("Skipping invalid LOG_MESSAGE payload:", payload);
+            }
+            break;
+            
+          // --- NEW: Handle ADD_ITEM --- 
+          case "ADD_ITEM":
+            if (addItemFunc && payload?.targetId && payload.itemValue !== undefined) {
+              const resolvedItemValue = resolveValue(payload.itemValue);
+              addItemFunc(payload.targetId, resolvedItemValue);
+            } else {
+              console.warn("Skipping invalid ADD_ITEM payload or missing addItem handler:", payload);
+            }
+            break;
+            
+          // --- NEW: Handle REMOVE_ITEM --- 
+          case "REMOVE_ITEM":
+            if (removeItemFunc && payload?.targetId && payload.itemValue !== undefined) {
+              // Assuming itemValue identifies the item to remove (could also be itemIndex)
+              const resolvedItemIdentifier = resolveValue(payload.itemValue); 
+              removeItemFunc(payload.targetId, resolvedItemIdentifier);
+            } else if (removeItemFunc && payload?.targetId && payload.itemIndex !== undefined) {
+              // Handle removal by index if provided
+              const resolvedIndex = resolveValue(payload.itemIndex); 
+              removeItemFunc(payload.targetId, resolvedIndex);
+        } else {
+              console.warn("Skipping invalid REMOVE_ITEM payload or missing removeItem handler:", payload);
+            }
+            break;
+
+          case "ERROR": // Handle translation errors
+            console.error("Backend translation error:", payload);
+            break;
+
+          // Add cases for ADD_ITEM, REMOVE_ITEM, CALL_METHOD etc.
+          // They should call the corresponding Func from eventHandlers
+          // after resolving any $variables in their payloads.
+
+          default:
+            console.warn(`Unsupported action type: ${type}`);
         }
-            } else {
-          // Should not happen if backend translator works correctly
-          console.error("Backend did not provide a function string:", methodCode);
-          functionBody = 'console.error("Invalid code format from backend.");';
       }
-      
-      console.log("Final function body to execute:", functionBody);
-      
-      // Create function, injecting global API functions into its scope
-      const func = new Function(
-          'event', // Standard event object
-          // Global API Functions
-          'addComponent', 
-          'removeComponent', 
-          'updateComponent', 
-          'getComponentProperty', 
-          'setComponentProperty', 
-          'callComponentMethod', 
-          functionBody
-      );
-      
-      // Execute the function, passing the event object and the actual API functions
-      func(
-          event, 
-          addComponentFunc, 
-          removeComponentFunc, 
-          updateComponentFunc,
-          getComponentPropertyFunc, 
-          setComponentPropertyFunc,
-          callComponentMethodFunc
-      );
-      
-      // Original state update (might still be useful for local component state?)
-      setComponentState(prevState => {
-        const newState = { ...prevState };
-        // Potentially update local state based on method execution if needed
-        return newState;
-      });
-
       } catch (error) {
-      console.error(`Error executing method ${methodName} for ${safeComponent.id}:`, error);
-      console.error("Invalid method code could not be executed:", methodCode); // Log the raw code from backend
+      console.error(`Error executing actions for method ${methodName} on ${safeComponent.id}:`, error);
     }
-  }, [safeComponent.id, setComponentState, eventHandlers]); // Include eventHandlers dependency
+  }, [safeComponent.id, eventHandlers, setComponentState]); // Dependencies: id, handlers, state setter
 
   // Handle events from components
   const handleEvent = useCallback((eventType: string, event: any) => {
@@ -408,51 +444,28 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = (props) => {
         console.log('Method details:', method);
       
       try {
-        // Handle both string and object method definitions
-        let methodCode;
-        let affectedComponents = [];
-        
-        if (typeof method === 'string') {
-          methodCode = method;
-        } else if (typeof method === 'object' && method !== null) {
-          if (method.code) {
-            methodCode = method.code;
-          } else {
-            // If no code property, use the entire object as code
-            methodCode = JSON.stringify(method);
-          }
-          affectedComponents = method.affectedComponents || [];
-        } else {
-          console.error(`Invalid method format for ${methodName}:`, method);
-          return;
-        }
-        
-        // Check if this is a known method with a default implementation
-        if (typeof methodCode === 'string' && !methodCode.trim().startsWith('function')) {
-          const defaultMethod = DEFAULT_METHOD_IMPLEMENTATIONS[methodCode.trim()];
-          if (defaultMethod) {
-            methodCode = defaultMethod;
-          }
+        // --- REVISED: Check if method is already the { actions: [...] } object --- 
+        // --- OR if it's just the action array itself --- 
+        let methodObjectToExecute = null;
+        if (typeof method === 'object' && method !== null) {
+            if (Array.isArray(method.actions)) {
+              // Already in the correct { actions: [...] } format
+              methodObjectToExecute = method;
+            } else if (Array.isArray(method)) {
+              // It's just the array, wrap it
+              console.log(`Wrapping raw action array for ${methodName}`);
+              methodObjectToExecute = { actions: method };
+            }
         }
 
-        console.log(`Executing method code: ${methodCode}`);
-        
-        // Execute the method
-        executeComponentMethod(methodName, methodCode, event);
-        
-        // If this method affects other components, notify them
-        if (affectedComponents && affectedComponents.length > 0) {
-          affectedComponents.forEach((targetId: string) => {
-            if (!targetId) return;
-            const cleanTargetId = targetId.startsWith('#') ? targetId.substring(1) : targetId;
-            const target = document.getElementById(cleanTargetId);
-            if (target) {
-              target.dispatchEvent(new CustomEvent('componentUpdate', {
-                detail: { sourceId: safeComponent.id, eventType }
-              }));
-            }
-          });
+        if (methodObjectToExecute) {
+          // Directly pass the structured object to the executor
+          executeComponentMethod(methodName, methodObjectToExecute, event);
+        } else {
+          // Log an error if the method data isn't in the expected format
+          console.error(`Invalid method data format for ${methodName}. Expected { actions: [...] } or array [], got:`, method);
         }
+        
       } catch (err) {
         console.error(`Error executing ${methodSource}.${methodName} for ${safeComponent.id}:`, err);
       }
@@ -771,7 +784,7 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = (props) => {
   // Prepare the final props to pass to the component
   const componentProps = {
     ...safeComponent.props,
-    style: safeComponent.styles,
+    style: safeComponent.styles || {},
     id: safeComponent.id,
     
     // Check if this is a button and add specific properties
@@ -797,13 +810,17 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = (props) => {
         }
         
         // Look for onClick method in methods object
-        if (safeComponent.methods && (safeComponent.methods.onClick || safeComponent.methods.click)) {
-          const methodName = safeComponent.methods.onClick ? 'onClick' : 'click';
-          const methodCode = safeComponent.methods[methodName];
-          console.log(`Directly executing ${methodName} method: ${methodCode}`);
-          executeComponentMethod(methodName, methodCode, event);
+        // Prioritize 'click' key in methods as per common convention
+        const methodData = safeComponent.methods?.click || safeComponent.methods?.onClick;
+
+        if (methodData && typeof methodData === 'object' && Array.isArray(methodData.actions)) {
+          const methodName = safeComponent.methods?.click ? 'click' : 'onClick';
+          console.log(`Button onClick executing method: ${methodName}`);
+          // Pass the structured object directly
+          executeComponentMethod(methodName, methodData, event);
         } else {
-          // Fall back to general event handling
+          // Fall back to general event handling if no specific method or invalid format
+          console.log("Button onClick falling back to handleEvent('click')");
           handleEvent('click', event);
         }
       }
@@ -866,7 +883,7 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = (props) => {
             console.log(`Component ${safeComponent.id} triggered method ${methodName}`);
           }
           // Execute the method with the DOM manipulation utility
-          executeComponentMethod(methodName, methodCode, event);
+          executeComponentMethod(methodName, { actions: [{ type: 'CALL_METHOD', payload: { methodName, methodCode, args: [event] } }] }, event);
         };
       }
       return acc;
@@ -885,6 +902,18 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = (props) => {
       handleEvent('click', event);
     } : undefined
   };
+
+  // --- DEBUGGING: Log final props before rendering --- 
+  // Add specific check for the text component's style
+  if (safeComponent.id === 'text-display') {
+    console.log(`[DynamicComponent Render Check] text-display styles.fontWeight:`, safeComponent.styles?.fontWeight);
+  }
+  console.log(`[DynamicComponent Render] Final props for ${safeComponent.id} (${safeComponent.type}):`, {
+    id: componentProps.id,
+    style: componentProps.style,
+    allProps: componentProps 
+  });
+  // --- END DEBUGGING ---
 
   // Render the final component with props
   return <Component {...componentProps} />;
@@ -992,7 +1021,232 @@ export const ProcessAppConfig: React.FC<{
   }, []);
   // --- End removeComponent ---
 
-  // --- Add updateComponent function ---
+  // --- Add addItem function --- 
+  const addItem = useCallback((listId: string, itemValue: any) => {
+    if (!listId) {
+      console.error('addItem requires a listId');
+      return;
+    }
+    const targetId = listId.replace('#', '');
+    console.log(`Adding item '${JSON.stringify(itemValue)}' to list '${targetId}'`); // Log the value being added
+
+    setAppComponents(prevComponents => {
+      const updateRecursive = (components: ComponentChild[]): ComponentChild[] => {
+        return components.map(comp => {
+          if (comp.id === targetId && (comp.type === 'list' || comp.type === 'List')) { // Allow 'List' as well
+            console.log(`Found list ${targetId}, adding item.`);
+            // Ensure properties and items exist
+            const currentProperties = comp.properties || {};
+            const currentItems = Array.isArray(currentProperties.items) ? currentProperties.items : [];
+            const itemTemplate = comp.itemTemplate || currentProperties.itemTemplate; // Check both locations
+
+            let newItemToAdd: any = itemValue; // Default to raw value
+
+            if (itemTemplate && typeof itemTemplate === 'object') {
+              console.log("Item template found:", itemTemplate);
+              try {
+                // 1. Deep clone the template
+                let newItemConfig = JSON.parse(JSON.stringify(itemTemplate));
+
+                // 2. Generate a unique ID for the item (or use a provided one if itemValue is an object with id)
+                const baseId = typeof itemValue === 'object' && itemValue.id ? itemValue.id : `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+                
+                // 3. Recursively process the template to set IDs and replace placeholders
+                const processTemplateNode = (node: any, parentId: string): any => {
+                   if (typeof node !== 'object' || node === null) return node;
+
+                   // Generate unique ID for the node if it doesn't have one
+                   if (!node.id) {
+                       // Simple ID generation - might need refinement based on node type or index
+                       node.id = `${parentId}-${node.type || 'child'}-${Math.random().toString(36).substr(2, 5)}`;
+  } else {
+                       // Allow relative IDs like "delete-button" to become unique within the item
+                       node.id = `${parentId}-${node.id}`;
+                   }
+
+                   // Placeholder replacement (simple string replace)
+                   // Look in properties, children, etc.
+                   for (const key in node) {
+                       if (typeof node[key] === 'string') {
+                           // Replace {{item}} or similar (assuming itemValue is the primary data)
+                           if (typeof itemValue === 'string') {
+                             // Look for {{item}} specifically
+                             node[key] = node[key].replace(/\{\{item\}\}/g, itemValue); 
+                           } else if (typeof itemValue === 'object') {
+                             // Replace {{item.fieldName}}
+                             node[key] = node[key].replace(/\{\{item\.(\w+)\}\}/g, (_: any, fieldName: string) => {
+                               return itemValue[fieldName] !== undefined ? String(itemValue[fieldName]) : `{{item.${fieldName}}}`; // Keep placeholder if field not found
+                             });
+                           }
+                           // Replace {itemId} (keep this one)
+                           node[key] = node[key].replace(/\{itemId\}/g, baseId);
+                       } else if (key === 'properties' && typeof node.properties === 'object') {
+                           // Also check within properties object
+                           for (const propKey in node.properties) {
+                               if (typeof node.properties[propKey] === 'string') {
+                                 if (typeof itemValue === 'string') {
+                                     // Look for {{item}} specifically
+                                     node.properties[propKey] = node.properties[propKey].replace(/\{\{item\}\}/g, itemValue);
+                                 } else if (typeof itemValue === 'object') {
+                                     // Replace {{item.fieldName}}
+                                     node.properties[propKey] = node.properties[propKey].replace(/\{\{item\.(\w+)\}\}/g, (_: any, fieldName: string) => {
+                                       return itemValue[fieldName] !== undefined ? String(itemValue[fieldName]) : `{{item.${fieldName}}}`;
+                                     });
+                                 }
+                                 // Replace {itemId} (keep this one)
+                                 node.properties[propKey] = node.properties[propKey].replace(/\{itemId\}/g, baseId);
+                               }
+                           }
+                       } else if (key === 'methods' && typeof node.methods === 'object') {
+                          // Recursively process methods (translate IR if needed, handle placeholders)
+                          // For now, just basic placeholder replacement in action parameters
+                          for (const methodKey in node.methods) {
+                             if (typeof node.methods[methodKey] === 'object' && node.methods[methodKey] !== null) {
+                                // Assuming methods are { actions: [...] }
+                                if (Array.isArray(node.methods[methodKey].actions)) {
+                                   node.methods[methodKey].actions = node.methods[methodKey].actions.map((action: any) => {
+                                      if (typeof action.payload === 'object' && action.payload !== null) {
+                                         let payloadString = JSON.stringify(action.payload);
+                                         // Replace {{item}} and {itemId} in method payloads
+                                         if (typeof itemValue === 'string') {
+                                            payloadString = payloadString.replace(/\{\{item\}\}/g, itemValue);
+                                         } else if (typeof itemValue === 'object') {
+                                            // Replace {{item.fieldName}}
+                                            payloadString = payloadString.replace(/\{\{item\.(\w+)\}\}/g, (_: any, fieldName: string) => {
+                                              return itemValue[fieldName] !== undefined ? String(itemValue[fieldName]) : `{{item.${fieldName}}}`;
+                                            });
+                                         }
+                                         payloadString = payloadString.replace(/\{itemId\}/g, baseId);
+                                         try {
+                                            action.payload = JSON.parse(payloadString);
+                                         } catch (e) { console.error("Error parsing method payload after replace", e); }
+                                      }
+                                      return action;
+                                   });
+                                }
+                             }
+                          }
+                       }
+                   }
+                   
+                   // Recursively process children if they exist
+                   if (Array.isArray(node.children)) {
+                       node.children = node.children.map((child: any) => processTemplateNode(child, node.id));
+                   }
+                   
+                   return node;
+                };
+
+                newItemConfig = processTemplateNode(newItemConfig, baseId); // Process starting with baseId
+                // Ensure the top-level item gets the correct base ID
+                newItemConfig.id = baseId; 
+                newItemToAdd = newItemConfig; // Use the processed config object
+                console.log("Generated new item from template:", newItemToAdd);
+              } catch (e) {
+                console.error("Error processing item template:", e);
+                // Fallback to adding raw value if template processing fails
+                newItemToAdd = itemValue; 
+              }
+            } else {
+                console.log("No item template found, adding raw value:", itemValue);
+            }
+
+            return { 
+              ...comp, 
+              properties: { 
+                ...currentProperties, 
+                items: [...currentItems, newItemToAdd] // Add the new item (object or raw)
+              }
+            };
+          }
+          // Recursively update children
+          if (Array.isArray(comp.children)) {
+            const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
+            return { ...comp, children: updateRecursive(childComponents) };
+          }
+          return comp;
+        });
+      };
+      return updateRecursive(prevComponents);
+    });
+  }, []); // Depends on setAppComponents
+  // --- End addItem ---
+
+  // --- Add removeItem function --- 
+  const removeItem = useCallback((listId: string, itemIdentifier: any) => {
+    if (!listId) {
+      console.error('removeItem requires a listId');
+      return;
+    }
+    const targetId = listId.replace('#', '');
+    console.log(`Removing item '${itemIdentifier}' from list '${targetId}'`);
+
+    setAppComponents(prevComponents => {
+      const updateRecursive = (components: ComponentChild[]): ComponentChild[] => {
+        return components.map(comp => {
+          if (comp.id === targetId && comp.type === 'list') {
+            console.log(`Found list ${targetId}, attempting to remove item.`);
+            const currentProperties = comp.properties || {};
+            const currentItems = Array.isArray(currentProperties.items) ? currentProperties.items : [];
+            let updatedItems = [...currentItems];
+
+            if (typeof itemIdentifier === 'number') { // Remove by index
+              if (itemIdentifier >= 0 && itemIdentifier < currentItems.length) {
+                updatedItems.splice(itemIdentifier, 1);
+              } else {
+                console.warn(`removeItem: Index ${itemIdentifier} out of bounds for list ${targetId}`);
+              }
+            } else { // Remove by value (simple comparison)
+              updatedItems = currentItems.filter(item => item !== itemIdentifier);
+              if (updatedItems.length === currentItems.length) {
+                 console.warn(`removeItem: Value '${itemIdentifier}' not found in list ${targetId}`);
+              }
+            }
+            return { 
+              ...comp, 
+              properties: { 
+                ...currentProperties, 
+                items: updatedItems 
+              }
+            };
+          }
+          // Recursively update children
+          if (Array.isArray(comp.children)) {
+            const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
+            return { ...comp, children: updateRecursive(childComponents) };
+          }
+          return comp;
+        });
+      };
+      return updateRecursive(prevComponents);
+    });
+  }, []); // Depends on setAppComponents
+  // --- End removeItem ---
+
+  // --- Utility for deep merging state updates --- 
+  const deepMerge = (target: any, source: any): any => {
+    const output = { ...target };
+    if (isObject(target) && isObject(source)) {
+      Object.keys(source).forEach(key => {
+        if (isObject(source[key])) {
+          if (!(key in target)) {
+            Object.assign(output, { [key]: source[key] });
+  } else {
+            output[key] = deepMerge(target[key], source[key]);
+          }
+        } else {
+          Object.assign(output, { [key]: source[key] });
+        }
+      });
+    }
+    return output;
+  };
+
+  const isObject = (item: any): boolean => {
+    return (item && typeof item === 'object' && !Array.isArray(item));
+  };
+
+  // --- Add updateComponent function with deep merge --- 
   const updateComponent = useCallback((componentId: string, updates: Partial<ComponentChild>) => {
     if (!componentId || !updates || typeof updates !== 'object') {
       console.error('updateComponent requires a componentId and an updates object');
@@ -1004,63 +1258,121 @@ export const ProcessAppConfig: React.FC<{
     // Recursive function to find and update the component
     const updateRecursive = (components: ComponentChild[]): ComponentChild[] => {
       return components.map(comp => {
+        if (!comp || typeof comp !== 'object') return comp; // Safety check
+
         if (comp.id === targetId) {
-          // Deep merge properties and styles if they exist in updates
-          const mergedProps = updates.properties || updates.props 
-            ? { ...(comp.properties || comp.props), ...(updates.properties || updates.props) } 
-            : (comp.properties || comp.props);
-          const mergedStyles = updates.styles
-            ? { ...(comp.styles), ...(updates.styles) }
-            : comp.styles;
-            
-          return { 
-            ...comp, 
-            ...updates, 
-            // Ensure properties and styles are merged, not just replaced
-            properties: mergedProps, 
-            styles: mergedStyles 
-          };
+          console.log(`Found component ${targetId} to update. Current:`, comp, "Applying:" , updates);
+          // --- Apply Deep Merge --- 
+          let newCompState = { ...comp };
+          
+          // Deep merge properties if provided in updates
+          if (updates.properties || updates.props) {
+            const updateProps = updates.properties || updates.props || {};
+            const currentProps = comp.properties || comp.props || {};
+            newCompState.properties = deepMerge(currentProps, updateProps);
+            // Ensure props alias is removed if properties exists
+            if (newCompState.props) delete newCompState.props;
+          }
+          
+          // Deep merge styles if provided in updates
+          if (updates.styles) {
+            const currentStyles = comp.styles || {};
+            newCompState.styles = deepMerge(currentStyles, updates.styles);
+          }
+          
+          // Apply other top-level updates (excluding properties/styles already merged)
+          const { properties, props, styles, ...otherUpdates } = updates;
+          newCompState = { ...newCompState, ...otherUpdates };
+
+          console.log(`Merged state for ${targetId}:`, newCompState);
+          return newCompState;
+          // --- End Deep Merge Logic ---
         }
+
+        // Recursively update children
         if (Array.isArray(comp.children)) {
-          // Filter out strings before recursive call
           const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
-          return { ...comp, children: updateRecursive(childComponents) };
+          const updatedChildren = updateRecursive(childComponents);
+          // Combine updated children with any string children
+          const finalChildren = comp.children.map(child => 
+              typeof child === 'object' ? updatedChildren.find(uc => uc.id === child.id) || child : child
+          );
+          return { ...comp, children: finalChildren };
         }
         return comp;
       });
     };
 
     setAppComponents(prevComponents => updateRecursive(prevComponents));
-  }, []);
+  }, [appComponents]); // Depend on appComponents state for recursive updates
   // --- End updateComponent ---
 
-  // --- Add getComponentProperty function ---
+  // --- Add getComponentProperty function (Ensure this exists and works) ---
   const getComponentProperty = useCallback((componentId: string, propertyName: string): any => {
     const targetId = componentId.replace('#', '');
     let foundValue: any = undefined;
+    console.log(`[getComponentProperty] Searching for ${targetId}.${propertyName}`);
+
+    // Support for nested properties using dot notation (e.g., "styles.fontWeight")
+    const propertyParts = propertyName.split('.');
+    const baseProperty = propertyParts[0];
+    const nestedPath = propertyParts.slice(1);
 
     const findRecursive = (components: ComponentChild[]) => {
       for (const comp of components) {
+        if (!comp || typeof comp !== 'object') continue; // Add safety check
         if (comp.id === targetId) {
-          // Check in properties, then props as fallback
-          const props = comp.properties || comp.props || {};
-          if (propertyName in props) {
-            foundValue = props[propertyName];
-            return true; // Found
+          // --- CORRECTED LOGIC: Check styles object first if baseProperty is 'styles' --- 
+          let sourceObject: Record<string, any> = {}; // Start with empty object
+
+          if (baseProperty === 'styles' && comp.styles) {
+            sourceObject = comp.styles;
+          } else if (baseProperty === 'properties' && comp.properties) {
+            sourceObject = comp.properties;
+            if (propertyName.startsWith('properties.')) {
+                nestedPath.shift(); 
+            }
+          } else if (comp.properties) { // Default check order
+            sourceObject = comp.properties;
+          } else if (comp.props) {
+            sourceObject = comp.props;
           }
-          // Optionally check component state if we had it here
-          // Or check element attributes directly (less ideal)
-          const element = document.getElementById(targetId);
-          if (element && propertyName === 'value' && 'value' in element) {
-              foundValue = (element as HTMLInputElement).value;
-              return true;
+          // If none of the above assigned, sourceObject remains {}
+
+          // Initialize foundValue to undefined for each component check
+          let componentSpecificFoundValue: any = undefined;
+
+          // Use the guaranteed-to-be-object sourceObject
+          if (nestedPath.length > 0) { // Handle nested properties
+            let currentValue: Record<string, any> | undefined = sourceObject; // Start search from sourceObject, allow undefined type
+            for (const pathPart of nestedPath) {
+              // Check if currentValue is an object before indexing
+              if (currentValue && typeof currentValue === 'object' && pathPart in currentValue) {
+                currentValue = currentValue[pathPart];
+              } else {
+                console.warn(`getComponentProperty: Nested path '${propertyName}' not fully resolved at '${pathPart}' in component state/styles.`);
+                currentValue = undefined; 
+                break;
+              }
+            }
+            componentSpecificFoundValue = currentValue;
+          } else if (baseProperty in sourceObject && nestedPath.length === 0) { // Handle direct properties
+             if (sourceObject[baseProperty] !== undefined && sourceObject[baseProperty] !== null) {
+                 componentSpecificFoundValue = sourceObject[baseProperty];
+             }
           }
-          if (element && propertyName === 'checked' && 'checked' in element) {
-             foundValue = (element as HTMLInputElement).checked;
-             return true;
+          
+          // Only assign to foundValue if something was actually found in this component's state/styles
+          if (componentSpecificFoundValue !== undefined) {
+              foundValue = componentSpecificFoundValue;
           }
-          return true; // Found component, but not property in config
+          // --- END CORRECTED LOGIC --- 
+          
+          // Found component, stop searching state/styles further down this branch
+          return true; 
         }
+
+        // Recursively search children
         if (Array.isArray(comp.children)) {
           const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
           if (findRecursive(childComponents)) {
@@ -1070,62 +1382,126 @@ export const ProcessAppConfig: React.FC<{
       }
       return false; // Not found in this branch
     };
+    
+    findRecursive(appComponents);
 
-    findRecursive(appComponents); // Start search from root
+    // --- (Keep the rest of getComponentProperty including DOM fallback) --- 
 
     if (foundValue === undefined) {
-        console.warn(`getComponentProperty: Property '${propertyName}' not found on component '${targetId}'`);
-        // Fallback to direct DOM check as last resort for common properties
+      console.log(`Property '${propertyName}' not found in component state for '${targetId}'. Falling back to DOM.`);
+      try {
         const element = document.getElementById(targetId);
         if (element) {
-            if (propertyName === 'value' && 'value' in element) return (element as HTMLInputElement).value;
-            if (propertyName === 'checked' && 'checked' in element) return (element as HTMLInputElement).checked;
-            if (propertyName === 'textContent') return element.textContent;
-            if (propertyName === 'innerHTML') return element.innerHTML;
-            return element.getAttribute(propertyName); // Generic attribute fallback
+           if (nestedPath.length > 0 && (baseProperty === 'style' || baseProperty === 'styles')) {
+             // Handle nested style property (e.g., styles.fontWeight)
+             const styleProperty = nestedPath[0];
+             // Convert camelCase to kebab-case for CSS properties
+             const cssProperty = styleProperty.replace(/([A-Z])/g, "-$1").toLowerCase();
+             foundValue = getComputedStyle(element).getPropertyValue(cssProperty);
+           } else if (baseProperty === 'style' || baseProperty === 'styles') {
+             // Handle request for the entire style object
+             const computedStyle = getComputedStyle(element);
+             const styleObj: Record<string, string> = {};
+             for (let i = 0; i < computedStyle.length; i++) {
+               const prop = computedStyle[i];
+               const value = computedStyle.getPropertyValue(prop);
+               if (value) {
+                 // Convert kebab-case to camelCase for API consistency
+                 const camelProp = prop.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+                 styleObj[camelProp] = value;
+               }
+             }
+             foundValue = styleObj;
+           } else if (baseProperty === 'value' && 'value' in element) {
+             foundValue = (element as HTMLInputElement).value;
+           } else if (baseProperty === 'checked' && 'checked' in element) {
+             foundValue = (element as HTMLInputElement).checked;
+           } else if (baseProperty === 'textContent' || baseProperty === 'content') { // Added 'content' mapping
+             foundValue = element.textContent;
+           } else if (baseProperty === 'innerHTML') {
+             foundValue = element.innerHTML;
+           } else {
+              // Generic attribute fallback for non-nested properties
+              if (nestedPath.length === 0) {
+                 foundValue = element.getAttribute(propertyName);
+              } else {
+                 console.warn(`Cannot get nested non-style property '${propertyName}' directly from DOM.`);
+              }
+           }
         }
+      } catch (e) {
+          console.error(`Error reading property '${propertyName}' from DOM element '${targetId}':`, e);
+          foundValue = undefined;
+      }
     }
 
-    console.log(`getComponentProperty: Got '${propertyName}' from '${targetId}' =`, foundValue);
+    // Return {} for styles if still undefined, otherwise return found value
+    if (foundValue === undefined && (baseProperty === 'style' || baseProperty === 'styles')) {
+        console.log(`Returning empty object for undefined style property '${propertyName}' on '${targetId}'.`);
+        return {}; 
+    }
+    
+    console.log(`[getComponentProperty Final] Got '${propertyName}' from '${targetId}' =`, foundValue);
     return foundValue;
   }, [appComponents]); // Depend on state
-  // --- End getComponentProperty ---
+  // --- End getComponentProperty --- 
 
-  // --- Add setComponentProperty function ---
+  // --- Modify setComponentProperty function --- 
   const setComponentProperty = useCallback((componentId: string, propertyName: string, value: any) => {
     console.log(`setComponentProperty: Setting '${propertyName}' to`, value, `on component '${componentId.replace('#', '')}'`);
-    // Use updateComponent to set the property
-    updateComponent(componentId, {
-      properties: { [propertyName]: value }
-    });
-    // Additionally, try direct DOM manipulation for immediate feedback for inputs
-    const targetId = componentId.replace('#', '');
-    const element = document.getElementById(targetId);
-    if (element) {
-        if (propertyName === 'value' && 'value' in element) {
-            (element as HTMLInputElement).value = value;
-            // Dispatch input/change events for React state updates if needed
-            setTimeout(() => {
-              const inputEvent = new Event('input', { bubbles: true });
-              element.dispatchEvent(inputEvent);
-              const changeEvent = new Event('change', { bubbles: true });
-              element.dispatchEvent(changeEvent);
-             }, 0);
-        } else if (propertyName === 'checked' && 'checked' in element) {
-            (element as HTMLInputElement).checked = value;
-             setTimeout(() => {
-              const changeEvent = new Event('change', { bubbles: true });
-              element.dispatchEvent(changeEvent);
-             }, 0);
-        } else if (propertyName === 'textContent') {
-            element.textContent = value;
-        } else if (propertyName === 'innerHTML') {
-             element.innerHTML = value;
-        }
+    
+    // --- Check for internal TOGGLE action --- 
+    if (value && typeof value === 'object' && value.type === '_TOGGLE_INTERNAL_') {
+      const toggleValues = value.values;
+      if (Array.isArray(toggleValues) && toggleValues.length === 2) {
+        const currentValue = getComponentProperty(componentId, propertyName);
+        const newValue = (currentValue === toggleValues[0]) ? toggleValues[1] : toggleValues[0];
+        console.log(`Toggle Action: Current='${currentValue}', New='${newValue}'`);
+        setComponentProperty(componentId, propertyName, newValue);
+        return;
+      } else {
+        console.warn("Invalid TOGGLE value received:", value);
+        return;
+      }
     }
 
-  }, [updateComponent]); // Depend on updateComponent callback
-  // --- End setComponentProperty ---
+    // Existing logic for setting properties (including nested and styles)
+    let processedValue = value; 
+    const targetId = componentId.replace('#', '');
+
+    const propertyParts = propertyName.split('.');
+    const baseProperty = propertyParts[0];
+    const nestedPath = propertyParts.slice(1);
+    
+    // Handle nested property setting differently
+    if (nestedPath.length > 0) {
+      // Construct the nested update object
+      const nestedUpdate = nestedPath.reduceRight((val, key) => ({ [key]: val }), processedValue);
+      
+      // Determine if this is a style update or a regular property update
+      if (baseProperty === 'styles') {
+        updateComponent(componentId, { styles: nestedUpdate });
+      } else {
+        // Assume it's under 'properties'
+        updateComponent(componentId, { properties: { [baseProperty]: nestedUpdate } });
+      }
+
+      return; // Return after handling nested property via state update
+    }
+    
+    // Handle direct style property (setting the whole style object)
+    if (propertyName === 'style' && typeof processedValue === 'object') {
+        updateComponent(componentId, { styles: processedValue }); 
+        return; 
+    }
+    
+    // Default behavior for non-nested properties (under 'properties')
+    updateComponent(componentId, { 
+        properties: { [propertyName]: processedValue } 
+    });
+
+  }, [updateComponent, getComponentProperty, appComponents]); // Added appComponents dependency for deep merge access
+  // --- End setComponentProperty --- 
 
   // --- Define callComponentMethod ---
   const callComponentMethod = useCallback((componentId: string, methodName: string, ...args: any[]) => {
@@ -1290,15 +1666,15 @@ export const ProcessAppConfig: React.FC<{
             key={component.key || component.id || `${region}-component-${index}`}
             component={component}
             functionality={initialConfig.functionality}
-            // --- Pass add, remove, update functions ---
-            // --- Pass get/set property functions ---
             eventHandlers={{
                 ...eventHandlers,
                 addComponent,
                 removeComponent,
                 updateComponent,
                 getComponentProperty,
-                setComponentProperty
+                setComponentProperty,
+                addItem,       // Pass addItem
+                removeItem     // Pass removeItem
             }}
             config={initialConfig} 
           />
@@ -1313,7 +1689,7 @@ export const ProcessAppConfig: React.FC<{
       case 'footer': return { padding: '1rem', backgroundColor: initialConfig.theme?.colors?.secondary || '#f8f9fa', borderTop: '1px solid #dee2e6', marginTop: 'auto' };
       case 'sidebar': return { width: '250px', backgroundColor: initialConfig.theme?.colors?.surface || '#ffffff', padding: '1rem', borderRight: '1px solid #dee2e6' };
       case 'main': return { flex: 1, padding: '1rem', backgroundColor: initialConfig.theme?.colors?.background || '#ffffff' };
-      default: return { padding: '1rem' };
+      default: return { padding: '1rem' }; // Ensure default returns a value
     }
   };
 
@@ -1323,24 +1699,28 @@ export const ProcessAppConfig: React.FC<{
     const appLayout: React.CSSProperties = { display: 'flex', flexDirection: 'column', minHeight: '100%', width: '100%' };
 
     if (layoutType === 'sidebar') {
+        // --- Ensure this block RETURNS the JSX --- 
         return (
-        <div style={{ ...appLayout, flexDirection: 'row' }}>
-          {regions.includes('sidebar') && renderRegion('sidebar')}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-            {regions.filter(r => r !== 'sidebar' && r !== 'footer').map(region => renderRegion(region))}
-            {regions.includes('footer') && renderRegion('footer')}
+          <div style={{ ...appLayout, flexDirection: 'row' }}>
+            {regions.includes('sidebar') && renderRegion('sidebar')}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              {regions.filter(r => r !== 'sidebar' && r !== 'footer').map(region => renderRegion(region))}
+              {regions.includes('footer') && renderRegion('footer')}
           </div>
             </div>
           );
     } else { // singlepage or default
+      // --- Ensure this block also RETURNS the JSX --- 
       return (
           <div style={appLayout}>
-          {regions.map(region => renderRegion(region))}
+            {regions.map(region => renderRegion(region))}
         </div>
       );
     }
+    // Remove any implicit return path - all paths should return JSX now
   };
 
+  // --- RESTORED Return Statement --- 
   return (
     <div className="app-container" style={{ 
       height: '100%', 
@@ -1353,7 +1733,6 @@ export const ProcessAppConfig: React.FC<{
       {getLayoutStructure()}
     </div>
   );
-};
+}; // <-- Ensure this closing brace exists for ProcessAppConfig
 
-// Export default component
-export default DynamicComponent; 
+// ... (Keep DynamicComponent export etc.) ... 
