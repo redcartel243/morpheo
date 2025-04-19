@@ -183,3 +183,25 @@ Your response MUST be a complete JSON object matching this structure EXACTLY:
 **FINAL REQUIREMENT: ALL BUTTONS MUST HAVE A CLICK METHOD DEFINED. Input components should have appropriate methods like "change" when they need to trigger actions.**
 
 **FINAL REMINDER: RESPOND WITH VALID JSON ONLY. NO EXPLANATIONS, MARKDOWN, OR TEXT OUTSIDE THE JSON OBJECT.**
+
+FAILURE TO INCLUDE PROPERTIES AND METHODS WILL RESULT IN A NON-FUNCTIONAL UI!
+
+4. **Input components MUST handle their own value changes**:
+   - Input fields (`input`, `text-input`, `textarea`) REQUIRE an `onChange` handler in `methods`.
+   - This handler must use `GET_EVENT_DATA` (path: `target.value`) and `SET_PROPERTY` to update the input's own `value` property.
+   - Example `onChange` IR for an input with id `my-input`:
+   ```json
+   "onChange": [
+     { 
+       "type": "GET_EVENT_DATA", 
+       "path": "target.value", 
+       "assignTo": "currentValue" 
+     },
+     { 
+       "type": "SET_PROPERTY", 
+       "targetId": "#my-input", 
+       "propertyName": "value", 
+       "value": { "type": "VARIABLE", "name": "currentValue" }
+     }
+   ]
+   ```

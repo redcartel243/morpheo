@@ -1062,7 +1062,7 @@ export const ProcessAppConfig: React.FC<{
                    if (!node.id) {
                        // Simple ID generation - might need refinement based on node type or index
                        node.id = `${parentId}-${node.type || 'child'}-${Math.random().toString(36).substr(2, 5)}`;
-                   } else {
+  } else {
                        // Allow relative IDs like "delete-button" to become unique within the item
                        node.id = `${parentId}-${node.id}`;
                    }
