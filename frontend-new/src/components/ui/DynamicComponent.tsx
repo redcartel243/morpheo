@@ -348,10 +348,23 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = (props) => {
               // Handle removal by index if provided
               const resolvedIndex = resolveValue(payload.itemIndex); 
               removeItemFunc(payload.targetId, resolvedIndex);
-        } else {
+            } else {
               console.warn("Skipping invalid REMOVE_ITEM payload or missing removeItem handler:", payload);
             }
             break;
+
+          // --- NEW: Handle CALL_METHOD --- 
+          case "CALL_METHOD":
+            if (callComponentMethodFunc && payload?.targetId && payload?.methodName) {
+              // Resolve arguments if provided
+              const args = Array.isArray(payload.args) ? payload.args.map(resolveValue) : [];
+              console.log(`CALL_METHOD: Triggering ${payload.targetId}.${payload.methodName} with args:`, args);
+              callComponentMethodFunc(payload.targetId, payload.methodName, ...args);
+        } else {
+              console.warn("Skipping invalid CALL_METHOD payload or missing callComponentMethod handler:", payload);
+            }
+            break;
+          // --- END NEW --- 
 
           case "ERROR": // Handle translation errors
             console.error("Backend translation error:", payload);
@@ -441,6 +454,9 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = (props) => {
 
     if (method !== null) {
         console.log(`Found ${methodSource}.${methodName} for event ${eventType} on component ${safeComponent.id}`);
+        // --- ADDED DEBUG: Log the raw method object BEFORE execution attempt --- 
+        console.log('Inspecting raw method object:', JSON.stringify(method, null, 2));
+        // --- END ADDED DEBUG ---
         console.log('Method details:', method);
       
       try {
@@ -460,6 +476,7 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = (props) => {
 
         if (methodObjectToExecute) {
           // Directly pass the structured object to the executor
+          console.log('Passing method object to executor:', JSON.stringify(methodObjectToExecute, null, 2)); // Log what's passed
           executeComponentMethod(methodName, methodObjectToExecute, event);
         } else {
           // Log an error if the method data isn't in the expected format
@@ -888,19 +905,6 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = (props) => {
       }
       return acc;
     }, {} as Record<string, any>)),
-    
-    // Add click handler if it's a button (special case for calculator buttons)
-    onClick: safeComponent.type === 'button' ? (event: any) => {
-      // Prevent default behavior and stop propagation
-      if (event && typeof event.preventDefault === 'function') {
-        event.preventDefault();
-      }
-      if (event && typeof event.stopPropagation === 'function') {
-        event.stopPropagation();
-      }
-      
-      handleEvent('click', event);
-    } : undefined
   };
 
   // --- DEBUGGING: Log final props before rendering --- 
@@ -1060,83 +1064,93 @@ export const ProcessAppConfig: React.FC<{
 
                    // Generate unique ID for the node if it doesn't have one
                    if (!node.id) {
-                       // Simple ID generation - might need refinement based on node type or index
                        node.id = `${parentId}-${node.type || 'child'}-${Math.random().toString(36).substr(2, 5)}`;
   } else {
-                       // Allow relative IDs like "delete-button" to become unique within the item
                        node.id = `${parentId}-${node.id}`;
                    }
 
                    // Placeholder replacement (simple string replace)
-                   // Look in properties, children, etc.
                    for (const key in node) {
-                       if (typeof node[key] === 'string') {
-                           // Replace {{item}} or similar (assuming itemValue is the primary data)
-                           if (typeof itemValue === 'string') {
-                             // Look for {{item}} specifically
-                             node[key] = node[key].replace(/\{\{item\}\}/g, itemValue); 
-                           } else if (typeof itemValue === 'object') {
-                             // Replace {{item.fieldName}}
-                             node[key] = node[key].replace(/\{\{item\.(\w+)\}\}/g, (_: any, fieldName: string) => {
-                               return itemValue[fieldName] !== undefined ? String(itemValue[fieldName]) : `{{item.${fieldName}}}`; // Keep placeholder if field not found
-                             });
+                       if (key === 'properties' && typeof node.properties === 'object') {
+                           // Specifically target content property for {{item}}
+                           if (typeof node.properties.content === 'string' && node.properties.content === '{{item}}') {
+                               if (typeof itemValue === 'string') {
+                                   node.properties.content = itemValue;
+                               } else {
+                                   console.warn('Cannot replace {{item}} placeholder with non-string value:', itemValue);
+                               }
                            }
-                           // Replace {itemId} (keep this one)
-                           node[key] = node[key].replace(/\{itemId\}/g, baseId);
-                           // Replace {{index}}
-                           node[key] = node[key].replace(/\{\{index\}\}/g, String(itemIndex)); 
-                       } else if (key === 'properties' && typeof node.properties === 'object') {
-                           // Also check within properties object
+                           // Handle other properties (itemId, index, fieldName)
                            for (const propKey in node.properties) {
                                if (typeof node.properties[propKey] === 'string') {
-                                 if (typeof itemValue === 'string') {
-                                     // Look for {{item}} specifically
-                                     node.properties[propKey] = node.properties[propKey].replace(/\{\{item\}\}/g, itemValue);
-                                 } else if (typeof itemValue === 'object') {
-                                     // Replace {{item.fieldName}}
-                                     node.properties[propKey] = node.properties[propKey].replace(/\{\{item\.(\w+)\}\}/g, (_: any, fieldName: string) => {
-                                       return itemValue[fieldName] !== undefined ? String(itemValue[fieldName]) : `{{item.${fieldName}}}`;
-                                     });
-                                 }
-                                 // Replace {itemId} (keep this one)
-                                 node.properties[propKey] = node.properties[propKey].replace(/\{itemId\}/g, baseId);
+                                   let propValue = node.properties[propKey];
+                                   if (propValue === '{{index}}') {
+                                       node.properties[propKey] = String(itemIndex);
+                                   } else if (propValue === '{itemId}') {
+                                       node.properties[propKey] = baseId;
+                                   } else if (typeof itemValue === 'object') {
+                                       propValue = propValue.replace(/\{\{item\.(\w+)\}\}/g, (_: any, fieldName: string) => {
+                                          return itemValue[fieldName] !== undefined ? String(itemValue[fieldName]) : `{{item.${fieldName}}}`;
+                                       });
+                                       node.properties[propKey] = propValue;
+                                   }
                                }
                            }
                        } else if (key === 'methods' && typeof node.methods === 'object') {
-                          // Recursively process methods (translate IR if needed, handle placeholders)
-                          // For now, just basic placeholder replacement in action parameters
-                          for (const methodKey in node.methods) {
-                             if (typeof node.methods[methodKey] === 'object' && node.methods[methodKey] !== null) {
-                                // Assuming methods are { actions: [...] }
-                                if (Array.isArray(node.methods[methodKey].actions)) {
-                                   node.methods[methodKey].actions = node.methods[methodKey].actions.map((action: any) => {
-                                      if (typeof action.payload === 'object' && action.payload !== null) {
-                                         let payloadString = JSON.stringify(action.payload);
-                                         // Replace {{item}} and {itemId} in method payloads
-                                         if (typeof itemValue === 'string') {
-                                            payloadString = payloadString.replace(/\{\{item\}\}/g, itemValue);
-                                         } else if (typeof itemValue === 'object') {
-                                            // Replace {{item.fieldName}}
-                                            payloadString = payloadString.replace(/\{\{item\.(\w+)\}\}/g, (_: any, fieldName: string) => {
-                                              return itemValue[fieldName] !== undefined ? String(itemValue[fieldName]) : `{{item.${fieldName}}}`;
-                                            });
-                                         }
-                                         payloadString = payloadString.replace(/\{itemId\}/g, baseId);
-                                         // Replace {{index}}
-                                         payloadString = payloadString.replace(/\{\{index\}\}/g, String(itemIndex)); 
-                                         try {
-                                            action.payload = JSON.parse(payloadString);
-                                         } catch (e) { console.error("Error parsing method payload after replace", e); }
-                                      }
-                                      return action;
-                                   });
-                                }
-                             }
-                          }
+                           // Process method actions
+                           for (const methodKey in node.methods) {
+                               if (typeof node.methods[methodKey] === 'object' && node.methods[methodKey] !== null) {
+                                   if (Array.isArray(node.methods[methodKey].actions)) {
+                                       node.methods[methodKey].actions = node.methods[methodKey].actions.map((action: any) => {
+                                           // Ensure payload exists, create if necessary
+                                           let payloadSource = action.payload || action; // Check payload first, then action itself
+                                           let finalPayload: Record<string, any> = {}; // Build the final payload
+                                           let originalPayloadExists = !!action.payload;
+
+                                           for (const paramKey in payloadSource) {
+                                               // Skip copying the 'type' key if reading from action itself
+                                               if (!originalPayloadExists && paramKey === 'type') continue;
+                                               
+                                               let paramValue = payloadSource[paramKey];
+                                               if (typeof paramValue === 'string') {
+                                                   // Perform replacements
+                                                   if (paramValue === '{{item}}' || paramValue === '{itemId}') {
+                                                      finalPayload[paramKey] = baseId; // Use unique item ID
+                                                   } else if (paramValue === '{{index}}') {
+                                                       finalPayload[paramKey] = itemIndex;
+                                                   } else if (typeof itemValue === 'object') {
+                                                       // Handle item.fieldName
+                                                       const replacedValue = paramValue.replace(/\{\{item\.(\w+)\}\}/g, (_: any, fieldName: string) => {
+                                                            return itemValue[fieldName] !== undefined ? String(itemValue[fieldName]) : `{{item.${fieldName}}}`;
+                                                       });
+                                                       finalPayload[paramKey] = replacedValue;
+                                                   } else if (typeof itemValue === 'string') {
+                                                        // Handle simple {{item}} replacement if itemValue is string
+                                                        finalPayload[paramKey] = paramValue.replace(/\{\{item\}\}/g, itemValue);
+                                                   } else {
+                                                       finalPayload[paramKey] = paramValue; // No replacement needed
+                                                   }
+                                               } else {
+                                                  finalPayload[paramKey] = paramValue; // Copy non-string values directly
+                                               }
+                                           }
+                                           // Return the action with parameters guaranteed to be in payload
+                                           return { ...action, payload: finalPayload }; 
+                                       });
+                                   }
+                               }
+                           }
+                       } else if (typeof node[key] === 'string') {
+                           // Handle placeholders in other top-level string properties (e.g., styles?)
+                           let value = node[key];
+                           if (value === '{{item}}' && typeof itemValue === 'string') node[key] = itemValue;
+                           if (value === '{itemId}') node[key] = baseId;
+                           if (value === '{{index}}') node[key] = String(itemIndex);
+                           // Add item.fieldName replacement if necessary for other props
                        }
                    }
                    
-                   // Recursively process children if they exist
+                   // Recursively process children
                    if (Array.isArray(node.children)) {
                        node.children = node.children.map((child: any) => processTemplateNode(child, node.id));
                    }
@@ -1186,29 +1200,64 @@ export const ProcessAppConfig: React.FC<{
       return;
     }
     const targetId = listId.replace('#', '');
-    console.log(`Removing item '${itemIdentifier}' from list '${targetId}'`);
+    console.log(`Attempting to remove item identified by: '${itemIdentifier}' from list '${targetId}'`);
 
     setAppComponents(prevComponents => {
       const updateRecursive = (components: ComponentChild[]): ComponentChild[] => {
         return components.map(comp => {
-          if (comp.id === targetId && comp.type === 'list') {
+          if (comp.id === targetId && (comp.type === 'list' || comp.type === 'List')) {
             console.log(`Found list ${targetId}, attempting to remove item.`);
             const currentProperties = comp.properties || {};
             const currentItems = Array.isArray(currentProperties.items) ? currentProperties.items : [];
             let updatedItems = [...currentItems];
+            let itemRemoved = false;
 
-            if (typeof itemIdentifier === 'number') { // Remove by index
+            // Try removing by ID first if identifier looks like our generated ID format
+            if (typeof itemIdentifier === 'string' && itemIdentifier.startsWith('item-')) {
+                const initialLength = updatedItems.length;
+                updatedItems = updatedItems.filter(item => !(typeof item === 'object' && item.id === itemIdentifier));
+                if (updatedItems.length < initialLength) {
+                    console.log(`Removed item by ID: ${itemIdentifier}`);
+                    itemRemoved = true;
+                }
+            }
+            
+            // If not removed by ID, try by index
+            if (!itemRemoved && typeof itemIdentifier === 'number') { 
               if (itemIdentifier >= 0 && itemIdentifier < currentItems.length) {
+                console.log(`Removing item by index: ${itemIdentifier}`);
                 updatedItems.splice(itemIdentifier, 1);
+                itemRemoved = true;
               } else {
                 console.warn(`removeItem: Index ${itemIdentifier} out of bounds for list ${targetId}`);
               }
-            } else { // Remove by value (simple comparison)
-              updatedItems = currentItems.filter(item => item !== itemIdentifier);
-              if (updatedItems.length === currentItems.length) {
-                 console.warn(`removeItem: Value '${itemIdentifier}' not found in list ${targetId}`);
-              }
+            } 
+            
+            // If still not removed, try by simple value comparison (fallback)
+            if (!itemRemoved) { 
+              const initialLength = updatedItems.length;
+              updatedItems = currentItems.filter(item => {
+                  // Handle comparison for both objects (check ID) and primitives
+                  if (typeof item === 'object' && item !== null && typeof itemIdentifier ==='object' && itemIdentifier !== null) {
+                      return item.id !== itemIdentifier.id; // Example: Compare by ID if both are objects
+                  } else if (typeof item === 'object' && item !== null && item.properties?.content === itemIdentifier) {
+                      // Example: Try matching content if item is object and identifier is primitive
+                      return false; // Remove if content matches
+                  } else {
+                     return item !== itemIdentifier; // Primitive comparison
+                  }
+              });
+              if (updatedItems.length < initialLength) {
+                  console.log(`Removed item by value comparison: ${itemIdentifier}`);
+                  itemRemoved = true;
+              } 
             }
+
+            // Final check if removal happened
+            if (!itemRemoved) {
+               console.warn(`removeItem: Could not find item to remove using identifier: ${itemIdentifier} (type: ${typeof itemIdentifier}) in list ${targetId}`);
+            }
+
             return { 
               ...comp, 
               properties: { 
@@ -1664,6 +1713,59 @@ export const ProcessAppConfig: React.FC<{
     });
   }
 
+  // --- NEW: Handler for CALL_METHOD --- 
+  const callComponentMethodHandler = useCallback((targetComponentId: string, methodName: string, ...args: any[]) => {
+    console.log(`[ProcessAppConfig] Received CALL_METHOD request for ${targetComponentId}.${methodName}`, args);
+    const targetId = targetComponentId.replace('#', '');
+
+    let targetMethodActions: any[] | null = null;
+
+    // Recursive function to find the component and its method's IR actions
+    const findComponentAndMethod = (components: ComponentChild[]) => {
+      for (const comp of components) {
+        if (!comp || typeof comp !== 'object') continue; 
+
+        if (comp.id === targetId) {
+          if (comp.methods && typeof comp.methods === 'object' && comp.methods[methodName]) {
+            const methodData = comp.methods[methodName];
+            // Expecting the translated format { actions: [...] } here
+            if (typeof methodData === 'object' && methodData !== null && Array.isArray(methodData.actions)) {
+              targetMethodActions = methodData.actions;
+              console.log(`[ProcessAppConfig] Found method actions for ${targetId}.${methodName}:`, targetMethodActions);
+              return true; // Found
+            }
+          }
+          return true; // Found component, but method/actions not found or invalid
+        }
+
+        // Recursively search children
+        if (Array.isArray(comp.children)) {
+          const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
+          if (findComponentAndMethod(childComponents)) {
+            return true; // Found in children
+          }
+        }
+      }
+      return false; // Not found in this branch
+    };
+
+    findComponentAndMethod(appComponents); // Search in current state
+
+    if (targetMethodActions) {
+      // --- How to execute these actions? --- 
+      // This is the challenging part. We have the actions, but executing them requires
+      // the context (variable scope, event object?) of the target component's method.
+      // For now, we'll just log that we found them.
+      // A more complex implementation might involve passing a dedicated executeIrActions function
+      // down through props, or using a global event bus/state management.
+      console.warn(`[ProcessAppConfig] Found actions for ${targetId}.${methodName}, but direct execution from here is not yet implemented.`);
+      // TODO: Implement a way to trigger execution of targetMethodActions
+    } else {
+      console.error(`[ProcessAppConfig] Could not find valid method actions for ${targetId}.${methodName}`);
+    }
+  }, [appComponents]); // Depends on component state
+  // --- END CALL_METHOD Handler ---
+
   const renderRegion = (region: string) => {
     const components = componentsByRegion[region] || [];
                 return (
@@ -1680,8 +1782,9 @@ export const ProcessAppConfig: React.FC<{
                 updateComponent,
                 getComponentProperty,
                 setComponentProperty,
-                addItem,       // Pass addItem
-                removeItem     // Pass removeItem
+                addItem,
+                removeItem,
+                callComponentMethod: callComponentMethodHandler // Pass the new handler
             }}
             config={initialConfig} 
           />

@@ -346,10 +346,12 @@ export function registerAllComponents() {
         // Convert string 'true'/'false' to boolean for React props
         const fullWidth = props.fullWidth === 'true' || props.fullWidth === true;
         
-        // Ensure value is never null or undefined for controlled input
-        const controlledValue = value ?? '';
+        // Determine if the input should be controlled
+        // It's controlled only if an onChange handler is provided
+        const isControlled = onChange !== undefined;
 
-        return React.createElement('input', {
+        // Only provide value prop if it's controlled, otherwise let it be uncontrolled
+        const inputProps: any = {
           type,
           style: {
             width: fullWidth ? '100%' : 'auto',
@@ -359,10 +361,22 @@ export function registerAllComponents() {
             ...(style || {})
           },
           id,
-          value: controlledValue, // Use the defaulted value
           onChange,
           ...rest
-        });
+        };
+
+        if (isControlled) {
+          // For controlled, always provide a string value (default to empty string)
+          inputProps.value = value ?? ''; 
+        } else {
+          // For uncontrolled, provide defaultValue if value exists, otherwise omit value entirely
+          if (value !== undefined && value !== null) {
+             inputProps.defaultValue = value;
+          }
+          // DO NOT provide the value prop for uncontrolled inputs
+        }
+
+        return React.createElement('input', inputProps);
       }
     ),
     defaultProps: {
@@ -632,8 +646,19 @@ export function registerAllComponents() {
   // Register Card component
   registerComponent({
     name: 'card',
-    getComponent: () => Promise.resolve(Card || 
-      createFallbackComponent('card')),
+    // Use dynamic import to load the Card component lazily
+    getComponent: () => import('./components/layout/Card').then(module => {
+       // Check if the default export exists and is a valid component
+       if (module && module.default && typeof module.default === 'function') {
+           return module.default;
+       } else {
+           console.error('Failed to load Card component or invalid format');
+           return createFallbackComponent('card'); // Return fallback if load fails
+       }
+    }).catch(error => {
+        console.error('Error loading Card component:', error);
+        return createFallbackComponent('card'); // Return fallback on error
+    }),
     defaultProps: {
       elevation: 1
     }
@@ -887,7 +912,21 @@ export function createFallbackComponent(componentType: string) {
     const availableComponents = getRegisteredComponents();
     
     console.error(`Available registered components (${availableComponents.length}):`, availableComponents.sort().join(', '));
-    console.error(`Component props:`, JSON.stringify(props, null, 2));
+    
+    // --- Avoid logging potentially circular props --- 
+    // Extract only known/safe properties or skip logging complex objects
+    const safePropsToLog: Record<string, any> = {};
+    for (const key in props) {
+        if (Object.prototype.hasOwnProperty.call(props, key)) {
+            const value = props[key];
+            // Avoid logging children or complex objects/functions that might be circular
+            if (key !== 'children' && typeof value !== 'object' && typeof value !== 'function') {
+                safePropsToLog[key] = value;
+            }
+        }
+    }
+    console.error(`Component safe props:`, JSON.stringify(safePropsToLog, null, 2));
+    // --- End change ---
     
     return React.createElement(
       'div', 

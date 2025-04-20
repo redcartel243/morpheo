@@ -181,13 +181,20 @@ class ComponentService:
                 # Post-process the app config
                 app_config = self._process_app_config(app_config, user_request)
             
-                # --- Translate IR methods to JS --- 
-                print("Translating all IR methods to JS strings...")
+                # --- Ensure essential input handlers exist --- 
+                print("Ensuring essential input handlers exist...")
+                self._ensure_input_onchange_handlers(app_config.get("components", []))
+                print("Finished ensuring input handlers.")
+                # --- End Input Handler Check ---
+
+                # --- Translate IR methods to structured call objects --- 
+                print("Translating all IR methods to structured call objects...")
                 self._translate_all_ir_methods(app_config.get("components", []))
                 print("Finished IR translation.")
                 # --- End Translation ---
             
-                return app_config
+                return app_config # Moved return inside the try block
+                
             except json.JSONDecodeError as e:
                 print(f"Failed to parse JSON response: {e}")
                 print("Original Response text:", response_text)
@@ -416,16 +423,17 @@ class ComponentService:
                 contents=prompt_text
             )
             
-            # Try to get the response text
             try:
+                # Primary way to get text
                 response_text = response.text
-            except AttributeError as e:
-                print(f"ERROR: Response has no text attribute: {e}")
+            except ValueError: # Handle cases where .text might raise ValueError
+                print("Could not get text directly, checking candidates...")
+                response_text = ""
                 # Try alternative ways to get the response text
                 if hasattr(response, 'candidates') and len(response.candidates) > 0:
                     if hasattr(response.candidates[0], 'content') and hasattr(response.candidates[0].content, 'parts') and len(response.candidates[0].content.parts) > 0:
                         response_text = response.candidates[0].content.parts[0].text
-                    else:
+                    else: # Correct indentation for this else
                         print("Cannot find text in candidates structure")
                         response_text = "" # Assign empty string instead of returning
                 else:
@@ -1501,14 +1509,22 @@ class ComponentService:
                     message_js = translate_value(action.get("message"))
                     line = f"console.log({message_js})"
 
+                               # --- ADD MISSING GET_EVENT_DATA HANDLER --- 
                 elif action_type == "GET_EVENT_DATA":
-                    path = action.get("path", "")
-                    # Basic safety check for path
-                    if re.match(r'^[a-zA-Z0-9_\.\[\]]+\Z', path):
-                         line = f"event.{path}" 
+                    path = payload.get("path") # e.g., "target.value"
+                    result_var = payload.get("resultVariable")
+                    if path and result_var:
+                        call_object["payload"] = {
+                            "path": path,
+                            "resultVariable": result_var
+                        }
+                        # Simulate variable declaration
+                        local_vars_context[result_var] = None 
+                        call_actions.append(call_object)
+                        print(f"[DEBUG _translate_ir_to_frontend_call] Appended GET_EVENT_DATA action.") # Log success
                     else:
-                         print(f"Warning: Invalid characters in GET_EVENT_DATA path: {path}. Returning null.")
-                         line = "null"
+                        print(f"Warning: Skipping invalid GET_EVENT_DATA: {action}")
+               # --- END GET_EVENT_DATA HANDLER --- 
                          
                 elif action_type == "SET_VARIABLE":
                      var_name = action.get("variableName")
@@ -1817,6 +1833,30 @@ class ComponentService:
             
         # Clean up any formatting issues in components
         self._sanitize_components(app_config.get("components", []))
+            
+        # Step 10: Final component sanitization (check for disallowed content like function strings)
+        self._sanitize_components(app_config.get("components", []))
+
+        # --- ADD DEBUG LOGGING BEFORE RETURN ---
+        try:
+            components = app_config.get("components", [])
+            for comp in components:
+                 # Find the input component (adjust ID if needed)
+                if isinstance(comp, dict) and comp.get("id") == "new-todo-input": # Check specific ID
+                     print(f"[DEBUG FINAL CHECK] Methods for {comp.get('id')}: {json.dumps(comp.get('methods'), indent=2)}")
+                     break # Found it, no need to check others
+                # Check children recursively (simple depth 1 for now)
+                if isinstance(comp, dict) and "children" in comp and isinstance(comp["children"], list):
+                     for child_comp in comp["children"]:
+                         if isinstance(child_comp, dict) and child_comp.get("id") == "new-todo-input":
+                             print(f"[DEBUG FINAL CHECK] Methods for {child_comp.get('id')}: {json.dumps(child_comp.get('methods'), indent=2)}")
+                             break
+                     else:
+                         continue # Continue outer loop if not found in children
+                     break # Break outer loop if found in children
+        except Exception as e:
+             print(f"[DEBUG FINAL CHECK] Error logging component methods: {e}")
+        # --- END DEBUG LOGGING --- 
             
         return app_config
         
@@ -2457,34 +2497,8 @@ class ComponentService:
                 
         # Default: treat as basic literal (string, number, boolean, null)
         return json.dumps(value_obj)
-
-    def _translate_all_ir_methods(self, components: List[Dict[str, Any]]) -> None:
-        """Recursively find and translate all IR method arrays to JS strings."""
-        if not components:
-            return
-        for component in components:
-            if not isinstance(component, dict):
-                continue
-
-            if "methods" in component and isinstance(component["methods"], dict):
-                component_id = component.get("id", "unknown")
-                for method_name, method_value in list(component["methods"].items()):
-                    # Check if it's an IR array
-                    if isinstance(method_value, list):
-                        try:
-                            js_string = self._translate_ir_to_js_string(method_value, component_id)
-                            # Replace IR array with JS string
-                            component["methods"][method_name] = js_string
-                            print(f"Translated IR for {component_id}.{method_name}")
-                        except Exception as e:
-                             print(f"ERROR translating IR for {component_id}.{method_name}: {e}")
-                             component["methods"][method_name] = f"// Error translating IR: {e}"
-
-            # Process children
-            if "children" in component and isinstance(component["children"], list):
-                self._translate_all_ir_methods(component["children"])
-
-    # --- REVISED: Translate IR to a structure representing the frontend call --- 
+    
+     
     def _translate_ir_to_frontend_call(self, ir_actions: List[Dict[str, Any]], component_id: str) -> Dict[str, Any]:
         """Translate IR actions into a structure representing the sequence of frontend API calls.
            Instead of generating a complex JS string, this produces a structure
@@ -2493,6 +2507,9 @@ class ComponentService:
         if not ir_actions:
             return { "actions": [{ "type": "LOG", "payload": "No actions defined" }] }
 
+        # --- DEBUG: Log received IR and final actions ---
+        print(f"[DEBUG _translate_ir_to_frontend_call] Received IR for {component_id}: {json.dumps(ir_actions, indent=2)}")
+
         call_actions = []
         # Simple variable handling (more robust state might be needed for complex flows)
         # This dictionary simulates the temporary variables declared by GET_PROPERTY
@@ -2500,13 +2517,18 @@ class ComponentService:
 
         for action in ir_actions:
             action_type = action.get("type")
+            payload = action.get("payload", {}) # Extract payload, default to empty dict
+            # --- DEBUG: Log each action being processed ---
+            print(f"[DEBUG _translate_ir_to_frontend_call] Processing action: {json.dumps(action, indent=2)}")
+            # --- END DEBUG --- 
             call_object = { "type": action_type } # Start with the basic type
 
             try:
                 if action_type == "GET_PROPERTY":
-                    target_id = action.get("targetId")
-                    prop_name = action.get("propertyName")
-                    result_var = action.get("resultVariable")
+                    # Get parameters from payload
+                    target_id = payload.get("targetId")
+                    prop_name = payload.get("propertyName")
+                    result_var = payload.get("resultVariable")
                     if target_id and prop_name and result_var:
                         call_object["payload"] = {
                             "targetId": target_id,
@@ -2516,29 +2538,50 @@ class ComponentService:
                         # Simulate variable declaration for subsequent steps
                         local_vars_context[result_var] = None # Mark as declared
                         call_actions.append(call_object)
+                        print(f"[DEBUG _translate_ir_to_frontend_call] Appended GET_PROPERTY action.") # Log success
                     else:
                         print(f"Warning: Skipping invalid GET_PROPERTY: {action}")
 
-                elif action_type == "SET_PROPERTY":
-                    target_id = action.get("targetId")
-                    prop_name = action.get("propertyName")
-                    new_value = action.get("newValue") # Keep value as is (literal or $variable)
-                    if target_id and prop_name:
+                # --- ADD MISSING GET_EVENT_DATA HANDLER --- 
+                elif action_type == "GET_EVENT_DATA":
+                    path = payload.get("path") # e.g., "target.value"
+                    result_var = payload.get("resultVariable")
+                    if path and result_var:
                         call_object["payload"] = {
+                            "path": path,
+                            "resultVariable": result_var
+                        }
+                        # Simulate variable declaration
+                        local_vars_context[result_var] = None 
+                        call_actions.append(call_object)
+                        print(f"[DEBUG _translate_ir_to_frontend_call] Appended GET_EVENT_DATA action.") # Log success
+                    else:
+                        print(f"Warning: Skipping invalid GET_EVENT_DATA: {action}")
+                # --- END GET_EVENT_DATA HANDLER --- 
+
+                elif action_type == "SET_PROPERTY":
+                    # Get parameters from payload
+                    target_id = payload.get("targetId")
+                    prop_name = payload.get("propertyName")
+                    new_value = payload.get("newValue") # Keep value as is (literal or $variable)
+                    if target_id and prop_name:
+                         call_object["payload"] = {
                             "targetId": target_id,
                             "propertyName": prop_name,
                             # Pass the value directly - frontend will resolve $vars
                             "value": new_value
-                        }
-                        call_actions.append(call_object)
+                         }
+                         call_actions.append(call_object)
+                         print(f"[DEBUG _translate_ir_to_frontend_call] Appended SET_PROPERTY action.") # Log success
                     else:
                         print(f"Warning: Skipping invalid SET_PROPERTY: {action}")
                 
                 # --- NEW HANDLER for TOGGLE_PROPERTY --- 
                 elif action_type == "TOGGLE_PROPERTY":
-                    target_id = action.get("targetId")
-                    prop_name = action.get("propertyName")
-                    values = action.get("values")
+                    # Get parameters from payload
+                    target_id = payload.get("targetId")
+                    prop_name = payload.get("propertyName")
+                    values = payload.get("values")
                     if target_id and prop_name and isinstance(values, list) and len(values) == 2:
                         # Set the ACTION type to SET_PROPERTY
                         call_object["type"] = "SET_PROPERTY" 
@@ -2552,61 +2595,76 @@ class ComponentService:
                             }
                         }
                         call_actions.append(call_object)
+                        print(f"[DEBUG _translate_ir_to_frontend_call] Appended TOGGLE_PROPERTY (as SET_PROPERTY) action.") # Log success
                     else:
                         print(f"Warning: Skipping invalid TOGGLE_PROPERTY: {action}. Ensure 'values' is a list of 2 items.")
                 # --- END NEW HANDLER --- 
 
                 elif action_type == "LOG_MESSAGE":
-                    message = action.get("message")
+                    # Get parameters from payload
+                    message = payload.get("message")
                     if message is not None:
                         call_object["payload"] = { 
                             "message": message # Pass message string directly (with $vars)
                         }
                         call_actions.append(call_object)
+                        print(f"[DEBUG _translate_ir_to_frontend_call] Appended LOG_MESSAGE action.") # Log success
                     else:
                         print(f"Warning: Skipping invalid LOG_MESSAGE: {action}")
 
                 # --- Add handling for ADD_COMPONENT --- 
                 elif action_type == "ADD_COMPONENT":
-                    parent_id = action.get("parentId")
-                    config_data = action.get("config")
+                    # Get parameters from payload
+                    parent_id = payload.get("parentId")
+                    config_data = payload.get("config")
                     if parent_id and isinstance(config_data, dict):
                         call_object["payload"] = {
                             "parentId": parent_id,
                             "config": config_data # Pass the config object directly
                         }
                         call_actions.append(call_object)
+                        print(f"[DEBUG _translate_ir_to_frontend_call] Appended ADD_COMPONENT action.") # Log success
                     else:
                         print(f"Warning: Skipping invalid ADD_COMPONENT: {action}")
                 # --- End ADD_COMPONENT handler --- 
 
                 # --- Add handler for ADD_ITEM --- 
                 elif action_type == "ADD_ITEM":
-                    target_id = action.get("targetId")
-                    item_value = action.get("itemValue") # Keep value as is (literal or $variable)
+                    # Get parameters from payload
+                    target_id = payload.get("targetId")
+                    item_value = payload.get("itemValue") # Keep value as is (literal or $variable)
                     if target_id and item_value is not None:
-                        call_object["payload"] = {
+                         call_object["payload"] = {
                             "targetId": target_id,
                             "itemValue": item_value # Pass value directly, frontend resolves $vars
-                        }
-                        call_actions.append(call_object)
+                         }
+                         call_actions.append(call_object)
+                         print(f"[DEBUG _translate_ir_to_frontend_call] Appended ADD_ITEM action.") # Log success
                     else:
                         print(f"Warning: Skipping invalid ADD_ITEM: {action}")
                 # --- End ADD_ITEM handler --- 
 
                 # --- Add handler for REMOVE_ITEM --- 
                 elif action_type == "REMOVE_ITEM":
-                    target_id = action.get("targetId")
-                    item_value = action.get("itemValue") # Keep value as is (literal or $variable)
-                    if target_id and item_value is not None:
-                        call_object["payload"] = {
-                            "targetId": target_id,
-                            "itemValue": item_value # Pass value directly, frontend resolves $vars
-                        }
+                    # Get parameters from payload
+                    target_id = payload.get("targetId")
+                    # IMPORTANT: REMOVE_ITEM might use itemIndex OR itemValue
+                    item_value = payload.get("itemValue") 
+                    item_index = payload.get("itemIndex")
+                    
+                    # Check if we have at least one valid identifier
+                    if target_id and (item_value is not None or item_index is not None):
+                        call_object["payload"] = { "targetId": target_id }
+                        # Pass whichever identifier is present (or both if applicable)
+                        if item_value is not None:
+                            call_object["payload"]["itemValue"] = item_value
+                        if item_index is not None:
+                            call_object["payload"]["itemIndex"] = item_index
                         call_actions.append(call_object)
+                        print(f"[DEBUG _translate_ir_to_frontend_call] Appended REMOVE_ITEM action.") # Log success
                     else:
-                        print(f"Warning: Skipping invalid REMOVE_ITEM: {action}")
-                # --- End REMOVE_ITEM handler --- 
+                        print(f"Warning: Skipping invalid REMOVE_ITEM (missing targetId or itemValue/itemIndex): {action}")
+                # --- End REMOVE_ITEM handler (Replaces previous block) ---
 
                 else:
                     print(f"Warning: Unsupported IR action type in _translate_ir_to_frontend_call: {action_type}")
@@ -2619,6 +2677,8 @@ class ComponentService:
                  traceback.print_exc()
                  call_actions.append({ "type": "ERROR", "payload": f"Error translating action: {action_type}: {e}" })
         
+        # --- DEBUG: Log received IR and final actions ---
+        print(f"[DEBUG _translate_ir_to_frontend_call] Returning actions for {component_id}: {json.dumps(call_actions, indent=2)}")
         # Return the list of action objects for the method
         return { "actions": call_actions }
 
@@ -2657,6 +2717,81 @@ class ComponentService:
                              print(f"ERROR translating IR for {component_id}.{method_name}: {e}")
                              # Store error object instead of original method value
                              component["methods"][method_name] = { "actions": [{ "type": "ERROR", "payload": f"Error translating IR: {e}" }] }
+
+    def _ensure_input_onchange_handlers(self, components: List[Dict[str, Any]]) -> None:
+        """
+        Ensure that input fields have onChange handlers.
+        
+        Args:
+            components: List of components to process
+        """
+        if not components:
+            return
+        
+        for component in components:
+            if not isinstance(component, dict):
+                continue
+            
+            # Process children first
+            if "children" in component and isinstance(component["children"], list):
+                self._ensure_input_onchange_handlers(component["children"])
+            
+            # Check if it's an input type that needs an onChange handler
+            comp_type = str(component.get("type", "")).lower()
+            input_types = ["input", "text-input", "textarea", "select"]
+            
+            if comp_type in input_types:
+                component_id = component.get("id")
+                if not component_id:
+                     print(f"Warning: Skipping input component of type {comp_type} because it has no ID.")
+                     continue
+                     
+                # Ensure methods object exists
+                if "methods" not in component or not isinstance(component["methods"], dict):
+                    component["methods"] = {}
+                
+                # Check if a valid 'change' or 'onChange' method already exists
+                # A valid method should be a list (IR) or a dict (translated structure)
+                has_valid_handler = False
+                method_key_to_use = None
+                
+                for handler_name in ["change", "onChange"]:
+                    if handler_name in component["methods"]:
+                        method_data = component["methods"][handler_name]
+                        # Check if it's a non-empty list (IR) or a translated dict with non-empty actions
+                        actions = None
+                        if isinstance(method_data, list):
+                            actions = method_data
+                        elif isinstance(method_data, dict) and isinstance(method_data.get("actions"), list):
+                            actions = method_data["actions"]
+                        
+                        if actions and len(actions) > 0:
+                             # --- ADDED: Check for correct pattern --- 
+                            if (
+                                len(actions) >= 2 and 
+                                actions[0].get("type") == "GET_EVENT_DATA" and 
+                                actions[0].get("payload", {}).get("path") == "target.value" and
+                                actions[1].get("type") == "SET_PROPERTY" and
+                                actions[1].get("payload", {}).get("propertyName") == "value"
+                            ):
+                                 has_valid_handler = True
+                                 method_key_to_use = handler_name
+                                 print(f"Found existing valid handler: {component_id}.{handler_name}")
+                                 break # Found a valid one, stop checking
+                            else:
+                                 print(f"Warning: Found existing handler {component_id}.{handler_name}, but it has incorrect action pattern. Will overwrite.")
+                                 # Don't set has_valid_handler = True, let it be overwritten below
+                                 method_key_to_use = handler_name # Remember which key to overwrite
+                                 break # Stop checking, we need to overwrite this one
+                                 
+                        # If actions exist but are empty, it's invalid, let loop continue or fall through
+                        
+                # If no valid handler was found OR an invalid one needs overwriting
+                if not has_valid_handler:
+                    # Determine which key to add/overwrite ('change' preferred)
+                    key_to_modify = method_key_to_use if method_key_to_use else "change"
+                    
+                    print(f"Ensuring default IR onChange handler for component: {component_id} ({comp_type}) on method key '{key_to_modify}'")
 
 # Create a singleton instance of the component service
 component_service = ComponentService()
