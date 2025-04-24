@@ -87,10 +87,10 @@ const SavedUIs: React.FC = () => {
             <div key={config.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
               <div className="p-6">
                 <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                  {config.id}
+                  {config.name || 'Untitled UI'}
                 </h2>
                 <p className="text-gray-600 dark:text-gray-400 mb-4">
-                  {`UI with ${config.components.length} components, using ${config.layout.type} layout`}
+                  {`UI with ${config.components?.length ?? 0} components, using ${config.layout?.type ?? 'unknown'} layout`}
                 </p>
                 
                 <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-2">

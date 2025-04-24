@@ -11,8 +11,7 @@ export interface Component {
   id: string;
   props: Record<string, any>;
   children: Component[];
-  styles: Record<string, any>;
-  events: Record<string, any>;
+  methods?: Record<string, any>;
 }
 
 export interface Layout {
@@ -36,19 +35,16 @@ export interface UIConfig {
   name?: string;
   userId?: string;
   createdAt?: number;
-  components: Component[];
-  layout: Layout;
-  theme: Theme;
-  functionality: Functionality;
-  eventHandlers?: Record<string, any>;
-  regions?: Record<string, Component[]>;
-  state?: Record<string, any>;
-  stateReducer?: string;
-  dataBindings?: Record<string, string>;
-  backend?: {
-    services?: Record<string, any>;
-    data?: Record<string, any>;
+  app?: {
+    name?: string;
+    description?: string;
+    theme?: string;
   };
+  layout?: {
+    type?: string;
+    regions?: string[];
+  };
+  components?: Component[];
 }
 
 export interface UIState {
@@ -90,10 +86,27 @@ export const generateUI = createAsyncThunk(
       // Add authorization headers
       let headers = {};
       
-      if (process.env.REACT_APP_API_KEY) {
-        headers = {
-          'Authorization': `Bearer ${process.env.REACT_APP_API_KEY}`
-        };
+      const testUsername = process.env.REACT_APP_TEST_USERNAME || 'testuser';
+      const testPassword = process.env.REACT_APP_TEST_PASSWORD || 'defaulttestpass';
+      let accessToken = null;
+
+      try {
+        const tokenResponse = await axios.post(
+          `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/token`,
+          new URLSearchParams({
+            'username': testUsername,
+            'password': testPassword
+          }),
+          {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+          }
+        );
+        accessToken = tokenResponse.data.access_token;
+        headers = { 'Authorization': `Bearer ${accessToken}` };
+        console.log('Auth token obtained for generateUI');
+      } catch (tokenError: any) {
+        console.error('Failed to obtain auth token for generateUI:', tokenError);
+        return rejectWithValue('Authentication failed: ' + (tokenError.response?.data?.detail || tokenError.message));
       }
       
       // Prepare payload
@@ -102,8 +115,8 @@ export const generateUI = createAsyncThunk(
         style_preferences: stylePreferences
       };
       
-      // Determine which endpoint to use based on useSmartGeneration flag
-      const endpoint = useSmartGeneration ? 'generate-component-ui' : 'generate-ui';
+      // Always use the component generation endpoint now
+      const endpoint = 'generate-component-ui'; 
       console.log(`Using endpoint: ${process.env.REACT_APP_API_URL}/${endpoint}`);
       
       // Send request to API
@@ -115,15 +128,10 @@ export const generateUI = createAsyncThunk(
       
       console.log('API response received:', response.data);
       
-      if (useSmartGeneration) {
-        return {
-          config: response.data.config,
-          generationInfo: response.data.generationInfo || {}
-        };
+      if (response.data && response.data.config) {
+        return response.data;
       } else {
-        return {
-          config: response.data.config
-        };
+        throw new Error('Invalid response structure received from backend');
       }
     } catch (error: any) {
       console.error('Error generating UI:', error);
@@ -293,112 +301,182 @@ export const generateAppThunk = createAsyncThunk(
   }
 );
 
+// Add loadManualConfig Thunk
+export const loadManualConfig = createAsyncThunk(
+  'ui/loadManualConfig',
+  async (config: UIConfig, { rejectWithValue }) => {
+    try {
+      console.log('Dispatching loadManualConfig with config:', config);
+
+      // Simplified Auth: Assume we need a token
+      const testUsername = process.env.REACT_APP_TEST_USERNAME || 'testuser';
+      const testPassword = process.env.REACT_APP_TEST_PASSWORD || 'defaulttestpass';
+      let accessToken = null;
+      let headers = {};
+
+      try {
+        const tokenResponse = await axios.post(
+          `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/token`,
+          new URLSearchParams({
+            'username': testUsername,
+            'password': testPassword
+          }),
+          {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+          }
+        );
+        accessToken = tokenResponse.data.access_token;
+        headers = { 'Authorization': `Bearer ${accessToken}` };
+        console.log('Auth token obtained for loadManualConfig');
+      } catch (tokenError: any) {
+        console.error('Failed to obtain auth token for loadManualConfig:', tokenError);
+        return rejectWithValue('Authentication failed: ' + (tokenError.response?.data?.detail || tokenError.message));
+      }
+
+      const endpoint = `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/load-config-manual`;
+      console.log(`Posting to endpoint: ${endpoint}`);
+
+      // Post the raw config object
+      const response = await axios.post(
+        endpoint,
+        { config },
+        { headers }
+      );
+
+      console.log('Manual load API response received:', response.data);
+
+      if (response.data && response.data.config) {
+        return response.data;
+      } else {
+        throw new Error('Invalid response structure received from manual load endpoint');
+      }
+
+    } catch (error: any) {
+      console.error('Error loading manual config:', error);
+      let errorMessage = 'Failed to load manual configuration';
+      if (axios.isAxiosError(error) && error.response) {
+        errorMessage = `API Error (${error.response.status}): ${error.response.data?.detail || error.message}`;
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      return rejectWithValue(errorMessage);
+    }
+  }
+);
+
 // Create slice
 const uiSlice = createSlice({
   name: 'ui',
   initialState,
   reducers: {
-    setCurrentConfig: (state, action: PayloadAction<UIConfig>) => {
+    setCurrentConfig: (state, action: PayloadAction<UIConfig | null>) => {
       console.log('setCurrentConfig reducer called with:', action.payload);
       state.currentConfig = action.payload;
+      state.error = null;
     },
     clearCurrentConfig: (state) => {
       console.log('clearCurrentConfig reducer called');
       state.currentConfig = null;
     },
     updateComponent: (state, action: PayloadAction<{ componentId: string; updates: Partial<Component> }>) => {
-      if (!state.currentConfig) return;
+      if (!state.currentConfig || !state.currentConfig.components) return;
       
       const { componentId, updates } = action.payload;
       console.log(`updateComponent reducer called for component ${componentId}`);
       
-      // Helper function to recursively find and update a component
       const updateComponentRecursive = (components: Component[]): boolean => {
+        if (!Array.isArray(components)) return false;
         for (let i = 0; i < components.length; i++) {
+          if (typeof components[i] !== 'object' || components[i] === null) continue;
+
           if (components[i].id === componentId) {
-            components[i] = { ...components[i], ...updates };
+            components[i] = { ...components[i], ...updates, id: components[i].id, type: components[i].type };
             return true;
           }
           
-          if (components[i].children.length > 0) {
+          if (Array.isArray(components[i].children) && components[i].children.length > 0) {
             if (updateComponentRecursive(components[i].children)) {
               return true;
             }
           }
         }
-        
         return false;
       };
       
-      updateComponentRecursive(state.currentConfig.components);
+      updateComponentRecursive(state.currentConfig.components || []);
     },
     addComponent: (state, action: PayloadAction<{ parentId: string | null; component: Component }>) => {
       if (!state.currentConfig) return;
       
+      if (!Array.isArray(state.currentConfig.components)) {
+        state.currentConfig.components = [];
+      }
+
       const { parentId, component } = action.payload;
       
       if (!parentId) {
-        // Add to root level
         state.currentConfig.components.push(component);
         return;
       }
       
-      // Helper function to recursively find parent and add component
       const addComponentRecursive = (components: Component[]): boolean => {
+        if (!Array.isArray(components)) return false;
         for (let i = 0; i < components.length; i++) {
+          if (typeof components[i] !== 'object' || components[i] === null) continue;
+
           if (components[i].id === parentId) {
+            if (!Array.isArray(components[i].children)) {
+              components[i].children = [];
+            }
             components[i].children.push(component);
             return true;
           }
           
-          if (components[i].children.length > 0) {
+          if (Array.isArray(components[i].children) && components[i].children.length > 0) {
             if (addComponentRecursive(components[i].children)) {
               return true;
             }
           }
         }
-        
         return false;
       };
       
       addComponentRecursive(state.currentConfig.components);
     },
     removeComponent: (state, action: PayloadAction<string>) => {
-      if (!state.currentConfig) return;
+      if (!state.currentConfig || !state.currentConfig.components) return;
       
       const componentId = action.payload;
       
-      // Helper function to recursively find and remove a component
       const removeComponentRecursive = (components: Component[]): boolean => {
+        if (!Array.isArray(components)) return false;
         for (let i = 0; i < components.length; i++) {
+          if (typeof components[i] !== 'object' || components[i] === null) continue;
+
           if (components[i].id === componentId) {
             components.splice(i, 1);
             return true;
           }
           
-          if (components[i].children.length > 0) {
+          if (Array.isArray(components[i].children) && components[i].children.length > 0) {
             if (removeComponentRecursive(components[i].children)) {
               return true;
             }
           }
         }
-        
         return false;
       };
       
-      removeComponentRecursive(state.currentConfig.components);
+      removeComponentRecursive(state.currentConfig.components || []);
     },
     updateLayout: (state, action: PayloadAction<Partial<Layout>>) => {
       if (!state.currentConfig) return;
+      // Ensure layout object exists before spreading
+      if (!state.currentConfig.layout) {
+        // Initialize with an empty object matching the optional structure
+        state.currentConfig.layout = {}; 
+      }
       state.currentConfig.layout = { ...state.currentConfig.layout, ...action.payload };
-    },
-    updateTheme: (state, action: PayloadAction<Partial<Theme>>) => {
-      if (!state.currentConfig) return;
-      state.currentConfig.theme = { ...state.currentConfig.theme, ...action.payload };
-    },
-    updateFunctionality: (state, action: PayloadAction<Partial<Functionality>>) => {
-      if (!state.currentConfig) return;
-      state.currentConfig.functionality = { ...state.currentConfig.functionality, ...action.payload };
     },
   },
   extraReducers: (builder) => {
@@ -406,35 +484,39 @@ const uiSlice = createSlice({
       // Generate UI
       .addCase(generateUI.pending, (state) => {
         state.generatingUI = true;
+        state.loading = true;
         state.error = null;
-        // Clear the current config when starting a new generation
         state.currentConfig = null;
       })
       .addCase(generateUI.fulfilled, (state, action) => {
         state.generatingUI = false;
-        // Set the current config to the newly generated config, completely replacing any previous config
+        state.loading = false;
         state.currentConfig = action.payload.config;
+        console.log('generateUI fulfilled, set currentConfig:', state.currentConfig);
       })
       .addCase(generateUI.rejected, (state, action) => {
         state.generatingUI = false;
+        state.loading = false;
         state.error = action.payload as string;
+        state.currentConfig = null;
       })
       
-      // Generate App from Requirements
-      .addCase(generateAppFromRequirementsThunk.pending, (state) => {
-        console.log('generateAppFromRequirementsThunk.pending');
-        state.generatingUI = true;
+      // Load Manual Config
+      .addCase(loadManualConfig.pending, (state) => {
+        state.loading = true;
+        state.generatingUI = false;
         state.error = null;
+        state.currentConfig = null;
       })
-      .addCase(generateAppFromRequirementsThunk.fulfilled, (state, action) => {
-        console.log('generateAppFromRequirementsThunk.fulfilled with payload:', action.payload);
-        state.generatingUI = false;
-        state.currentConfig = action.payload;
+      .addCase(loadManualConfig.fulfilled, (state, action) => {
+        state.loading = false;
+        state.currentConfig = action.payload.config;
+        console.log('loadManualConfig fulfilled, set currentConfig:', state.currentConfig);
       })
-      .addCase(generateAppFromRequirementsThunk.rejected, (state, action) => {
-        console.log('generateAppFromRequirementsThunk.rejected with error:', action.payload);
-        state.generatingUI = false;
+      .addCase(loadManualConfig.rejected, (state, action) => {
+        state.loading = false;
         state.error = action.payload as string;
+        state.currentConfig = null;
       })
       
       // Fetch saved configs
@@ -446,7 +528,6 @@ const uiSlice = createSlice({
       .addCase(fetchSavedConfigs.fulfilled, (state, action) => {
         console.log('fetchSavedConfigs.fulfilled with payload:', action.payload);
         state.loading = false;
-        // Ensure savedConfigs is always an array
         state.savedConfigs = Array.isArray(action.payload) ? action.payload : [];
       })
       .addCase(fetchSavedConfigs.rejected, (state, action) => {
@@ -467,28 +548,16 @@ const uiSlice = createSlice({
         if (state.currentConfig) {
           state.currentConfig.id = action.payload.id;
         }
-        state.savedConfigs.push(action.payload);
+        const index = state.savedConfigs.findIndex(c => c.id === action.payload.id);
+        if (index !== -1) {
+          state.savedConfigs[index] = action.payload;
+        } else {
+          state.savedConfigs.push(action.payload);
+        }
       })
       .addCase(saveUIConfig.rejected, (state, action) => {
         console.log('saveUIConfig.rejected with error:', action.payload);
         state.loading = false;
-        state.error = action.payload as string;
-      })
-      
-      // Generate App
-      .addCase(generateAppThunk.pending, (state) => {
-        console.log('generateAppThunk.pending');
-        state.generatingUI = true;
-        state.error = null;
-      })
-      .addCase(generateAppThunk.fulfilled, (state, action) => {
-        console.log('generateAppThunk.fulfilled with payload:', action.payload);
-        state.generatingUI = false;
-        state.currentConfig = action.payload;
-      })
-      .addCase(generateAppThunk.rejected, (state, action) => {
-        console.log('generateAppThunk.rejected with error:', action.payload);
-        state.generatingUI = false;
         state.error = action.payload as string;
       });
   },
@@ -501,8 +570,6 @@ export const {
   addComponent,
   removeComponent,
   updateLayout,
-  updateTheme,
-  updateFunctionality,
 } = uiSlice.actions;
 
 export default uiSlice.reducer; 

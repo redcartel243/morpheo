@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { AppState } from '../../store/store';
-import { generateAppThunk } from '../../store/slices/uiSlice';
+import { generateUI, loadManualConfig, UIConfig } from '../../store/slices/uiSlice';
 import Card from '../ui/components/layout/Card';
 import Grid from '../ui/components/layout/Grid';
 import Text from '../ui/components/basic/Text';
@@ -13,12 +13,13 @@ export const UIGenerator: React.FC = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const [promptText, setPromptText] = useState('');
-  const [useSmartGeneration, setUseSmartGeneration] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const generatingUI = useSelector(
     (state: AppState) => state.ui.generatingUI
   );
+  const loading = useSelector((state: AppState) => state.ui.loading);
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,36 +32,77 @@ export const UIGenerator: React.FC = () => {
     setError(null);
     
     try {
-      // Create requirements object from the prompt
-      const requirements: AppRequirements = {
-        appType: '',
-        purpose: promptText,
-        features: '',
-        dataStructure: '',
-        uiPreferences: ''
-      };
-      
-      console.log('Dispatching generateAppThunk');
-      const result = await dispatch(generateAppThunk({
-        requirements,
-        useSmartGeneration
-      }) as any);
+      console.log('Dispatching generateUI thunk');
+      const result = await dispatch(generateUI({ prompt: promptText }) as any);
       
       if (result.error) {
         console.error('Error generating UI:', result.error);
         setError(result.error.message || 'Failed to generate UI');
       } else {
-        // Success - navigate to the preview
+        console.log('generateUI successful, navigating to preview...');
         navigate('/preview');
       }
-    } catch (error) {
-      console.error('Failed to generate UI:', error);
-      setError(error instanceof Error ? error.message : 'An error occurred while generating the UI');
+    } catch (err) {
+      console.error('Failed to generate UI dispatch:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred while generating the UI');
     }
   };
-  
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setError(null);
+    const reader = new FileReader();
+
+    reader.onload = async (e) => {
+      const content = e.target?.result;
+      if (typeof content !== 'string') {
+        setError('Failed to read file content.');
+        return;
+      }
+
+      try {
+        const parsedConfig = JSON.parse(content);
+        console.log('Parsed JSON config:', parsedConfig);
+
+        const result = await dispatch(loadManualConfig(parsedConfig) as any);
+
+        if (result.error) {
+          console.error('Error loading manual config:', result.error);
+          setError(result.error.message || 'Failed to load manual configuration');
+        } else {
+          console.log('Manual config loaded successfully, navigating to preview...');
+          navigate('/preview');
+        }
+      } catch (jsonError) {
+        console.error('Error parsing JSON:', jsonError);
+        setError('Invalid JSON file. Please select a valid configuration file.');
+      }
+    };
+
+    reader.onerror = () => {
+      setError('Error reading file.');
+    };
+
+    reader.readAsText(file);
+
+    event.target.value = ''; 
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
+      <input 
+        type="file"
+        accept=".json"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        style={{ display: 'none' }}
+      />
       <Grid container spacing={4}>
         <Grid item xs={12} lg={10} xl={8} style={{ margin: '0 auto' }}>
           <Card>
@@ -78,24 +120,12 @@ export const UIGenerator: React.FC = () => {
                   value={promptText}
                   onChange={(e) => setPromptText(e.target.value)}
                   rows={5}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
                   placeholder="e.g., A dashboard for tracking daily expenses with a form to add new expenses and a chart to visualize spending trends"
                 />
               </div>
               
               <div className="mb-6">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={useSmartGeneration}
-                    onChange={(e) => setUseSmartGeneration(e.target.checked)}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <span className="text-sm text-gray-700 dark:text-gray-300">Use Smart Generation mode</span>
-                </label>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-6">
-                  Smart Generation uses advanced component intelligence for better interactivity and dynamic elements in your application.
-                </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                   <strong>Pro tip:</strong> For visual elements like backgrounds, you can either:
                   <br />• Specify colors or CSS effects (e.g., "calculator with a colorful gradient background")
@@ -109,11 +139,11 @@ export const UIGenerator: React.FC = () => {
                 </div>
               )}
               
-              <div className="flex flex-col sm:flex-row justify-between items-center">
+              <div className="flex flex-col sm:flex-row justify-between items-center space-y-4 sm:space-y-0 sm:space-x-4">
                 <button
                   type="submit"
                   disabled={generatingUI || !promptText.trim()}
-                  className="w-full sm:w-auto mb-4 sm:mb-0 px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {generatingUI ? (
                     <div className="flex items-center justify-center">
@@ -128,6 +158,15 @@ export const UIGenerator: React.FC = () => {
                   )}
                 </button>
                 
+                <button
+                  type="button"
+                  onClick={handleImportClick}
+                  disabled={loading}
+                  className="w-full sm:w-auto px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {loading ? 'Loading...' : 'Import JSON'}
+                </button>
+
                 <button
                   type="button"
                   onClick={() => navigate('/guided')}

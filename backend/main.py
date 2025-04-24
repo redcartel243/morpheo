@@ -508,21 +508,34 @@ async def generate_component_ui(
     current_user: User = Depends(get_current_active_user)
 ):
     # This correctly calls component_service, which uses the new SDK pattern
-        print("Received request for /generate-component-ui endpoint")
-        app_config = component_service.generate_app_config(request.prompt)
-        
-        # Create a unique ID for this configuration
-        config_id = str(uuid.uuid4())
-        now = datetime.utcnow()
-        
-        # Log successful generation
-        print(f"Successfully generated app config with {len(app_config.get('components', []))} components")
-        
-        # Return the generated configuration
-        return {
-            "id": config_id,
-            "config": app_config
-        }
+    print("Received request for /generate-component-ui endpoint")
+    app_config = component_service.generate_app_config(request.prompt)
+    
+    # Create a unique ID for this configuration
+    config_id = str(uuid.uuid4())
+    now = datetime.utcnow()
+    
+    # Log successful generation
+    print(f"Successfully generated app config with {len(app_config.get('components', []))} components")
+    
+    # Add explicit JSON serialization check
+    try:
+        import json
+        json_string = json.dumps({"id": config_id, "config": app_config})
+        print("App config successfully serialized to JSON string internally.")
+    except Exception as e:
+        print(f"ERROR: Failed to serialize app_config to JSON: {e}")
+        # Raise an HTTPException to send a proper JSON error response
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to serialize generated configuration: {e}"
+        )
+    
+    # Return the generated configuration
+    return {
+        "id": config_id,
+        "config": app_config
+    }
 
 @app.get("/ui-configs", response_model=List[UIConfig])
 async def get_ui_configs(current_user: User = Depends(get_current_active_user)):
@@ -1507,3 +1520,49 @@ async def search_endpoint(request_data: dict = Body(...)):
         return JSONResponse(status_code=200, content={"result": response_text})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) 
+
+# --- Add ManualConfigRequest Model --- 
+class ManualConfigRequest(BaseModel):
+    config: Dict[str, Any]
+# --- End Model --- 
+
+# --- Add New Manual Load Endpoint --- 
+@app.post("/load-config-manual", response_model=Dict[str, Any])
+async def load_config_manual(
+    request: ManualConfigRequest, # Use the new model
+    current_user: User = Depends(get_current_active_user) # Authenticate
+):
+    """
+    Load and process a manually provided UI configuration JSON, skipping AI generation.
+    """
+    print("Received request for /load-config-manual endpoint")
+    raw_config = request.config
+
+    if not raw_config or not isinstance(raw_config, dict):
+        raise HTTPException(status_code=400, detail="Invalid or empty configuration provided in the request body.")
+
+    try:
+        # Use the component_service to process the raw config
+        # Provide a placeholder user request string as it's not available here
+        processed_config = component_service._process_app_config(raw_config, "Manually loaded configuration")
+
+        # Create a unique ID for this configuration instance
+        config_id = str(uuid.uuid4())
+        now = datetime.utcnow()
+
+        print(f"Successfully processed manually loaded config with {len(processed_config.get('components', []))} components")
+
+        # Return the processed configuration
+        return {
+            "id": config_id,
+            "config": processed_config
+        }
+
+    except Exception as e:
+        print(f"Error processing manual config: {e}")
+        traceback.print_exc() # Log the full error for debugging
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process the provided configuration: {str(e)}"
+        )
+# --- End New Endpoint --- 

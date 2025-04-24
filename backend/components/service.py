@@ -182,32 +182,33 @@ class ComponentService:
                 app_config = self._process_app_config(app_config, user_request)
             
                 # --- Ensure essential input handlers exist --- 
-                print("Ensuring essential input handlers exist...")
-                self._ensure_input_onchange_handlers(app_config.get("components", []))
-                print("Finished ensuring input handlers.")
-                # --- End Input Handler Check ---
+                # print("Ensuring essential input handlers exist...")
+                # self._ensure_input_onchange_handlers(app_config.get("components", []))
+                # print("Finished ensuring input handlers.")
+                # --- REMOVED Input Handler Check ---
 
                 # --- Translate IR methods to structured call objects --- 
-                print("Translating all IR methods to structured call objects...")
-                self._translate_all_ir_methods(app_config.get("components", []))
-                print("Finished IR translation.")
-                # --- End Translation ---
-            
-                return app_config # Moved return inside the try block
-                
-            except json.JSONDecodeError as e:
+                # print("Translating all IR methods to structured call objects...")
+                # self._translate_all_ir_methods(app_config.get("components", []))
+                # print("Finished IR translation.")
+                # --- REMOVED IR Translation --- 
+
+                return app_config # Return the processed app config
+
+            except json.JSONDecodeError as e: # Top-level JSON decode error handling
                 print(f"Failed to parse JSON response: {e}")
                 print("Original Response text:", response_text)
                 return self._create_ai_fallback_app_config("Failed to parse JSON response")
-            except Exception as e:
-                print(f"Error processing AI response: {e}")
-                return self._create_ai_fallback_app_config(f"Error: {str(e)}")
+            except Exception as e: # Catch other processing or API errors
+                print(f"Error in generate_app_config: {str(e)}")
+                traceback.print_exc()
+                return self._create_ai_fallback_app_config(f"API or processing error: {str(e)}")
             
         except Exception as e:
             print(f"Error in generate_app_config: {str(e)}")
             traceback.print_exc()
             return self._create_ai_fallback_app_config(f"API or processing error: {str(e)}")
-            
+    
     def _simplify_schema_for_api(self, schema: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create a simplified schema that avoids circular references and nested complexity.
@@ -239,9 +240,9 @@ class ComponentService:
                                     "placeholder": {"type": "string"}
                                 }
                             },
-                            "styles": {
+              "styles": {
                                 "type": "object",
-                                "properties": {
+                  "properties": {
                                     "backgroundColor": {"type": "string"},
                                     "color": {"type": "string"},
                                     "padding": {"type": "string"},
@@ -266,7 +267,7 @@ class ComponentService:
                                         "type": "array",
                                         "items": {
                                             "type": "object", 
-                                            "properties": {
+              "properties": {
                                                 "type": {"type": "string"},
                                                 "targetId": {"type": "string"},
                                                 "propertyName": {"type": "string"}
@@ -286,7 +287,7 @@ class ComponentService:
                                 "type": "array",
                                 "items": {
                                     "type": "object",
-                                    "properties": {
+              "properties": {
                                         "id": {"type": "string"},
                                         "type": {"type": "string"},
                                         "properties": {
@@ -436,7 +437,7 @@ class ComponentService:
                     else: # Correct indentation for this else
                         print("Cannot find text in candidates structure")
                         response_text = "" # Assign empty string instead of returning
-                else:
+                else: # Correct indentation for this else
                     print("Response has no candidates")
                     response_text = "" # Assign empty string
             
@@ -545,311 +546,19 @@ class ComponentService:
             with open(base_template_path, "r", encoding="utf-8") as f:
                 base_template = f.read()
         else:
-            # Fall back to default template if file doesn't exist
-            base_template = """
-        # MORPHEO UI CONFIGURATION GENERATOR
+            # Fallback if file doesn't exist - Log Error and Return Empty Prompt
+            logger.error(f"ERROR: Prompt template file not found at {base_template_path}. Cannot generate UI.")
+            print(f"ERROR: Prompt template file not found at {base_template_path}. Returning empty prompt.")
+            base_template = "" # Set to empty string instead of large fallback
+            # Optionally, could raise an exception here instead of returning empty
+            # raise FileNotFoundError(f"Prompt template file not found: {base_template_path}")
 
-        ## USER REQUEST
-{{user_request}}
+        # If the base template ended up empty (because the file didn't load), return early
+        if not base_template:
+            return "" # Return empty string to prevent API call with no prompt
+        
+        # --- Rest of the prompt enhancement logic --- 
 
-        ## AVAILABLE COMPONENTS
-        
-        Here is a list of available base components. Use these as building blocks. 
-        Remember to use generic components; the AI provides the specific logic.
-        
-        - **text**: Displays text content. Can be styled for headings (e.g., `fontSize: '24px', fontWeight: 'bold'`), paragraphs, labels, etc. 
-          - Properties: `content` (string), `variant` (optional string, e.g., 'h1', 'p', 'label')
-        - **container**: A flexible layout element to group other components. Supports flexbox/grid styles.
-          - Properties: None specific, relies on children and styles.
-        - **button**: An interactive button.
-          - Properties: `content` (string, button text), `variant` (optional string for style theme)
-        - **text-input**: Field for single-line text entry.
-          - Properties: `placeholder` (string), `value` (string), `label` (string), `type` (string, e.g., 'text', 'password', 'email')
-        - **textarea**: Field for multi-line text entry.
-          - Properties: `placeholder` (string), `value` (string), `label` (string), `rows` (number)
-        - **list**: Displays a list of items. Items can be simple strings or complex component structures.
-          - Properties: `items` (array), `renderItem` (optional function string to customize item display)
-        - **image**: Displays an image.
-          - Properties: `src` (string URL), `alt` (string)
-        - **video**: Displays video, potentially from a camera feed.
-          - Properties: `src` (string URL), `useCamera` (boolean), `facingMode` (string 'user'/'environment'), `autoPlay` (boolean), `muted` (boolean)
-        - **canvas**: A drawing surface, often used as an overlay for video or for custom visualizations.
-          - Properties: `width` (number), `height` (number), `overlayFor` (string, ID of element to overlay), `transparent` (boolean)
-        - **checkbox**: A checkbox input.
-          - Properties: `label` (string), `checked` (boolean)
-        - **radio**: A radio button input (usually grouped).
-          - Properties: `label` (string), `checked` (boolean), `value` (string), `name` (string for grouping)
-        - **select**: A dropdown selection input.
-          - Properties: `label` (string), `options` (array of {value: string, label: string}), `value` (string)
-        - **map**: Displays an interactive map.
-          - Properties: `latitude`, `longitude`, `zoom`, `markers` (array), `apiKey` (string)
-        - **script**: Embeds custom JavaScript logic (Use sparingly! Prefer component methods).
-          - Properties: `content` (string of JS code) or `src` (string URL)
-        
-        *(This list might not be exhaustive, adapt based on the user request if other logical components seem necessary, but prefer these common ones)*
-
-        ## CORE PRINCIPLES
-        Morpheo is an AI-driven component system with these fundamental principles:
-        
-        1. **Zero Application-Specific Logic**: 
-           - No hardcoded calculator logic, form validation, or app-specific functionality
-           - All application behavior must be generated by you (the AI), not pre-built
-        
-        2. **Pure AI-Driven Generation**:
-           - You analyze requests and determine needed components
-           - You create connections and transformations
-           - You apply behaviors appropriate to the use case
-        
-        3. **Generic Component System**:
-           - Components are generic building blocks
-           - Behaviors should be reusable across applications
-           - Component behavior should adapt to the specific context
-        
-        ## YOUR TASK
-        Generate a complete JSON configuration for a UI application that satisfies the user's request.
-        
-        DO NOT use templates or predefined application structures. Instead:
-        - Analyze what components would best serve the user's needs
-        - Create a component tree with appropriate nesting and organization
-        - Define component properties, styles, and methods
-
-        ## DYNAMIC UPDATES & INTERACTIONS: INTERMEDIATE REPRESENTATION (IR)
-        
-        **IMPORTANT: DO NOT GENERATE JAVASCRIPT STRINGS FOR METHODS.**
-        
-        Instead, for component `methods`, define the logic using a structured **Intermediate Representation (IR)**. Each event handler (e.g., `click`, `change`) should map to an **array of action objects**.
-        
-        **IR Structure:**
-        - Each method (e.g., `"click"`) maps to an array `[]` of action objects.
-        - Each action object has a `"type"` field indicating the action (e.g., `"GET_PROPERTY"`, `"IF"`, `"ADD_COMPONENT"`).
-        - Other fields provide parameters for the action (e.g., `targetId`, `propertyName`, `value`, `condition`, `config`).
-        
-        **Available IR Action Types:**
-        
-        *   **Data Manipulation:**
-            *   `GET_PROPERTY`: Reads a property from a component.
-                *   Params: `targetId` (string), `propertyName` (string), `assignTo` (string, variable name).
-            *   `SET_PROPERTY`: Writes a property to a component.
-                *   Params: `targetId` (string), `propertyName` (string), `value` (Value object).
-            *   `GET_EVENT_DATA`: Extracts data from the triggering event.
-                *   Params: `path` (string, e.g., "target.value", "key"), `assignTo` (string).
-            *   `SET_VARIABLE`: Sets a temporary variable.
-                *   Params: `variableName` (string), `value` (Value object).
-        *   **Component Lifecycle:**
-            *   `ADD_COMPONENT`: Adds a new component dynamically.
-                *   Params: `parentId` (string), `config` (Component config object, can contain nested IR methods), `assignIdTo` (optional string, variable name for the new ID).
-            *   `REMOVE_COMPONENT`: Removes a component.
-                *   Params: `targetId` (Value object or string selector).
-            *   `UPDATE_COMPONENT`: Merges multiple property/style updates.
-                *   Params: `targetId` (string), `updates` (object: { properties: {...}, styles: {...} }).
-        *   **Interaction & Logic:**
-            *   `CALL_METHOD`: Calls another component's method.
-                *   Params: `targetId` (string), `methodName` (string), `args` (array of Value objects).
-            *   `IF`: Conditional execution.
-                *   Params: `condition` (Condition object), `then` (array of actions), `else` (optional array of actions).
-            *   `GENERATE_ID`: Creates a unique ID string.
-                *   Params: `assignTo` (string).
-        *   **Debugging:**
-            *   `LOG`: Outputs values to the console.
-                *   Params: `message` (Value object or string literal).
-
-        **Value Representation (for `value`, `args`, `message` fields):**
-        
-        - `{ "type": "LITERAL", "value": "string" | 123 | true | null }`
-        - `{ "type": "VARIABLE", "name": "varName" }` (References a variable set by `assignTo` or `SET_VARIABLE`).
-        - `{ "type": "CONTEXT", "path": "selfId" | "parentId" | "event" }` (`parentId` refers to the component containing the one whose method is executing).
-        - `{ "type": "PROPERTY_REF", "targetId": "#id", "propertyName": "prop" }` (Direct reference).
-
-        **Condition Representation (for `IF` condition):**
-        
-        - `{ "type": "EQUALS" | "NOT_EQUALS" | "GREATER_THAN" | ... , "left": Value, "right": Value }`
-        - `{ "type": "TRUTHY" | "FALSY", "value": Value }`
-        - `{ "type": "AND" | "OR", "conditions": [ Condition, Condition, ... ] }`
-        - `{ "type": "NOT", "condition": Condition }`
-        
-        **Example IR: Todo List Add Button Click**
-        ```json
-        {
-          "id": "add-button",
-          "type": "button",
-          "properties": { "content": "Add Task" },
-          "methods": {
-            "click": [
-              { 
-                "type": "GET_PROPERTY", 
-                "targetId": "#new-todo-input", 
-                "propertyName": "value", 
-                "assignTo": "taskText" 
-              },
-              {
-                "type": "IF",
-                "condition": { "type": "TRUTHY", "value": { "type": "VARIABLE", "name": "taskText" } },
-                "then": [
-                  { "type": "GENERATE_ID", "assignTo": "newIdPrefix" },
-                  { 
-                    "type": "ADD_COMPONENT", 
-                    "parentId": "#todo-list",
-                    "config": {
-                      "id": { "type": "EXPRESSION", "code": "'todo-' + newIdPrefix" }, // Placeholder for translator
-              "type": "container",
-                      "styles": { "display": "flex", "alignItems": "center", "padding": "5px 0", "borderBottom": "1px solid #eee" },
-              "children": [
-                {
-                          "id": { "type": "EXPRESSION", "code": "'cb-' + newIdPrefix" },
-                          "type": "checkbox", 
-                          "styles": { "marginRight": "10px" } 
-                        },
-                        { 
-                          "id": { "type": "EXPRESSION", "code": "'text-' + newIdPrefix" },
-                  "type": "text",
-                          "properties": { "content": { "type": "VARIABLE", "name": "taskText" } } 
-                        },
-                        { 
-                          "id": { "type": "EXPRESSION", "code": "'delete-' + newIdPrefix" },
-                          "type": "button", 
-                          "properties": { "content": "Delete" },
-                          "methods": {
-                            "click": [ // Nested IR!
-                              { 
-                                "type": "REMOVE_COMPONENT", 
-                                "targetId": { "type": "CONTEXT", "path": "parentId" } // Removes the whole list item container
-                              }
-                            ]
-                          } 
-                        }
-                      ]
-                    }
-                  },
-                  { 
-                    "type": "SET_PROPERTY", 
-                    "targetId": "#new-todo-input", 
-                    "propertyName": "value", 
-                    "value": { "type": "LITERAL", "value": "" } 
-                  }
-                ]
-              }
-            ]
-          }
-        }
-        ```
-
-        **Example IR: Simple Counter Button Click**
-        ```json
-        {
-          "id": "counter-button",
-          "type": "button",
-          "properties": { "content": "Click me: 0", "count": 0 }, // Store state in properties
-          "methods": {
-            "click": [
-              {
-                "type": "GET_PROPERTY",
-                "targetId": "#counter-button", // Reference self
-                "propertyName": "count",
-                "assignTo": "currentCount"
-              },
-              { 
-                "type": "SET_VARIABLE", // Need to calculate new value
-                "variableName": "newCount",
-                // Simple expressions might need a specific action type later
-                "value": { "type": "EXPRESSION", "code": "currentCount + 1" } 
-              },
-              {
-                "type": "SET_PROPERTY",
-                "targetId": "#counter-button",
-                "propertyName": "count",
-                "value": { "type": "VARIABLE", "name": "newCount" }
-              },
-              {
-                "type": "SET_PROPERTY",
-                "targetId": "#counter-button",
-                "propertyName": "content", // Update button text
-                "value": { "type": "EXPRESSION", "code": "'Click me: ' + newCount" } 
-              }
-            ]
-          }
-        }
-        ```
-
-        ## COMPONENT METHOD AND EVENT HANDLING
-
-        - Define interactions within the `methods` property of components using the **Intermediate Representation (IR)** shown above.
-        - Each event (e.g., `click`) maps to an array of IR action objects.
-        - **DO NOT generate JavaScript code strings directly in the methods.**
-        - Place logic on the component it most closely relates to.
-        - Keep IR sequences focused on specific tasks.
-
-        ## CRITICAL REQUIREMENTS FOR COMPONENTS
-        
-        ALL components must include these elements:
-        
-        1. **Properties with visible content:**
-           - Text components must have: `"properties": {"content": "Some text"}`
-           - Buttons must have: `"properties": {"content": "Button Text"}`
-           - Inputs must have: `"properties": {"placeholder": "Enter text..."}`
-           - Images must have: `"properties": {"src": "url", "alt": "description"}`
-        
-        2. **Interactive components must have methods:**
-           - Buttons REQUIRE click handlers: `"methods": {"click": [...]}`
-           - Inputs should have change/input handlers: `"methods": {"change": [...]}`
-        
-        3. **Todo app specific requirements:**
-           - Task input field needs a placeholder property
-           - Add button needs text content AND a click handler that:
-             - Gets the input value
-             - Creates a new task item
-             - Adds it to the todo list
-             - Clears the input field
-           - Todo items should have delete functionality
-        
-        FAILURE TO INCLUDE PROPERTIES AND METHODS WILL RESULT IN A NON-FUNCTIONAL UI!
-        
-        ## RESPONSE FORMAT
-        Your response should be a complete JSON object. Ensure the `methods` field for components follows the **IR structure** described above.
-        ```json
-        {
-          "app": { ... },
-          "layout": { ... },
-          "components": [
-            {
-              "id": "unique-id",
-              "type": "component-type",
-              // ... other properties ...
-              "methods": { 
-                "click": [ /* Array of IR action objects */ ],
-                "change": [ /* Array of IR action objects */ ] 
-                // ... other events ...
-              },
-              "children": [ ... ]
-            }
-          ]
-        }
-        ```
-
-        ## RESPONSE FORMAT
-        You MUST call the `ApiAppConfig` function with the generated configuration data as arguments. The arguments MUST conform to the `ApiAppConfig` schema.
-        ```json
-        {
-          "app": { ... }, // Conforms to ApiAppInfo
-          "layout": { ... }, // Conforms to ApiLayout
-          "components": [ // Conforms to list[ApiComponent]
-            {
-              "id": "unique-id",
-              "type": "component-type",
-              // ... other properties ...
-              "methods": { 
-                "click": [ /* Array of IR action objects */ ],
-                "change": [ /* Array of IR action objects */ ] 
-                // ... other events ...
-              },
-              "children": [ ... ]
-            }
-          ]
-        }
-        ```
-
-        IMPORTANT: DO NOT RESPOND WITH RAW JSON. YOU MUST CALL THE `ApiAppConfig` FUNCTION USING THE GENERATED CONFIGURATION AS ARGUMENTS. NO EXPLANATIONS OR OTHER TEXT.
-"""
-        
         # Load camera instructions if needed
         camera_instructions = ""
         if is_camera_app:
@@ -880,26 +589,26 @@ class ComponentService:
                     camera_instructions += "5. **ALWAYS provide status feedback** during camera initialization and processing\n"
                     camera_instructions += "6. **USE generic terminology** like \"Media Analysis\" or \"Object Detection\" instead of domain-specific terms\n"
                     camera_instructions += "7. **IMPLEMENT proper cleanup** when stopping camera access\n"
-        
+
         # Prepare the component list as a JSON string
         components_json = json.dumps(ui_components, indent=2)
-        
+
         # Replace placeholder values in the template
         prompt = base_template.replace("{{user_request}}", user_request)
-        
+
         # Insert camera instructions if this is a camera-based application
         if is_camera_app and camera_instructions:
             # Find the CORE PRINCIPLES section and insert camera instructions after it
             core_principles_end = prompt.find("## YOUR TASK")
             if core_principles_end != -1:
                 prompt = prompt[:core_principles_end] + camera_instructions + prompt[core_principles_end:]
-        
+
         # Log the prompt to a file for debugging
         with open("prompt_log.txt", "a", encoding="utf-8") as log_file:
             log_file.write(f"--- Prompt at {datetime.datetime.now()} ---\n")
             log_file.write(prompt)
             log_file.write("\n--- End of Prompt ---\n\n")
-        
+
         return prompt
     
     def _create_ai_fallback_app_config(self, error_message: str) -> Dict[str, Any]:
@@ -1085,11 +794,11 @@ class ComponentService:
         cleaned_content = cleaned_content.replace("\\'", "'")
         
         # NEW: Aggressively replace invalid backslashes NOT part of standard JSON escapes
-        # This aims to fix errors like "Invalid \escape"
+        # This aims to fix errors like "Invalid \\escape"
         did_regex_work = False
         try:
-            pattern = r'\\([^"\\/bfnrtu])' # Pattern to find \ followed by a non-escape char
-            replacement = r'\\\\\1'  # Replace with \\ followed by the char
+            pattern = r'\\([^"\\/bfnrtu])' # Pattern to find \\ followed by a non-escape char
+            replacement = r'\\\\\1'  # Replace with \\\\ followed by the char
             
             # Use re.subn to get count and limit potential runaway replacements
             cleaned_content, num_replacements = re.subn(pattern, replacement, cleaned_content, count=10000) 
@@ -1114,7 +823,7 @@ class ComponentService:
                         new_content.append('\\') # Append the second backslash
                         new_content.append(next_char) # Append the character that followed
                         escaped_count += 1
-                        i += 2 # Skip original \ and the next char
+                        i += 2 # Skip original \\ and the next char
                     else:
                         # Valid escape sequence (e.g., \", \\, \n) or start of unicode (\u)
                         new_content.append(char) # Append original backslash
@@ -1476,7 +1185,7 @@ class ComponentService:
                     condition_js = translate_condition(condition_obj)
                     
                     # Recursively translate the 'then' block
-                    # Pass current declared_vars to maintain scope, but changes won't propagate back up easily yet
+                    # Pass current declared_vars to maintain scope, but changes won't propagate back easily yet
                     # Need a more robust scope handling mechanism for nested blocks later
                     then_js_body = self._translate_ir_to_js(then_actions, component_id, parent_id) # Simplified call for now
                     then_block = "\n".join([f"  {l}" for l in then_js_body.splitlines()]) # Indent
@@ -2271,234 +1980,6 @@ class ComponentService:
         app_config["components"] = components
         return app_config
         
-    def _translate_ir_methods_to_js(self, components: List[Dict[str, Any]]) -> None:
-        """
-        Translate IR methods to JavaScript function strings.
-        
-        Args:
-            components: List of components to process
-        """
-        for component in components:
-            component_id = component.get("id", "unknown")
-            
-            # Process children recursively first
-            if "children" in component and isinstance(component["children"], list):
-                self._translate_ir_methods_to_js(component["children"])
-            
-            # Process methods if they exist
-            if "methods" in component and isinstance(component["methods"], dict):
-                for method_name, method_value in list(component["methods"].items()):
-                    # Check if the method is an IR array that needs translation
-                    if isinstance(method_value, list):
-                        # Translate IR to JavaScript code
-                        js_code = self._translate_ir_to_js_string(method_value, component_id)
-                        # Replace the IR array with a JavaScript function string
-                        component["methods"][method_name] = js_code
-                        
-    def _translate_ir_to_js_string(self, ir_actions: List[Dict[str, Any]], component_id: str) -> str:
-        """Translate IR actions to JavaScript code string."""
-        if not ir_actions:
-            return "function(event) { console.log('No actions defined for this method'); }"
-
-        js_code_lines = [] # Use a list to build the code body
-        declared_vars = set() # Keep track of declared variables
-
-        # Process IR actions using generic logic
-        for action in ir_actions:
-            action_type = action.get("type")
-            line = "" # Initialize line for each action
-            assign_to_var = action.get("resultVariable") # Corrected key name
-            var_assignment = ""
-            
-            if assign_to_var:
-                # Use 'let' to allow potential reassignment (though ideally IR avoids this)
-                if assign_to_var not in declared_vars:
-                    var_assignment = f"let {assign_to_var} = "
-                    declared_vars.add(assign_to_var)
-                else:
-                    # Variable already declared, just assign
-                    var_assignment = f"{assign_to_var} = "
-
-            if action_type == "GET_PROPERTY":
-                target_id_js = json.dumps(action.get("targetId"))
-                prop_name_js = json.dumps(action.get("propertyName"))
-                # REMOVE redundant assignment if this variable is currentStyles and already exists
-                if assign_to_var == "currentStyles" and "currentStyles" in declared_vars:
-                     line = f"getComponentProperty({target_id_js}, {prop_name_js})"
-                     js_code_lines.append(f"  currentStyles = {line};") # Reassign using let
-                     line = None # Prevent adding the line again below
-                     assign_to_var = None # Handled reassignment
-                else:
-                     line = f"getComponentProperty({target_id_js}, {prop_name_js})"
-                
-            elif action_type == "ADD_ITEM":
-                target_id_js = json.dumps(action.get("targetId"))
-                item_value_obj = action.get("itemValue") # Assuming itemValue can be complex
-                value_js = self._value_to_js(item_value_obj, declared_vars)
-                line = f"addItem({target_id_js}, {value_js})" # Assuming addItem API exists
-                assign_to_var = None # addItem likely doesn't return assignable value
-
-            elif action_type == "SET_PROPERTY":
-                target_id_js = json.dumps(action.get("targetId"))
-                prop_name_js = json.dumps(action.get("propertyName"))
-                prop_name_str = action.get("propertyName", "") # Get property name as string
-                new_value_obj = action.get("newValue")
-
-                # Check if we are setting a method property and the value is IR
-                is_method_prop = prop_name_str.startswith("methods.") or prop_name_str.startswith("events.")
-                is_ir_list = isinstance(new_value_obj, list)
-
-                if is_method_prop and is_ir_list:
-                    print(f"Recursively translating nested IR for property: {prop_name_str}")
-                    # Recursively translate the nested IR list into a JS function string
-                    # Pass the target component's ID as context for the nested function
-                    nested_js_func_string = self._translate_ir_to_js_string(new_value_obj, action.get("targetId", component_id))
-                    # Ensure the resulting function string is properly escaped to be embedded as a JS string literal
-                    value_js = json.dumps(nested_js_func_string)
-                    print(f"Generated nested function string literal: {value_js[:100]}...") # Log preview
-                elif isinstance(new_value_obj, dict) and "condition" in new_value_obj and "trueValue" in new_value_obj and "falseValue" in new_value_obj:
-                    # --- Handle conditional logic evaluation ---
-                    print(f"Translating conditional newValue for {prop_name_js}")
-                    condition_str = new_value_obj.get("condition", "false")
-                    true_val_obj = new_value_obj.get("trueValue")
-                    false_val_obj = new_value_obj.get("falseValue")
-
-                    processed_condition = condition_str
-                    # Corrected Regex: Find $ followed by variable name
-                    # Match group 1 captures the variable name *without* the $
-                    # Ensure we are replacing the *entire* $variable string
-                    for match in re.finditer(r'\$([a-zA-Z_][a-zA-Z0-9_]*)', condition_str):
-                        var_name = match.group(1) # Get the name without the $
-                        variable_token = match.group(0) # Get the full token like $varName
-                        if var_name in declared_vars:
-                            # Replace the whole $variable token with just the variable name
-                            processed_condition = processed_condition.replace(variable_token, var_name)
-                        else:
-                            print(f"Warning: Conditional referenced undeclared variable '{var_name}'. Using null.")
-                            # Replace the whole $variable token with 'null'
-                            processed_condition = processed_condition.replace(variable_token, 'null')
-                    
-                    true_js = self._value_to_js(true_val_obj, declared_vars)
-                    false_js = self._value_to_js(false_val_obj, declared_vars)
-                    
-                    value_js = f"({processed_condition} ? {true_js} : {false_js})"
-                    print(f"Generated ternary: {value_js}")
-                elif isinstance(new_value_obj, dict) and new_value_obj.get("type") == "GET_PROPERTY":
-                    # --- Handle direct GET_PROPERTY as value ---
-                    print(f"Translating GET_PROPERTY newValue for {prop_name_js}")
-                    get_target_id_js = json.dumps(new_value_obj.get("targetId"))
-                    get_prop_name_js = json.dumps(new_value_obj.get("propertyName"))
-                    value_js = f"getComponentProperty({get_target_id_js}, {get_prop_name_js})"
-                else:
-                    # --- Standard value translation ---
-                    value_js = self._value_to_js(new_value_obj, declared_vars)
-                     
-                line = f"setComponentProperty({target_id_js}, {prop_name_js}, {value_js})"
-                assign_to_var = None # setComponentProperty doesn't assign
-
-            elif action_type == "LOG_MESSAGE":
-                message_obj = action.get("message")
-                # Convert the message object/string to a JS loggable value
-                # This needs to handle variables within the string if message_obj is a string
-                if isinstance(message_obj, str):
-                    # Use regex to find all $variables and build a template literal
-                    parts = []
-                    last_index = 0
-                    for match in re.finditer(r'\$([a-zA-Z_][a-zA-Z0-9_]*)', message_obj):
-                        var_name = match.group(1)
-                        start, end = match.span()
-                        # Add the literal part before the variable
-                        parts.append(json.dumps(message_obj[last_index:start]))
-                        # Add the variable reference (check if declared)
-                        if var_name in declared_vars:
-                            parts.append(var_name)
-                        else:
-                            print(f"Warning: LOG_MESSAGE referenced undeclared variable '{var_name}'. Using null.")
-                            parts.append("null")
-                        last_index = end
-                    # Add the remaining literal part after the last variable
-                    parts.append(json.dumps(message_obj[last_index:]))
-                    # Join parts with + for JS concatenation
-                    value_js = " + ".join(filter(None, parts)) # Filter out empty strings from json.dumps("")
-                    # If only one part (no variables found), remove quotes from json.dumps
-                    if len(parts) == 1 and value_js.startswith('"') and value_js.endswith('"'):
-                         value_js = value_js[1:-1]
-                         value_js = json.dumps(value_js.replace('\"' ,'"').replace("\\'", "'")) # re-escape correctly
-
-                else:
-                    # If message_obj is not a string, translate it normally
-                    value_js = self._value_to_js(message_obj, declared_vars)
-                    
-                line = f"console.log({value_js})"
-                assign_to_var = None
-                
-            # --- Add other generic action type handlers here --- 
-            elif action_type == "TOGGLE_STYLE": # Example generic handler
-                target_id_js = json.dumps(action.get("targetId"))
-                style_name_js = json.dumps(action.get("styleName"))
-                style_value_js = json.dumps(action.get("styleValue"))
-                # This requires a frontend function `toggleComponentStyle`
-                line = f"toggleComponentStyle({target_id_js}, {style_name_js}, {style_value_js})" 
-                assign_to_var = None
-
-            else:
-                print(f"Warning: Unsupported IR action type in _translate_ir_to_js_string: {action_type}")
-                line = f"console.warn('Unsupported IR action: {action_type}')"
-                assign_to_var = None
-            
-            # Append the generated line
-            if line is not None: # Check if line was set (it's None for the handled reassignment case)
-                 js_code_lines.append(f"  {var_assignment}{line};")
-
-        # Combine lines and wrap in function
-        js_code_body = "\\n".join(js_code_lines)
-        return f"function(event) {{\\n{js_code_body}\\n}}"
-
-    def _value_to_js(self, value_obj: Any, declared_vars: set) -> str:
-        """Helper to convert IR value types/variables/objects to JS string."""
-        # --- REMOVED malformed conditional object handling, should be handled in SET_PROPERTY translation ---
-        # if isinstance(value_obj, dict) and "condition" in value_obj and "trueValue" in value_obj and "falseValue" in value_obj and "type" not in value_obj:
-        #    ...
-
-        if isinstance(value_obj, dict):
-            val_type = value_obj.get("type")
-            if val_type == "expression": # Keep simple expression handling if needed elsewhere
-                expression_str = value_obj.get("expression") or value_obj.get("value")
-                if not expression_str:
-                    # ... existing warning ...
-                    return "null"
-                
-                processed_expression = expression_str
-                for match in re.finditer(r'\\$([a-zA-Z_][a-zA-Z0-9_]*)', expression_str):
-                    var_name = match.group(1)
-                    if var_name in declared_vars:
-                        processed_expression = processed_expression.replace(f'${var_name}', var_name)
-                    else:
-                         # ... existing warning ...
-                        processed_expression = processed_expression.replace(f'${var_name}', 'null') 
-                return f"({processed_expression})"
-            # --- Add handlers for other standard value types like GET_PROPERTY if needed ---
-            elif val_type == "GET_PROPERTY": # Example: Handle if GET_PROPERTY is used directly as a value
-                 target_id_js = json.dumps(value_obj.get("targetId"))
-                 prop_name_js = json.dumps(value_obj.get("propertyName"))
-                 return f"getComponentProperty({target_id_js}, {prop_name_js})"
-            else:
-                 print(f"Warning: Unsupported object type in _value_to_js: {val_type}. Treating as literal JSON.")
-                 return json.dumps(value_obj) # Fallback: treat as literal JSON
-                 
-        elif isinstance(value_obj, str) and value_obj.startswith("$"):
-            # Handle simple $variable strings
-            var_name = value_obj[1:]
-            if var_name in declared_vars:
-                return var_name
-            else:
-                print(f"Warning: IR referenced undeclared variable '{var_name}'. Using null.")
-                return "null"
-                
-        # Default: treat as basic literal (string, number, boolean, null)
-        return json.dumps(value_obj)
-    
-     
     def _translate_ir_to_frontend_call(self, ir_actions: List[Dict[str, Any]], component_id: str) -> Dict[str, Any]:
         """Translate IR actions into a structure representing the sequence of frontend API calls.
            Instead of generating a complex JS string, this produces a structure
@@ -2681,13 +2162,6 @@ class ComponentService:
         print(f"[DEBUG _translate_ir_to_frontend_call] Returning actions for {component_id}: {json.dumps(call_actions, indent=2)}")
         # Return the list of action objects for the method
         return { "actions": call_actions }
-
-    # --- REMOVE OLD _translate_ir_to_js_string and _value_to_js --- 
-    # (We are replacing them with _translate_ir_to_frontend_call)
-    # def _translate_ir_to_js_string(self, ir_actions: List[Dict[str, Any]], component_id: str) -> str:
-    #    ... (DELETE THIS FUNCTION) ...
-    # def _value_to_js(self, value_obj: Any, declared_vars: set) -> str:
-    #    ... (DELETE THIS FUNCTION) ...
 
     # --- UPDATE _translate_all_ir_methods to use the new translator --- 
     def _translate_all_ir_methods(self, components: List[Dict[str, Any]]) -> None:

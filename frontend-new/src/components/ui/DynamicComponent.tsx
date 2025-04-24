@@ -1,1848 +1,822 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback, createElement, Suspense } from 'react';
-// Remove the direct import of TextInput to prevent potential conflicts
-// import TextInput from './components/basic/TextInput';
-import { Chart, DataTable, Map } from './components/visualization';
-import type { ChartProps, DataTableProps, MapProps } from './components/visualization';
-import { registerAllComponents } from './ComponentRegistry';
-import { getComponent, getRegisteredComponents, isComponentRegistered } from './ComponentFactory';
-import { createFallbackComponent } from './ComponentRegistry';
-import { processComponentStructure, mapComponentType } from './ComponentProcessing';
+import { v4 as uuidv4 } from 'uuid';
 
-/**
- * Default method implementations for common components
- */
-const DEFAULT_METHOD_IMPLEMENTATIONS: Record<string, string> = {
-  // Add other default method implementations here
-  toggleVisibility: `
-    function(event, $m) {
-      const target = event.currentTarget.dataset.target;
-      if (!target) return;
-      
-      const element = $m('#' + target);
-      const isVisible = element.getStyle('display') !== 'none';
-      
-      if (isVisible) {
-        element.hide();
-      } else {
-        element.show();
-      }
-    }
-  `,
-  
-  submitForm: `
-    function(event, $m) {
-      const formId = event.currentTarget.dataset.form;
-      if (!formId) return;
-      
-      const form = $m('#' + formId);
-      if (!form) return;
-      
-      // Get form data
-      const formData = new FormData(form.element);
-      const data = {};
-      
-      // Convert to object
-      for (const [key, value] of formData.entries()) {
-        data[key] = value;
-      }
-      
-      console.log('Form submitted:', data);
-      
-      // Here you would typically send the data to a server
-      // For now, just store it locally
-      $m('#form-result').setValue(JSON.stringify(data, null, 2));
-    }
-  `
-};
+// --- Drastically Simplified Imports for Chakra v3 ---
+import {
+  // Layout
+  Box, Flex, Grid, GridItem, Stack, HStack, VStack, Container, Center, Spacer,
+  // Text
+  Text, Heading,
+  // Forms
+  Button, IconButton, Input, Textarea,
+  Checkbox as ChakraCheckbox,
+  Select as ChakraSelect,
+  InputGroup, InputAddon,
+  // Media
+  Image, Icon,
+  // Feedback
+  Spinner,
+  // List
+  List, ListItem,
+  // Base Chakra component type (might not be needed if typing works)
+  ChakraComponent
+} from '@chakra-ui/react';
+// --- END Simplified Imports ---
 
-// Register all components once when the module is loaded
-// This prevents repeated registrations on each render
-registerAllComponents();
-
-// Add debug logging to see what components are registered
-console.log('Registered components:', getRegisteredComponents());
-
-// Define global window type to include appState
-declare global {
-  interface Window {
-    appState?: any;
-    textInputTimeouts?: Record<string, NodeJS.Timeout>;
-    $morpheo?: Record<string, any>;
-    $m?: (selector: string) => any;
-    _methodExecutionTimestamps?: Record<string, number>;
-  }
-}
-
-// Debug flags
-const DEBUG_COMPONENT_LOADING = false;
-const DEBUG_EVENT_HANDLING = false;
-
-/**
- * DynamicComponent is a generic component that can render any type of UI component
- * based on a JSON configuration. It supports various component types like buttons,
- * inputs, containers, etc., and handles events through custom event handlers.
- * 
- * The component is designed to be completely generic and not tied to any specific
- * application type. All application-specific logic should be implemented in the event 
- * handlers provided through the eventHandlers prop.
- */
+// Interface definitions
 interface DynamicComponentProps {
   component: ComponentChild;
-  functionality?: {
-    type: string;
-    config: Record<string, any>;
-  };
-  eventHandlers?: {
-    stateReducer?: string;
-    handleEvent?: (event: ComponentEvent) => void;
-    [key: string]: any;
-  };
-  onUpdate?: (state: any) => void;
-  config?: any; // Add this to support grid container functionality
+  appState: Record<string, any>;
+  handleStateUpdateAction: (variableName: string, updateRule: any, event?: any) => void;
+  updateAppState: (updates: Record<string, any>) => void;
+  itemData?: Record<string, any>;
 }
 
-// Event interface
 interface ComponentEvent {
   type: string;
-  payload: {
-    componentId: string;
-    source: string;
-    data?: any;
-    timestamp: number;
+  target: {
+    value?: any;
+    checked?: boolean;
+    // other event target properties...
   };
+  // other event properties...
 }
 
-// First, let's define the component child type at the top of the file
 export interface ComponentChild {
   id?: string;
   type?: string;
   props?: Record<string, any>;
-  properties?: Record<string, any>;
   children?: (ComponentChild | string)[] | undefined;
-  styles?: Record<string, any>;
-  events?: Record<string, any>;
+  methods?: Record<string, any>; // Make sure methods is part of the interface
   region?: string;
-  methods?: Record<string, any>;
-  key?: string; // Add the key property for React reconciliation
-  itemTemplate?: ComponentChild | Record<string, any>; // Add optional itemTemplate property
+  key?: string;
+  itemTemplate?: ComponentChild | Record<string, any>;
 }
 
-// Now we can define the DynamicComponent
+// --- Drastically Simplified componentMap ---
+const componentMap: Record<string, React.ComponentType<any> | ChakraComponent<any, any>> = {
+  // Layout
+  Box: Box, box: Box, div: Box,
+  Flex: Flex, flex: Flex,
+  Grid: Grid, grid: Grid,
+  GridItem: GridItem, gridItem: GridItem, 'grid-item': GridItem,
+  Stack: Stack, stack: Stack,
+  HStack: HStack, hstack: HStack, 'h-stack': HStack,
+  VStack: VStack, vstack: VStack, 'v-stack': VStack,
+  Container: Container, container: Container,
+  Center: Center, center: Center,
+  Spacer: Spacer, spacer: Spacer,
 
+  // Text & Typography
+  Text: Text, text: Text, p: Text, span: Text, label: Text,
+  Heading: Heading, heading: Heading,
+  h1: (props) => <Heading as="h1" size="2xl" {...props} />,
+  h2: (props) => <Heading as="h2" size="xl" {...props} />,
+  h3: (props) => <Heading as="h3" size="lg" {...props} />,
+  h4: (props) => <Heading as="h4" size="md" {...props} />,
+  h5: (props) => <Heading as="h5" size="sm" {...props} />,
+  h6: (props) => <Heading as="h6" size="xs" {...props} />,
+
+  // Media
+  Image: Image, image: Image, img: Image,
+  Icon: Icon, icon: Icon,
+
+  // Forms
+  Button: Button, button: Button,
+  IconButton: IconButton, iconButton: IconButton, 'icon-button': IconButton,
+  Input: Input, input: Input, 'text-input': Input, // Map text-input here
+  InputGroup: InputGroup, inputGroup: InputGroup, 'input-group': InputGroup,
+  InputAddon: InputAddon, inputAddon: InputAddon, 'input-addon': InputAddon,
+  Textarea: Textarea, textarea: Textarea,
+  Checkbox: (props) => <ChakraCheckbox.Root {...props} ml={props.ml ?? 2}><ChakraCheckbox.Indicator /></ChakraCheckbox.Root>,
+  checkbox: (props) => <ChakraCheckbox.Root {...props} ml={props.ml ?? 2}><ChakraCheckbox.Indicator /></ChakraCheckbox.Root>,
+  Select: (props) => <ChakraSelect.Root {...props}><ChakraSelect.Trigger /><ChakraSelect.Content>{/* Options need rendering */}</ChakraSelect.Content></ChakraSelect.Root>,
+  select: (props) => <ChakraSelect.Root {...props}><ChakraSelect.Trigger /><ChakraSelect.Content>{/* Options need rendering */}</ChakraSelect.Content></ChakraSelect.Root>,
+
+  // Feedback
+  Spinner: Spinner, spinner: Spinner, loader: Spinner,
+
+  // List
+  List: (props) => <List.Root {...props} />,
+  list: (props) => <List.Root {...props} />,
+  ul: (props) => <List.Root {...props} />,
+  ListItem: (props) => <List.Item {...props} />,
+  listItem: (props) => <List.Item {...props} />,
+  li: (props) => <List.Item {...props} />,
+
+  // REMOVED complex components: Card, List, Table, Modal, Drawer, Accordion, etc.
+};
+// --- END Simplified componentMap ---
+
+// --- DynamicComponent Implementation ---
 export const DynamicComponent: React.FC<DynamicComponentProps> = (props) => {
-  const { component, functionality, eventHandlers, onUpdate, config } = props;
-  
-  const [Component, setComponent] = useState<React.ComponentType<any> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [componentState, setLocalComponentState] = useState<Record<string, any>>({});
-  
-  // Process and normalize component
-  const processedComponent = useMemo(() => {
-    // Add a null/undefined check before processing
-    if (!component) {
-      console.warn('Received null or undefined component in DynamicComponent');
-      return null;
-    }
-    
-    // Log original component data to help debug AI responses
-    console.log('Processing component in DynamicComponent:', {
-      type: component.type,
-      id: component.id,
-      hasProps: !!component.props,
-      hasProperties: !!component.properties,
-      textProperty: component.props?.text || component.properties?.text,
-      propsKeys: component.props ? Object.keys(component.props) : [],
-      propertiesKeys: component.properties ? Object.keys(component.properties) : []
-    });
-    
-    return processComponentStructure(component);
-  }, [component]);
-  
-  // Create a safe component with defaults for all required properties
+  const { component, appState, handleStateUpdateAction, updateAppState, itemData } = props;
+
   const safeComponent = useMemo(() => {
-    if (!processedComponent) {
-      return {
-        type: 'container',
-        id: `component-${Math.random().toString(36).substr(2, 9)}`,
-        props: {},
-        children: [],
-        styles: {},
-        events: {},
-        methods: {}
-      };
-    }
-    
-    // Normalize properties from either props or properties field
-    const normalizedProps = {
-      ...(processedComponent.properties || {}),
-      ...(processedComponent.props || {})
-    };
-
-    // Handle text property specially for buttons and text components
-    if (processedComponent.type === 'button' && 'text' in normalizedProps) {
-      console.log(`Found text property for button: ${normalizedProps.text}`);
-    }
-    
+     if (!component || typeof component !== 'object') {
+        console.error("Invalid component structure received:", component);
+        return { type: 'Box', id: `fallback-${Date.now()}`, props: {}, children: [], methods: {} };
+     }
+     const rawProps = component.props || {};
+     const rawChildren = Array.isArray(component.children) ? component.children : [];
     return {
-      type: mapComponentType(processedComponent.type || 'container'),
-      id: processedComponent.id || `component-${Math.random().toString(36).substr(2, 9)}`,
-      props: normalizedProps,
-      children: processedComponent.children || [],
-      styles: processedComponent.styles || {},
-      events: processedComponent.events || {},
-      methods: processedComponent.methods || {}
-    };
-  }, [processedComponent]);
-  
-  // Create application state setter for this component
-  const setComponentState = useCallback((stateUpdater: (prevState: Record<string, any>) => Record<string, any>) => {
-    if (typeof onUpdate === 'function') {
-      onUpdate((prevState: Record<string, any>) => {
-        const newComponentState = stateUpdater(prevState[safeComponent.id] || {});
-        return {
-          ...prevState,
-          [safeComponent.id]: newComponentState
-        };
-      });
-    }
-  }, [onUpdate, safeComponent.id]);
-  
-  // Add debug logging to check if the component type is registered
-  useEffect(() => {
-    const componentType = safeComponent.type;
-    console.log(`Checking component registration for type: ${componentType}`);
-    console.log(`Is component ${componentType} registered? ${isComponentRegistered(componentType)}`);
-  }, [safeComponent.type]);
-  
-  // Initialize component state based on props and functionality
-  const initialState = useMemo(() => {
-    // Start with basic state properties
-    const state: Record<string, any> = {
-      value: safeComponent.props?.value || '',
-      checked: safeComponent.props?.checked || false,
-      showModal: false,
-      isModalOpen: false
-    };
-    
-    // Add any custom state properties from component props
-    if (safeComponent.props?.initialState && typeof safeComponent.props.initialState === 'object') {
-      Object.assign(state, safeComponent.props.initialState);
-    }
-    
-    // Add any functionality-specific state properties from the functionality config
-    if (functionality?.config && typeof functionality.config === 'object') {
-      Object.assign(state, functionality.config);
-    }
-    
-    return state;
-  }, [safeComponent.props, functionality]);
+       type: component.type || 'Box', // Default to Box if type is missing
+       id: component.id || `component-${Math.random().toString(36).substr(2, 9)}`,
+       props: rawProps,
+       children: rawChildren,
+       methods: component.methods || {}, // Ensure methods is an object
+     };
+  }, [component]);
 
-  // Event stream for the component
-  const [events, setEvents] = useState<ComponentEvent[]>([]);
+  const ResolvedComponent = componentMap[safeComponent.type] || Box;
+  if (!componentMap[safeComponent.type]) {
+     console.warn(`[DynamicComponent] Component type "${safeComponent.type}" (ID: ${safeComponent.id}) not found in simplified componentMap. Falling back to Box.`);
+  }
 
-  // First, update the component method executor
-  const executeComponentMethod = useCallback((methodName: string, methodData: any, event: any) => {
-    // --- NEW: Expect methodData to be { actions: [...] } object --- 
-    if (!methodData || typeof methodData !== 'object' || !Array.isArray(methodData.actions)) {
-      console.error(`Invalid method data format for ${methodName} on ${safeComponent.id}. Expected { actions: [...] }, got:`, methodData);
-      return;
-    }
-    
-    const actions = methodData.actions as { type: string; payload: any }[];
-    console.log(`Executing ${actions.length} actions for method ${methodName} on ${safeComponent.id}`);
+  const handleEvent = useCallback((eventType: string, event: ComponentEvent | any) => {
+    // --- Add DEBUG log ---
+    console.log(`[DynamicComponent handleEvent] Event triggered: type='${eventType}', componentId='${safeComponent.id}', eventObject:`, event);
+    // --- END DEBUG log ---
+    const handlerPropName = `on${eventType.charAt(0).toUpperCase()}${eventType.slice(1)}`;
+    const structuredMethodConfig = safeComponent.methods?.[eventType];
 
-    // Simple context for variables declared within this method execution
-    const methodContext: Record<string, any> = {};
-
-    // Helper to resolve values (literals or $variables)
-    const resolveValue = (value: any) => {
-      if (typeof value === 'string' && value.startsWith('$')) {
-        const varName = value.substring(1);
-        if (varName in methodContext) {
-          return methodContext[varName];
-        }
-        console.warn(`Variable ${value} not found in method context.`);
-        return undefined; // Or null, depending on desired handling
-      }
-      // Handle structured values like the toggle object - pass them through
-      if (typeof value === 'object' && value !== null) {
-        return value;
-      }
-      // Otherwise, assume literal
-      return value;
-    };
-
-    try {
-      // Get global API functions from eventHandlers
-      const addComponentFunc = eventHandlers?.addComponent;
-      const removeComponentFunc = eventHandlers?.removeComponent;
-      const updateComponentFunc = eventHandlers?.updateComponent;
-      const getComponentPropertyFunc = eventHandlers?.getComponentProperty;
-      const setComponentPropertyFunc = eventHandlers?.setComponentProperty;
-      const callComponentMethodFunc = eventHandlers?.callComponentMethod;
-      // NEW: Get list manipulation functions from handlers
-      const addItemFunc = eventHandlers?.addItem;
-      const removeItemFunc = eventHandlers?.removeItem;
-
-      // --- Execute actions sequentially --- 
-      for (const action of actions) {
-        const { type, payload } = action;
-        console.log(`Executing action: ${type}`, payload);
-
-        switch (type) {
-          case "GET_PROPERTY":
-            if (payload?.targetId && payload?.propertyName && payload?.resultVariable) {
-              const value = getComponentPropertyFunc(payload.targetId, payload.propertyName);
-              methodContext[payload.resultVariable] = value; // Store in context
-              console.log(`GET_PROPERTY: ${payload.resultVariable} =`, value);
-            } else {
-              console.warn("Skipping invalid GET_PROPERTY payload:", payload);
-            }
-            break;
-
-          case "SET_PROPERTY":
-            if (payload?.targetId && payload?.propertyName) {
-              const resolvedVal = resolveValue(payload.value);
-              setComponentPropertyFunc(payload.targetId, payload.propertyName, resolvedVal);
-            } else {
-              console.warn("Skipping invalid SET_PROPERTY payload:", payload);
-            }
-            break;
-
-          // NOTE: TOGGLE_PROPERTY is handled *within* setComponentPropertyFunc now
-          // No specific case needed here if we pass the special object
-
-          case "LOG_MESSAGE":
-            if (payload?.message) {
-              let message = payload.message;
-              // Resolve variables in the message string
-              if (typeof message === 'string') {
-                message = message.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (match, varName) => {
-                  return varName in methodContext ? String(methodContext[varName]) : 'undefined';
-                });
-              }
-              console.log(message);
-            } else {
-              console.warn("Skipping invalid LOG_MESSAGE payload:", payload);
-            }
-            break;
-            
-          // --- NEW: Handle ADD_ITEM --- 
-          case "ADD_ITEM":
-            if (addItemFunc && payload?.targetId && payload.itemValue !== undefined) {
-              const resolvedItemValue = resolveValue(payload.itemValue);
-              addItemFunc(payload.targetId, resolvedItemValue);
-            } else {
-              console.warn("Skipping invalid ADD_ITEM payload or missing addItem handler:", payload);
-            }
-            break;
-            
-          // --- NEW: Handle REMOVE_ITEM --- 
-          case "REMOVE_ITEM":
-            if (removeItemFunc && payload?.targetId && payload.itemValue !== undefined) {
-              // Assuming itemValue identifies the item to remove (could also be itemIndex)
-              const resolvedItemIdentifier = resolveValue(payload.itemValue); 
-              removeItemFunc(payload.targetId, resolvedItemIdentifier);
-            } else if (removeItemFunc && payload?.targetId && payload.itemIndex !== undefined) {
-              // Handle removal by index if provided
-              const resolvedIndex = resolveValue(payload.itemIndex); 
-              removeItemFunc(payload.targetId, resolvedIndex);
-            } else {
-              console.warn("Skipping invalid REMOVE_ITEM payload or missing removeItem handler:", payload);
-            }
-            break;
-
-          // --- NEW: Handle CALL_METHOD --- 
-          case "CALL_METHOD":
-            if (callComponentMethodFunc && payload?.targetId && payload?.methodName) {
-              // Resolve arguments if provided
-              const args = Array.isArray(payload.args) ? payload.args.map(resolveValue) : [];
-              console.log(`CALL_METHOD: Triggering ${payload.targetId}.${payload.methodName} with args:`, args);
-              callComponentMethodFunc(payload.targetId, payload.methodName, ...args);
-        } else {
-              console.warn("Skipping invalid CALL_METHOD payload or missing callComponentMethod handler:", payload);
-            }
-            break;
-          // --- END NEW --- 
-
-          case "ERROR": // Handle translation errors
-            console.error("Backend translation error:", payload);
-            break;
-
-          // Add cases for ADD_ITEM, REMOVE_ITEM, CALL_METHOD etc.
-          // They should call the corresponding Func from eventHandlers
-          // after resolving any $variables in their payloads.
-
-          default:
-            console.warn(`Unsupported action type: ${type}`);
-        }
-      }
-      } catch (error) {
-      console.error(`Error executing actions for method ${methodName} on ${safeComponent.id}:`, error);
-    }
-  }, [safeComponent.id, eventHandlers, setComponentState]); // Dependencies: id, handlers, state setter
-
-  // Handle events from components
-  const handleEvent = useCallback((eventType: string, event: any) => {
-    if (!eventType) {
-      console.error('No event type provided');
-      return;
-    }
-
-    console.log(`Event '${eventType}' triggered on ${safeComponent.id}`, event);
-
-    // Get the component's methods from safeComponent.methods or props.methods
-    const componentMethods = safeComponent.methods || safeComponent.props?.methods || {};
-    // Get the component's events from safeComponent.events or props.events
-    const componentEvents = safeComponent.events || safeComponent.props?.events || {};
-
-    if (DEBUG_EVENT_HANDLING) {
-      console.log(`Methods available for ${safeComponent.id}:`, componentMethods ? Object.keys(componentMethods) : 'none');
-      console.log(`Events available for ${safeComponent.id}:`, componentEvents ? Object.keys(componentEvents) : 'none');
-    }
-
-    // Normalize the event type to the React-style 'on' prefix format
-    const normalizedEventType = `on${eventType.charAt(0).toUpperCase()}${eventType.slice(1)}`;
-
-    // Try multiple naming conventions for methods/events (in order of preference)
-    const methodNamesToTry = [
-      normalizedEventType,                                    // React style (e.g., "onClick")
-      eventType,                                              // direct match (e.g., "click")
-      eventType.toLowerCase(),                                // lowercase (e.g., "click")
-      `on${eventType.toLowerCase()}`                          // lowercase with on prefix (e.g., "onclick")
-    ];
-    
-    // Add specific special-case mappings for common events
-    if (eventType === 'click') methodNamesToTry.push('onClick');
-    if (eventType === 'change') methodNamesToTry.push('onChange');
-    if (eventType === 'blur') methodNamesToTry.push('onBlur');
-    if (eventType === 'focus') methodNamesToTry.push('onFocus');
-    if (eventType === 'input') methodNamesToTry.push('onInput');
-
-    // Debug the methodNames we're looking for
-      console.log(`Looking for method names:`, methodNamesToTry);
-    console.log(`Component methods:`, componentMethods);
-    console.log(`Component events:`, componentEvents);
-
-    // Look for a matching method in both methods and events
-    let method = null;
-    let methodName = '';
-    let methodSource = '';
-    
-    // First try methods
-    for (const name of methodNamesToTry) {
-      if (componentMethods && componentMethods[name] !== undefined) {
-        method = componentMethods[name];
-        methodName = name;
-        methodSource = 'methods';
-        break;
-      }
-    }
-    
-    // If not found in methods, try events
-    if (!method) {
-      for (const name of methodNamesToTry) {
-        if (componentEvents && componentEvents[name] !== undefined) {
-          method = componentEvents[name];
-          methodName = name;
-          methodSource = 'events';
-          break;
-        }
-      }
-    }
-
-    if (method !== null) {
-        console.log(`Found ${methodSource}.${methodName} for event ${eventType} on component ${safeComponent.id}`);
-        // --- ADDED DEBUG: Log the raw method object BEFORE execution attempt --- 
-        console.log('Inspecting raw method object:', JSON.stringify(method, null, 2));
-        // --- END ADDED DEBUG ---
-        console.log('Method details:', method);
-      
-      try {
-        // --- REVISED: Check if method is already the { actions: [...] } object --- 
-        // --- OR if it's just the action array itself --- 
-        let methodObjectToExecute = null;
-        if (typeof method === 'object' && method !== null) {
-            if (Array.isArray(method.actions)) {
-              // Already in the correct { actions: [...] } format
-              methodObjectToExecute = method;
-            } else if (Array.isArray(method)) {
-              // It's just the array, wrap it
-              console.log(`Wrapping raw action array for ${methodName}`);
-              methodObjectToExecute = { actions: method };
-            }
-        }
-
-        if (methodObjectToExecute) {
-          // Directly pass the structured object to the executor
-          console.log('Passing method object to executor:', JSON.stringify(methodObjectToExecute, null, 2)); // Log what's passed
-          executeComponentMethod(methodName, methodObjectToExecute, event);
-        } else {
-          // Log an error if the method data isn't in the expected format
-          console.error(`Invalid method data format for ${methodName}. Expected { actions: [...] } or array [], got:`, method);
-        }
-        
-      } catch (err) {
-        console.error(`Error executing ${methodSource}.${methodName} for ${safeComponent.id}:`, err);
-      }
-    } else {
-      console.log(`No method found for event ${eventType} on component ${safeComponent.id}`);
-        console.log(`Available methods:`, componentMethods);
-        console.log(`Available events:`, componentEvents);
-    }
-  }, [safeComponent, executeComponentMethod]);
-
-  // Remove the state reducer code since we're using direct component methods
-  const currentState = initialState;
-
-  // Refs for specific component types
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  // Initialize refs when needed
-  useEffect(() => {
-    // Handle canvas initialization
-    if (safeComponent.type === 'canvas' && canvasRef.current) {
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      
-      if (ctx) {
-        // Set initial canvas state based on props or defaults
-        const backgroundColor = safeComponent.props?.backgroundColor || '#ffffff';
-        ctx.fillStyle = backgroundColor;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // Add a canvas initialization event
-        const initEvent: ComponentEvent = {
-          type: 'canvas.initialize',
-          payload: {
-            componentId: safeComponent.id,
-            source: safeComponent.type,
-            data: { context: ctx },
-            timestamp: Date.now()
-          }
-        };
-        
-        // Add to event stream
-        setEvents(prevEvents => [...prevEvents, initEvent]);
-      }
-    }
-  }, [safeComponent.type, safeComponent.props?.backgroundColor, safeComponent.id]);
-
-  // Helper function to extract display value from a component - generic for any component type
-  const getComponentDisplayValue = (component: any): string => {
-    // Check for value in props
-    if (component.props.value !== undefined && component.props.value !== null) {
-      return String(component.props.value);
-    }
-    
-    // Check for text in props
-    if (component.props.text) {
-      return component.props.text;
-    }
-    
-    // Check for label in props
-    if (component.props.label) {
-      return component.props.label;
-    }
-    
-    // Check for content in props
-    if (component.props.content) {
-      return component.props.content;
-    }
-    
-    // Check for children as string
-    if (typeof component.children === 'string') {
-      return component.children;
-    }
-    
-    // Check for children array
-    if (Array.isArray(component.children) && component.children.length > 0) {
-      const firstChild = component.children[0];
-      
-      // If first child is a string
-      if (typeof firstChild === 'string') {
-        return firstChild;
-      }
-      
-      // If first child is an object with text prop
-      if (firstChild && typeof firstChild === 'object') {
-        if (firstChild.props && firstChild.props.text) {
-          return firstChild.props.text;
-        }
-        
-        if (firstChild.props && firstChild.props.children && typeof firstChild.props.children === 'string') {
-          return firstChild.props.children;
-        }
-      }
-    }
-    
-    // Check for children in props
-    if (component.props.children) {
-      if (typeof component.props.children === 'string') {
-        return component.props.children;
-      }
-      
-      if (Array.isArray(component.props.children) && component.props.children.length > 0) {
-        const firstChild = component.props.children[0];
-        if (typeof firstChild === 'string') {
-          return firstChild;
-        }
-      }
-    }
-    
-    // Default fallback
-    return '';
-  };
-
-  // Apply styling based on component type - generic styles for any component type
-  const getStyle = () => {
-    // Always prioritize component styles over default styles
-    const componentStyles = component.styles || {};
-    
-    // Default styles based on component type
-    let defaultStyles: React.CSSProperties = {};
-    
-    switch (safeComponent.type) {
-      case 'container':
-      case 'div':
-        defaultStyles = {
-          padding: '16px',
-          margin: '8px 0',
-          borderRadius: '4px',
-        };
-        break;
-      case 'button':
-        defaultStyles = {
-          padding: '8px 16px',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          backgroundColor: '#3b82f6',
-          color: 'white',
-          border: 'none',
-        };
-        break;
-      case 'input':
-      case 'text-input':
-        defaultStyles = {
-          padding: '8px 12px',
-          borderRadius: '4px',
-          border: '1px solid #d1d5db',
-          width: '100%',
-        };
-        break;
-      case 'text':
-        defaultStyles = {
-          margin: '8px 0',
-        };
-        break;
-      default:
-        defaultStyles = {};
-        break;
-    }
-    
-    // Merge styles, with component styles taking precedence
-    return { ...defaultStyles, ...componentStyles };
-  };
-
-  // Notify parent of state changes
-  useEffect(() => {
-    if (onUpdate) {
-      onUpdate(currentState);
-    }
-  }, [currentState, onUpdate]);
-
-  // Function to get property values from the component
-  const getPropertyValue = (prop: string, defaultValue: any = undefined) => {
-    // If the component doesn't have props, return the default value
-    if (!component.props && !component.properties) {
-      return defaultValue;
-    }
-    
-    // Try to get from props or properties (for compatibility)
-    const props = component.props || component.properties || {};
-    return props[prop] !== undefined ? props[prop] : defaultValue;
-  };
-
-  // Function to render children
-  const renderChildren = () => {
-    if (!component.children) return null;
-    
-    return component.children.map((child, index) => {
-      if (typeof child === 'string') {
-        return <span key={index}>{child}</span>;
-      }
-      return (
-        <DynamicComponent
-          key={`${component.id || 'child'}-${index}`}
-          component={child}
-          functionality={functionality}
-          eventHandlers={eventHandlers}
-          onUpdate={onUpdate}
-          config={config}
-        />
+    if (structuredMethodConfig && Array.isArray(structuredMethodConfig)) {
+      console.log(`[DynamicComponent] Executing structured method (direct array) for ${eventType} on ${safeComponent.id}`);
+      executeComponentMethod(
+        structuredMethodConfig,
+        safeComponent.id,
+        appState,
+        updateAppState,
+        event,
+        itemData
       );
-    });
-  };
+    } else {
+       // Optionally handle legacy prop-based handlers if needed, or log absence
+       const legacyHandlerConfig = safeComponent.props?.[handlerPropName];
+       if (legacyHandlerConfig && typeof legacyHandlerConfig === 'object') {
+            console.warn(`[DynamicComponent] Executing legacy handler for ${eventType} on ${safeComponent.id}`);
+             // ... (simplified legacy handling - updateState only for demo)
+             if (legacyHandlerConfig.updateState) {
+                 Object.entries(legacyHandlerConfig.updateState).forEach(([varName, rule]) => {
+                     handleStateUpdateAction(varName, rule, event);
+                 });
+              }
+       } else {
+            // console.log(`[DynamicComponent] No handler found for ${eventType} on ${safeComponent.id}`);
+       }
+    }
+  }, [safeComponent, appState, handleStateUpdateAction, updateAppState, itemData]);
 
-  // Define styles at component level, outside any conditionals
-  const componentStyles = {
-    ...(safeComponent.props?.style || {})
-  };
+  const renderFallbackComponent = () => (
+      <Box border="1px dashed red" p={4} id={safeComponent.id}>
+        <Heading size="sm">Component Error!</Heading>
+        <Text>Failed to render type "{safeComponent.type}" (ID: {safeComponent.id}). Check config or map.</Text>
+      </Box>
+  );
 
-  // Add this useEffect hook after the existing debug logging useEffect
-  useEffect(() => {
-    async function loadComponentFromRegistry() {
-      const componentType = safeComponent.type;
-      console.log(`[DynamicComponent] Loading component "${componentType}" from registry (original type: "${safeComponent.type}")`);
-      
-      try {
-        // Check if component is registered
-        if (!isComponentRegistered(componentType)) {
-          console.error(`Component ${componentType} is not registered in the ComponentFactory. Available components:`, getRegisteredComponents());
-          setError(`Component type "${componentType}" not found`);
-          setLoading(false);
-          return;
-        }
-        
-        // Get component from registry
-        const resolvedComponent = await getComponent(componentType);
-        console.log(`Component ${componentType} loaded:`, resolvedComponent !== null);
-        
-        // Check if we have a component
-        if (!resolvedComponent) {
-          console.error(`No component resolved for type: ${componentType}`);
-          setError(`Failed to load component: ${componentType}`);
-          setLoading(false);
-          return;
-        }
-        
-        // Check if it's a valid React component
-        const isValidComponent = 
-          typeof resolvedComponent === 'function' || 
-          typeof resolvedComponent === 'string';
-        
-        if (isValidComponent) {
-          console.log(`[DynamicComponent] Successfully resolved component "${componentType}" (type: ${typeof resolvedComponent})`);
-          setComponent(() => resolvedComponent);
-          setLoading(false);
-        } else {
-          console.error(`Invalid component type received:`, resolvedComponent);
-          setError(`Component ${componentType} is not a valid React component`);
-          setLoading(false);
-        }
-      } catch (err) {
-        console.error(`Error loading component ${componentType}:`, err);
-        setError(`Error loading component: ${err instanceof Error ? err.message : String(err)}`);
-        setLoading(false);
+  // Memoize the rendered children separately
+  const renderedChildrenElements = useMemo(() => {
+    if (!safeComponent.children || !Array.isArray(safeComponent.children)) return null;
+    // Use the renderChildren logic BUT return the array of elements/strings
+    return safeComponent.children.map((child, index) => {
+      if (typeof child === 'string') return child;
+      if (typeof child === 'object' && child !== null && child.type) {
+        // Pass itemData down to children
+        return <DynamicComponent key={child.id || `${safeComponent.id}-child-${index}`} component={child} appState={appState} handleStateUpdateAction={handleStateUpdateAction} updateAppState={updateAppState} itemData={itemData} />;
       }
-    }
-    
-    loadComponentFromRegistry();
-  }, [safeComponent.type]);
-  
-  // Render a fallback component if the component fails to load
-  const renderFallbackComponent = () => {
-        return (
-      <div style={{
-        padding: '10px',
-        border: '1px dashed red',
-        borderRadius: '4px',
-        margin: '5px',
-        color: '#721c24',
-        backgroundColor: '#f8d7da'
-      }}>
-        <h4>Component Error: {safeComponent.type}</h4>
-        <p>{error || 'Failed to load component'}</p>
-        <div>
-          <strong>ID:</strong> {safeComponent.id}
-        </div>
-        {safeComponent.props && Object.keys(safeComponent.props).length > 0 && (
-          <details>
-            <summary>Component Properties</summary>
-            <pre>{JSON.stringify(safeComponent.props, null, 2)}</pre>
-          </details>
-            )}
-          </div>
-        );
-  };
+      console.warn(`[DynamicComponent] Skipping invalid child at index ${index} for ${safeComponent.id}:`, child);
+      return null;
+    }).filter(Boolean); // Filter out nulls
+  }, [safeComponent.children, appState, handleStateUpdateAction, updateAppState, itemData]); // Dependencies for children rendering
 
-  // If loading, show loading indicator
-  if (loading) {
-                return (
-      <div className="loading-component" style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '10px',
-        backgroundColor: '#e9ecef',
-        borderRadius: '4px',
-        margin: '5px'
-      }}>
-        <div className="spinner" style={{
-          width: '20px',
-          height: '20px',
-          borderRadius: '50%',
-          border: '2px solid #ccc',
-          borderTopColor: '#666',
-          animation: 'spin 1s linear infinite',
-          marginRight: '10px'
-        }} />
-        <div>Loading {safeComponent.type} component...</div>
-          </div>
-        );
-    }
-  
-  // If there was an error, show fallback component
-  if (error || !Component) {
+  const componentProps = useMemo(() => {
+      const rawProps = safeComponent.props || {};
+      // Pass itemData if it exists
+      const finalProps: Record<string, any> = { id: safeComponent.id, key: safeComponent.id }; 
+      
+      // --- Modified children rendering logic to pass itemData down ---
+      if (renderedChildrenElements && (!Array.isArray(renderedChildrenElements) || renderedChildrenElements.length > 0)) {
+        finalProps.children = renderedChildrenElements;
+      }
+
+      for (const key in rawProps) {
+          const value = rawProps[key];
+          if (key === 'id' || key === 'key') continue; // Skip reserved keys
+
+          // --- Modified Prop Binding Logic ---
+          let propResolved = false;
+          // 1. Check for $itemState binding (only if itemData exists)
+          if (itemData && typeof value === 'object' && value !== null && value.hasOwnProperty('$itemState')) {
+            const itemStateKey = value.$itemState;
+            if (itemData.hasOwnProperty(itemStateKey)) {
+              finalProps[key] = itemData[itemStateKey];
+              // --- ADD DEBUG LOG for $itemState ---
+              console.log(`[DynamicComponent State Read - Item] Component ${safeComponent.id} reading item state '${itemStateKey}' for prop '${key}'. Value:`, itemData[itemStateKey]);
+              // --- END DEBUG LOG ---
+              propResolved = true;
+            } else {
+              console.warn(`[DynamicComponent State Read - Item] Component ${safeComponent.id} tried to read item state '${itemStateKey}' but key not found in itemData. Prop: '${key}'. ItemData:`, itemData);
+              finalProps[key] = undefined; // Or null, or some default
+              propResolved = true; // Still counts as resolved (to undefined)
+            }
+          }
+
+          // 2. Check for $state binding (if not resolved by $itemState)
+          if (!propResolved && typeof value === 'object' && value !== null && value.hasOwnProperty('$state')) {
+              const stateVariableName = value.$state;
+              finalProps[key] = appState[stateVariableName];
+              // --- ADD DEBUG LOG for $state ---
+              if (safeComponent.id === 'newItemInput' && key === 'value') {
+                console.log(`[DynamicComponent State Read - Global] Component ${safeComponent.id} reading global state '${stateVariableName}' for prop '${key}'. Value:`, appState[stateVariableName]);
+              }
+              // --- END DEBUG LOG ---
+              propResolved = true;
+          }
+          // --- End Modified Prop Binding Logic ---
+
+          // Handle legacy event handlers (if not already resolved and no structured method exists)
+          if (!propResolved && key.startsWith('on') && typeof value === 'object' && value !== null) {
+              const eventType = key.substring(2).toLowerCase();
+              if (!safeComponent.methods?.[eventType]) {
+                 finalProps[key] = (event: any) => handleEvent(eventType, event);
+                 propResolved = true;
+              }
+          } 
+          
+          // Pass other props directly if not resolved by state bindings or legacy events
+          if (!propResolved) {
+            finalProps[key] = value;
+          }
+      }
+
+      // Integrate event handlers from structured `methods`
+      if (safeComponent.methods && typeof safeComponent.methods === 'object') {
+          for (const eventType in safeComponent.methods) {
+              console.log(`[DynamicComponent Prop Map] Checking methods.${eventType} for ${safeComponent.id}`); // DEBUG
+              const methodConfig = safeComponent.methods[eventType];
+              if (methodConfig && Array.isArray(methodConfig) && methodConfig.length > 0) { 
+                  const handlerPropName = `on${eventType.charAt(0).toUpperCase()}${eventType.slice(1)}`;
+                  // Pass itemData to handleEvent if it exists
+                  finalProps[handlerPropName] = (event: any) => handleEvent(eventType, event); 
+                  console.log(`[DynamicComponent Prop Map] Mapped methods.${eventType} to prop ${handlerPropName} for ${safeComponent.id}`); // DEBUG LOG
+            } else {
+                  console.warn(`[DynamicComponent Prop Map] Skipping invalid/empty method config for ${eventType} on ${safeComponent.id}:`, methodConfig); // DEBUG LOG
+              }
+          }
+      }
+
+       // --- Conditional Value/DefaultValue for Controlled Inputs ---
+       const isInputType = ['Input', 'input', 'text-input', 'Textarea', 'textarea'].includes(safeComponent.type);
+       const isToggleType = ['Checkbox', 'checkbox'].includes(safeComponent.type); // Add Switch later if needed
+       const hasOnChangeMethod = safeComponent.methods?.change || safeComponent.methods?.onChange || finalProps.onChange;
+
+       if (isInputType) {
+           const value = finalProps.value; // Value from props
+           if (hasOnChangeMethod) {
+               // Controlled: Set `value`, remove `defaultValue`
+               finalProps.value = value ?? ''; // Default to empty string if undefined/null
+               delete finalProps.defaultValue;
+            } else {
+               // Uncontrolled: Set `defaultValue`, remove `value`
+               if (value !== undefined) { // Only set defaultValue if value was provided
+                  finalProps.defaultValue = value;
+               }
+               delete finalProps.value;
+           }
+       } else if (isToggleType) {
+           const isChecked = finalProps.isChecked; // Value from props
+           if (hasOnChangeMethod) {
+               // Controlled: Set `isChecked`, remove `defaultChecked`
+               finalProps.isChecked = isChecked ?? false; // Default to false
+               delete finalProps.defaultChecked;
+        } else {
+                // Uncontrolled: Set `defaultChecked`, remove `isChecked`
+               if (isChecked !== undefined) { // Only set defaultChecked if isChecked was provided
+                   finalProps.defaultChecked = isChecked;
+               }
+               delete finalProps.isChecked;
+           }
+       }
+       // --- End Controlled Input Handling ---
+
+      return finalProps;
+  }, [safeComponent, appState, handleEvent, renderedChildrenElements, itemData]); // Added itemData dependency
+
+  try {
+     // Check if it's a List component needing special handling
+     const isList = ['List', 'list', 'ul', 'OrderedList', 'orderedList', 'ol', 'UnorderedList', 'unorderedList'].includes(safeComponent.type);
+
+     if (isList && componentProps.itemTemplate && componentProps.items) {
+       const itemsArray = componentProps.items; // Already resolved from state by componentProps memo
+       const itemTemplateConfig = componentProps.itemTemplate;
+
+       if (!Array.isArray(itemsArray)) {
+         console.error(`[DynamicComponent List Error] 'items' prop for List ${safeComponent.id} is not an array. Received:`, itemsArray);
+         return renderFallbackComponent();
+       }
+       if (typeof itemTemplateConfig !== 'object' || itemTemplateConfig === null) {
+         console.error(`[DynamicComponent List Error] 'itemTemplate' prop for List ${safeComponent.id} is not a valid object. Received:`, itemTemplateConfig);
+         return renderFallbackComponent();
+       }
+
+       console.log(`[DynamicComponent Render List] Rendering List ${safeComponent.id} with ${itemsArray.length} items using template.`);
+
+       // Render children using the itemTemplate
+       const renderedListItems = itemsArray.map((item, index) => (
+         <DynamicComponent
+           // Use item.id if available, otherwise index - ensure unique keys
+           key={item.id || `${safeComponent.id}-item-${index}`} 
+           component={itemTemplateConfig as ComponentChild} // Pass the template config
+           appState={appState} // Pass global state
+           handleStateUpdateAction={handleStateUpdateAction} // Pass handlers
+           updateAppState={updateAppState} // Pass handlers
+           itemData={item} // Pass the specific item's data for $itemState bindings
+         />
+       ));
+
+       // Prepare props for the List.Root component (exclude custom props)
+       const listRootProps = { ...componentProps };
+       delete listRootProps.items;
+       delete listRootProps.itemTemplate;
+       listRootProps.children = renderedListItems; // Set the rendered items as children
+
+       return <ResolvedComponent {...listRootProps} />;
+
+     } else {
+       // --- Original Rendering Logic for Non-List Components ---
+       console.log(`[DynamicComponent Render] Rendering ${safeComponent.type} (${safeComponent.id}) with props:`, componentProps);
+       if (safeComponent.type === 'Button' || safeComponent.type === 'button') {
+         console.log(`[DynamicComponent Button Check] Final props for ${safeComponent.id}:`, componentProps);
+       }
+       return (
+           <ResolvedComponent {...componentProps} />
+       );
+       // --- End Original Rendering Logic ---
+     }
+
+  } catch (renderError) {
+    console.error(`[DynamicComponent] Error rendering component ${safeComponent.id} (${safeComponent.type}):`, renderError);
+    console.error("Props passed:", componentProps);
     return renderFallbackComponent();
   }
-
-  // Prepare the final props to pass to the component
-  const componentProps = {
-    ...safeComponent.props,
-    style: safeComponent.styles || {},
-    id: safeComponent.id,
-    
-    // Check if this is a button and add specific properties
-    ...(safeComponent.type === 'button' && {
-      // Ensure text and content properties are correctly passed to button component
-      text: safeComponent.props?.text,
-      content: safeComponent.props?.content,
-      // Add debugging info
-      'data-has-text': !!safeComponent.props?.text,
-      'data-has-content': !!safeComponent.props?.content,
-      'data-component-type': safeComponent.type,
-      
-      // Add onClick handler for buttons that directly invokes methods
-      onClick: (event: any) => {
-        console.log(`Button ${safeComponent.id} clicked`);
-        
-        // Prevent default behavior and stop propagation
-        if (event && typeof event.preventDefault === 'function') {
-          event.preventDefault();
-        }
-        if (event && typeof event.stopPropagation === 'function') {
-          event.stopPropagation();
-        }
-        
-        // Look for onClick method in methods object
-        // Prioritize 'click' key in methods as per common convention
-        const methodData = safeComponent.methods?.click || safeComponent.methods?.onClick;
-
-        if (methodData && typeof methodData === 'object' && Array.isArray(methodData.actions)) {
-          const methodName = safeComponent.methods?.click ? 'click' : 'onClick';
-          console.log(`Button onClick executing method: ${methodName}`);
-          // Pass the structured object directly
-          executeComponentMethod(methodName, methodData, event);
-        } else {
-          // Fall back to general event handling if no specific method or invalid format
-          console.log("Button onClick falling back to handleEvent('click')");
-          handleEvent('click', event);
-        }
-      }
-    }),
-    
-    // Bind native DOM events based on the events object
-    ...(safeComponent.events && Object.entries(safeComponent.events).reduce((acc, [eventName, handler]) => {
-      // Create React-compatible event handler names (onClick, onChange, etc.)
-      let reactEventName = eventName;
-      
-      // Convert event names to React format if needed
-      if (!eventName.startsWith('on')) {
-        reactEventName = `on${eventName.charAt(0).toUpperCase()}${eventName.slice(1)}`;
-      }
-      
-      // Create the event handler function
-      acc[reactEventName] = (event: any) => {
-        // Prevent default behavior and stop propagation
-        if (event && typeof event.preventDefault === 'function') {
-          event.preventDefault();
-        }
-        if (event && typeof event.stopPropagation === 'function') {
-          event.stopPropagation();
-        }
-        
-        if (DEBUG_EVENT_HANDLING) {
-          console.log(`Component ${safeComponent.id} triggered event ${eventName}`);
-        }
-        handleEvent(eventName.startsWith('on') ? eventName.substring(2).toLowerCase() : eventName, event);
-      };
-      
-      return acc;
-    }, {} as Record<string, any>)),
-    
-    // Handle children components
-    children: safeComponent.children && safeComponent.children.length > 0 ? (
-      // Render nested child components recursively
-      safeComponent.children.map((child, index) => {
-        if (typeof child === 'string') {
-          return <React.Fragment key={`string-${index}`}>{child}</React.Fragment>;
-        }
-        return (
-          <DynamicComponent
-            key={child.id || `child-${index}`}
-            component={child}
-            eventHandlers={eventHandlers}
-          />
-        );
-      })
-    ) : null,
-    
-    // Add method handlers based on method object
-    ...(safeComponent.methods && Object.entries(safeComponent.methods).reduce((acc, [methodName, methodData]) => {
-      // Only convert methods that follow React event naming conventions (onClick, onChange, etc.)
-      if (methodName.startsWith('on') && typeof methodData === 'object' && methodData && 'code' in methodData) {
-        const methodCode = methodData.code as string;
-        
-        acc[methodName] = (event: any) => {
-          if (DEBUG_EVENT_HANDLING) {
-            console.log(`Component ${safeComponent.id} triggered method ${methodName}`);
-          }
-          // Execute the method with the DOM manipulation utility
-          executeComponentMethod(methodName, { actions: [{ type: 'CALL_METHOD', payload: { methodName, methodCode, args: [event] } }] }, event);
-        };
-      }
-      return acc;
-    }, {} as Record<string, any>)),
-  };
-
-  // --- DEBUGGING: Log final props before rendering --- 
-  // Add specific check for the text component's style
-  if (safeComponent.id === 'text-display') {
-    console.log(`[DynamicComponent Render Check] text-display styles.fontWeight:`, safeComponent.styles?.fontWeight);
-  }
-  console.log(`[DynamicComponent Render] Final props for ${safeComponent.id} (${safeComponent.type}):`, {
-    id: componentProps.id,
-    style: componentProps.style,
-    allProps: componentProps 
-  });
-  // --- END DEBUGGING ---
-
-  // Render the final component with props
-  return <Component {...componentProps} />;
 };
 
-// Add a new top-level ProcessAppConfig component that handles the full app structure
-interface AppConfig {
-  app: {
-    name: string;
-    description: string;
-    theme: string;
-  };
-  layout: {
-    type: string;
-    regions: string[];
-  };
-  components: ComponentChild[];
-  backend?: {
-    services: any[];
-    dataFlow: any[];
-  };
-  theme?: {
-    colors: Record<string, string>;
-    typography: Record<string, any>;
-    spacing: Record<string, string>;
-  };
-  functionality?: {
-    type: string;
-    config: Record<string, any>;
-  };
-}
+// --- Action Execution Logic ---
+const executeComponentMethod = (
+  actions: any[],
+  componentId: string,
+  appState: Record<string, any>,
+  updateAppState: (updates: Record<string, any>) => void, // Correct function signature
+  event: ComponentEvent | any, // Accept specific or generic event type
+  itemData?: Record<string, any> // <-- Added itemData
+) => {
+    console.log(`[ActionExec] Executing method for ${componentId}. Actions:`, actions);
+    // Pass itemData to the method context if it exists
+    const methodContext: Record<string, any> = { _itemData: itemData || null }; 
 
-export const ProcessAppConfig: React.FC<{ 
-  config: AppConfig; 
-  eventHandlers?: Record<string, any>;
-}> = ({ config: initialConfig, eventHandlers }) => {
-  // State for the dynamic list of components
-  const [appComponents, setAppComponents] = useState<ComponentChild[]>(initialConfig.components || []);
-  
-  // Force re-render when config changes (mainly for initial load or full config swap)
-  React.useEffect(() => {
-    console.log('ProcessAppConfig: Initial config received, setting components state.');
-    setAppComponents(initialConfig.components || []);
+    // Helper to resolve values (from literals or method context variables)
+    const resolveValue = (valueConfig: any): any => {
+        if (typeof valueConfig !== 'object' || valueConfig === null) return valueConfig; // Already a literal or null/undefined
+        
+        // --- Updated resolveValue to prioritize _itemData ---
+        if (valueConfig.type === 'VARIABLE') {
+            const varName = valueConfig.name;
+            // Check local method context first
+            if (methodContext.hasOwnProperty(varName)) {
+               console.log(`[resolveValue] Resolving VARIABLE '${varName}' from methodContext. Value:`, methodContext[varName]);
+               return methodContext[varName];
+            } 
+            // --- Removed check for _itemData here, handled by GET_ITEM_CONTEXT ---
+            // else if (methodContext._itemData && methodContext._itemData.hasOwnProperty(varName)) {
+            //    console.log(`[resolveValue] Resolving VARIABLE '${varName}' from itemData. Value:`, methodContext._itemData[varName]);
+            //    return methodContext._itemData[varName];
+            // } 
+            else {
+               console.warn(`[resolveValue] Variable '${varName}' not found in methodContext or itemData.`);
+               return undefined; 
+            }
+        }
+        // --- End Updated resolveValue ---
+
+        if (valueConfig.type === 'LITERAL') return valueConfig.value;
+
+        // --- Added GET_ITEM_CONTEXT handling ---
+        if (valueConfig.type === 'ITEM_CONTEXT') {
+            const itemKey = valueConfig.key; // e.g., 'id', 'text', 'completed'
+            if (methodContext._itemData && methodContext._itemData.hasOwnProperty(itemKey)) {
+                console.log(`[resolveValue] Resolving ITEM_CONTEXT '${itemKey}'. Value:`, methodContext._itemData[itemKey]);
+                return methodContext._itemData[itemKey];
+        } else {
+                 console.warn(`[resolveValue] ITEM_CONTEXT key '${itemKey}' not found in itemData.`);
+                 return undefined;
+            }
+        }
+        // --- End GET_ITEM_CONTEXT handling ---
+
+        console.warn("[ActionExec] Unknown value config:", valueConfig);
+        return valueConfig; // Return as is if structure is unknown
+    };
+
+    // Execute actions sequentially
+    actions.forEach(action => {
+        if (!action || typeof action !== 'object' || !action.type) {
+            console.error("[ActionExec] Invalid action structure:", action);
+            return; // Skip invalid actions
+        }
+
+        try {
+            const actionType = action.type;
+            const payload = action.payload || {}; // Ensure payload exists
+
+            console.log(`[ActionExec] Processing action: ${actionType}`, payload);
+
+            switch (actionType) {
+                // --- Add GET_ITEM_CONTEXT Action ---
+                case 'GET_ITEM_CONTEXT': {
+                    const { resultVariableId, resultVariableIndex } = payload;
+                    if (!itemData) {
+                        console.error("GET_ITEM_CONTEXT: Cannot get item context - no itemData provided.");
+                        break;
+                    }
+                    if (resultVariableId && itemData.id) {
+                        methodContext[resultVariableId] = itemData.id;
+                         console.log(`GET_ITEM_CONTEXT: ${resultVariableId} = ${itemData.id}`);
+                    }
+                    // Note: Getting the index might be complex/unreliable here
+                    // If index is truly needed, it might need to be passed differently
+                    // or the list state structure needs to guarantee stable indices.
+                    // For now, we focus on ID-based identification.
+                    if (resultVariableIndex) {
+                         // Attempt to get index if passed, otherwise set null/undefined
+                         methodContext[resultVariableIndex] = itemData._index !== undefined ? itemData._index : null; 
+                         console.log(`GET_ITEM_CONTEXT: ${resultVariableIndex} = ${methodContext[resultVariableIndex]}`);
+                    }
+                    break;
+                }
+                // --- End GET_ITEM_CONTEXT Action ---
+
+                case 'GET_PROPERTY': {
+                    const { targetId, propertyName, resultVariable } = payload;
+                    if (!propertyName || !resultVariable) {
+                        console.error("GET_PROPERTY: Missing propertyName or resultVariable"); break;
+                    }
+                    // Simplistic state access: Assume propertyName is a key in global appState
+                    methodContext[resultVariable] = appState[propertyName] ?? null;
+                    console.log(`GET_PROPERTY (Global State): ${resultVariable} = ${methodContext[resultVariable]}`);
+
+                    // --- ADDED: Placeholder for Item Context --- 
+                    // We need a way for IR to specify getting context from the item itself
+                    // if targetId indicates a list item template context.
+                    // For now, this only reads from global appState.
+                    // --- END Placeholder ---
+
+        break;
+      }
+                case 'SET_PROPERTY': {
+                    const { targetId, propertyName, value } = payload;
+                     if (!propertyName) {
+                        console.error("SET_PROPERTY: Missing propertyName"); break;
+                    }
+                    // --- ADD DEBUG LOG --- 
+                    console.log(`[SET_PROPERTY Action] Attempting to set '${propertyName}'. Value object received:`, JSON.stringify(value));
+                    // --- END DEBUG LOG ---
+                    const resolvedValue = resolveValue(value); // Resolve first
+
+                    // --- Add $increment logic ---
+                    if (typeof resolvedValue === 'object' && resolvedValue !== null && resolvedValue.hasOwnProperty('$increment')) {
+                        const incrementAmount = typeof resolvedValue.$increment === 'number' ? resolvedValue.$increment : 1; // Default increment by 1
+                        const currentValue = appState[propertyName]; // Get current value from actual state
+                        if (typeof currentValue === 'number') {
+                            const newValue = currentValue + incrementAmount;
+                            updateAppState({ [propertyName]: newValue });
+                            console.log(`SET_PROPERTY ($increment): Updated state '${propertyName}' from ${currentValue} to ${newValue}`);
+        } else {
+                            console.error(`SET_PROPERTY ($increment): Cannot increment non-numeric state '${propertyName}'. Current value:`, currentValue);
+      }
+    } else {
+                      // Original logic: Update central app state directly using propertyName as key
+                      updateAppState({ [propertyName]: resolvedValue });
+                      console.log(`SET_PROPERTY: Updated state '${propertyName}' to`, resolvedValue);
+                    }
+                    // --- End $increment logic ---
+                    break;
+                }
+                case 'GET_EVENT_DATA': {
+                    const { path, resultVariable } = payload;
+                    if (!resultVariable) {
+                         console.error("GET_EVENT_DATA: Missing resultVariable"); break;
+                    }
+                    let eventValue: any = event;
+                    try {
+                       // Safely traverse path, e.g., "target.value" or "target.checked"
+                       path?.split('.').forEach((segment: string) => { eventValue = eventValue?.[segment]; });
+                       methodContext[resultVariable] = eventValue;
+                       console.log(`GET_EVENT_DATA: ${resultVariable} =`, eventValue);
+                    } catch (e) {
+                        console.error(`GET_EVENT_DATA Error accessing path '${path}': ${e}`);
+                        methodContext[resultVariable] = undefined;
+                    }
+                    break;
+                }
+                case 'LOG_MESSAGE': {
+                    const { message } = payload;
+                    const resolvedMessage = resolveValue(message);
+                    console.log('[IR LOG]', resolvedMessage);
+                    break;
+                }
+                // --- ADDED: List Item Manipulation Handlers --- 
+                case 'ADD_ITEM': {
+                    const { targetId, itemValue } = payload;
+                    if (!targetId) {
+                        console.error("ADD_ITEM: Missing targetId (should be list's state key)"); break;
+                    }
+                    const resolvedItemValue = resolveValue(itemValue);
+                    const currentList = appState[targetId] || [];
+                    if (!Array.isArray(currentList)) {
+                        console.error(`ADD_ITEM: State key '${targetId}' is not an array.`); break;
+                    }
+                    // Assume new items need text and a completed status
+                    const newItem = {
+                        id: uuidv4(), // Generate unique ID
+                        text: resolvedItemValue,
+                        completed: false
+                    };
+                    updateAppState({ [targetId]: [...currentList, newItem] });
+                    console.log(`ADD_ITEM: Added item to '${targetId}'. New list:`, [...currentList, newItem]);
+        break;
+    }
+                case 'UPDATE_ITEM_PROPERTY': {
+                    const { targetId, property, value, itemIdentifier } = payload; // Expect itemIdentifier (e.g., { key: 'id', value: 'item-123' } or { index: 0 })
+                    if (!targetId || !property || !itemIdentifier) {
+                        console.error("UPDATE_ITEM_PROPERTY: Missing targetId, property, or itemIdentifier"); break;
+                    }
+                    const resolvedValue = resolveValue(value);
+                    const currentList = appState[targetId] || [];
+                    if (!Array.isArray(currentList)) {
+                        console.error(`UPDATE_ITEM_PROPERTY: State key '${targetId}' is not an array.`); break;
+                    }
+
+                    const { key: idKey, value: idValue, index } = itemIdentifier;
+                    let itemUpdated = false;
+                    const newList = currentList.map((item, idx) => {
+                        if ((idKey && item[idKey] === idValue) || (index !== undefined && idx === index)) {
+                            itemUpdated = true;
+                            return { ...item, [property]: resolvedValue };
+                        }
+                        return item;
+                    });
+
+                    if (itemUpdated) {
+                        updateAppState({ [targetId]: newList });
+                        console.log(`UPDATE_ITEM_PROPERTY: Updated item property '${property}' in list '${targetId}'. New list:`, newList);
+        } else {
+                        console.warn(`UPDATE_ITEM_PROPERTY: Item not found in list '${targetId}' with identifier:`, itemIdentifier);
+                    }
+                    break;
+                }
+                case 'DELETE_ITEM': {
+                    const { targetId, itemIdentifier } = payload; 
+                    if (!targetId || !itemIdentifier) {
+                        console.error("DELETE_ITEM: Missing targetId or itemIdentifier"); break;
+                    }
+                    const currentList = appState[targetId] || [];
+                     if (!Array.isArray(currentList)) {
+                        console.error(`DELETE_ITEM: State key '${targetId}' is not an array.`); break;
+                    }
+                    
+                    // Resolve the identifier value
+                    const identifierValue = resolveValue(itemIdentifier.value);
+                    const identifierKey = itemIdentifier.key; // e.g., 'id'
+
+                    if (identifierKey === undefined || identifierValue === undefined) {
+                         console.error("DELETE_ITEM: Invalid itemIdentifier structure or unresolved value."); break;
+                    }
+
+                    let originalLength = currentList.length;
+                    // --- Added Debug Logging Inside Filter --- 
+                    const newList = currentList.filter(item => {
+                        const itemValueToCheck = item[identifierKey];
+                        const itemMatches = itemValueToCheck === identifierValue;
+                        console.log(`[DELETE_ITEM Filter Debug] Comparing item[${identifierKey}] (Type: ${typeof itemValueToCheck}, Value: ${itemValueToCheck}) === identifierValue (Type: ${typeof identifierValue}, Value: ${identifierValue}). Match: ${itemMatches}`);
+                        return !itemMatches; // Keep if it DOESN'T match
+                    });
+                    // --- End Debug Logging ---
+
+                    if (newList.length < originalLength) {
+                         updateAppState({ [targetId]: newList });
+                         console.log(`DELETE_ITEM: Deleted item from list '${targetId}'. New list:`, newList);
+                    } else {
+                        console.warn(`DELETE_ITEM: Item not found in list '${targetId}' with identifier:`, { key: identifierKey, value: identifierValue });
+                    }
+                    break;
+                }
+                // --- NEW: Higher-level action for toggling boolean properties --- 
+                case 'TOGGLE_ITEM_BOOLEAN': {
+                    const { targetId, propertyKey, itemIdentifier } = payload;
+                    if (!targetId || !propertyKey || !itemIdentifier) {
+                        console.error("TOGGLE_ITEM_BOOLEAN: Missing targetId, propertyKey, or itemIdentifier"); break;
+                    }
+                    const currentList = appState[targetId] || [];
+                    if (!Array.isArray(currentList)) {
+                        console.error(`TOGGLE_ITEM_BOOLEAN: State key '${targetId}' is not an array.`); break;
+                    }
+
+                    // Resolve identifier value (likely from item context)
+                    const identifierValue = resolveValue(itemIdentifier.value);
+                    const identifierKey = itemIdentifier.key; // e.g., 'id'
+
+                    if (identifierKey === undefined || identifierValue === undefined) {
+                         console.error("TOGGLE_ITEM_BOOLEAN: Invalid itemIdentifier structure or unresolved value."); break;
+                    }
+
+                    let itemFoundAndToggled = false;
+                    const newList = currentList.map(item => {
+                        if (item[identifierKey] === identifierValue) {
+                            itemFoundAndToggled = true;
+                            const currentValue = item[propertyKey];
+                            if (typeof currentValue !== 'boolean') {
+                                console.warn(`TOGGLE_ITEM_BOOLEAN: Property '${propertyKey}' on item is not a boolean. Setting to true.`);
+                                return { ...item, [propertyKey]: true }; // Default to true if not boolean
+                            }
+                             const newValue = !currentValue;
+                             console.log(`[TOGGLE_ITEM_BOOLEAN] Toggling '${propertyKey}' for item ${identifierValue} from ${currentValue} to ${newValue}`);
+                            return { ...item, [propertyKey]: newValue };
+                        }
+                        return item;
+                    });
+
+                    if (itemFoundAndToggled) {
+                        updateAppState({ [targetId]: newList });
+                        console.log(`TOGGLE_ITEM_BOOLEAN: Updated list '${targetId}'. New list:`, newList);
+                    } else {
+                        console.warn(`TOGGLE_ITEM_BOOLEAN: Item not found in list '${targetId}' with identifier:`, { key: identifierKey, value: identifierValue });
+                    }
+                    break;
+                }
+                // --- END TOGGLE_ITEM_BOOLEAN ---
+
+                // --- REMOVED COMPLEX ACTIONS: ADD_ITEM, REMOVE_ITEM, CALL_METHOD, IF, etc. ---
+                // These require more complex state management or component manipulation
+                // which is beyond the scope of this simplified renderer for now.
+                // The AI needs to achieve these effects using SET_PROPERTY on state variables
+                // that are then used by standard React/Chakra components.
+                // For example, adding to a list means using SET_PROPERTY to update an array in appState,
+                // and the list component would simply render based on that array.
+                default:
+                    console.warn(`[ActionExec] Unsupported action type: ${actionType}`);
+            }
+        } catch (error) {
+            console.error(`[ActionExec] Error executing action: ${JSON.stringify(action)}`, error);
+        }
+    });
+};
+
+// --- ProcessAppConfig Wrapper ---
+export const ProcessAppConfig: React.FC<{ config: AppConfig; }> = ({ config: initialConfig }) => {
+  // Initialize state from config or default to empty object
+  const [appState, setAppState] = useState<Record<string, any>>(() => {
+    return initialConfig.app?.initialState || {};
+  });
+
+  // Centralized state update function passed down to components
+  const updateAppState = useCallback((updates: Record<string, any>) => {
+    setAppState(prevState => ({ ...prevState, ...updates }));
+    console.log("[ProcessAppConfig] App State Updated:", updates);
+  }, []);
+
+  // Simplified legacy handler (mainly for potential direct prop handlers)
+  const handleStateUpdateAction = useCallback((variableName: string, updateRule: any, event?: any) => {
+     console.log(`[ProcessAppConfig] Handling legacy state update for '${variableName}'`, updateRule);
+     setAppState(prevState => {
+           let newValue = prevState[variableName];
+            if (updateRule?.value !== undefined) {
+                newValue = updateRule.value;
+            } else if (updateRule?.toggle && typeof prevState[variableName] === 'boolean') {
+                newValue = !prevState[variableName];
+            } else if (updateRule?.fromEvent && event) {
+                 let eventValue: any = event;
+                 try {
+                     updateRule.fromEvent.split('.').forEach((segment: string) => { eventValue = eventValue?.[segment]; });
+                     newValue = eventValue;
+                 } catch (e) { console.error("Error getting fromEvent", e); }
+  } else {
+                 console.warn("Legacy updateState rule not recognized:", updateRule);
+            }
+            return { ...prevState, [variableName]: newValue };
+     });
+  }, []);
+
+  // Effect to reset state and components when config changes
+  useEffect(() => {
+    console.log("[ProcessAppConfig] Config changed, resetting state and components.");
+    setAppState(initialConfig.app?.initialState || {});
+    setRenderedComponents(initialConfig.components || []);
   }, [initialConfig]);
 
-  // Function to add a new component to the state
-  const addComponent = useCallback((parentId: string, newComponentConfig: ComponentChild) => {
-    // Parent ID is now required to know where to add the component
-    if (!parentId || !newComponentConfig || typeof newComponentConfig !== 'object') {
-      console.error('addComponent received invalid parentId or config:', parentId, newComponentConfig);
-      return;
-    }
-    const componentToAdd = {
-      ...newComponentConfig,
-      id: newComponentConfig.id || `dynamic-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
-    };
-    console.log(`Adding new component:`, componentToAdd, `to parent: ${parentId}`);
+  // State for the top-level component structure
+  const [renderedComponents, setRenderedComponents] = useState<ComponentChild[]>(initialConfig.components || []);
 
-    // Find the parent and add the child - recursive approach needed
-    const addRecursive = (components: ComponentChild[]): ComponentChild[] => {
-      return components.map(comp => {
-        if (comp.id === parentId.replace('#', '')) {
-          console.log(`Found parent ${parentId}, adding child.`);
-          // Ensure children array exists and is an array
-          const children = Array.isArray(comp.children) ? comp.children : [];
-          return { ...comp, children: [...children, componentToAdd] };
-        }
-        if (Array.isArray(comp.children)) {
-          // Filter out strings before recursive call
-          const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
-          return { ...comp, children: addRecursive(childComponents) };
-        }
-        return comp;
-      });
-    };
-
-    setAppComponents(prevComponents => addRecursive(prevComponents));
-
-  }, []); // Empty dependency array, relies on state updater form
-
-  // --- Add removeComponent function ---
-  const removeComponent = useCallback((componentId: string) => {
-    if (!componentId) {
-      console.error('removeComponent requires a componentId');
-      return;
-    }
-    const targetId = componentId.replace('#', ''); // Allow selectors like #id
-    console.log('Removing component:', targetId);
-
-    // Recursive function to filter out the component
-    const removeRecursive = (components: ComponentChild[]): ComponentChild[] => {
-      return components
-        .filter(comp => comp.id !== targetId)
-        .map(comp => {
-          if (Array.isArray(comp.children)) {
-            // Filter out strings before recursive call
-            const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
-            return { ...comp, children: removeRecursive(childComponents) };
-          }
-          return comp;
-        });
-    };
-
-    setAppComponents(prevComponents => removeRecursive(prevComponents));
-  }, []);
-  // --- End removeComponent ---
-
-  // --- Add addItem function --- 
-  const addItem = useCallback((listId: string, itemValue: any) => {
-    if (!listId) {
-      console.error('addItem requires a listId');
-      return;
-    }
-    const targetId = listId.replace('#', '');
-    console.log(`Adding item '${JSON.stringify(itemValue)}' to list '${targetId}'`); // Log the value being added
-
-    setAppComponents(prevComponents => {
-      const updateRecursive = (components: ComponentChild[]): ComponentChild[] => {
-        return components.map(comp => {
-          if (comp.id === targetId && (comp.type === 'list' || comp.type === 'List')) { // Allow 'List' as well
-            console.log(`Found list ${targetId}, adding item.`);
-            // Ensure properties and items exist
-            const currentProperties = comp.properties || {};
-            const currentItems = Array.isArray(currentProperties.items) ? currentProperties.items : [];
-            const itemTemplate = comp.itemTemplate || currentProperties.itemTemplate; // Check both locations
-
-            let newItemToAdd: any = itemValue; // Default to raw value
-
-            if (itemTemplate && typeof itemTemplate === 'object') {
-              console.log("Item template found:", itemTemplate);
-              try {
-                // 1. Deep clone the template
-                let newItemConfig = JSON.parse(JSON.stringify(itemTemplate));
-
-                // 2. Generate a unique ID for the item (or use a provided one if itemValue is an object with id)
-                const baseId = typeof itemValue === 'object' && itemValue.id ? itemValue.id : `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-                
-                // Find the index of the item being added
-                const itemIndex = currentItems.length; // The index will be the current length before adding
-
-                // 3. Recursively process the template to set IDs and replace placeholders
-                const processTemplateNode = (node: any, parentId: string): any => {
-                   if (typeof node !== 'object' || node === null) return node;
-
-                   // Generate unique ID for the node if it doesn't have one
-                   if (!node.id) {
-                       node.id = `${parentId}-${node.type || 'child'}-${Math.random().toString(36).substr(2, 5)}`;
-  } else {
-                       node.id = `${parentId}-${node.id}`;
-                   }
-
-                   // Placeholder replacement (simple string replace)
-                   for (const key in node) {
-                       if (key === 'properties' && typeof node.properties === 'object') {
-                           // Specifically target content property for {{item}}
-                           if (typeof node.properties.content === 'string' && node.properties.content === '{{item}}') {
-                               if (typeof itemValue === 'string') {
-                                   node.properties.content = itemValue;
-                               } else {
-                                   console.warn('Cannot replace {{item}} placeholder with non-string value:', itemValue);
-                               }
-                           }
-                           // Handle other properties (itemId, index, fieldName)
-                           for (const propKey in node.properties) {
-                               if (typeof node.properties[propKey] === 'string') {
-                                   let propValue = node.properties[propKey];
-                                   if (propValue === '{{index}}') {
-                                       node.properties[propKey] = String(itemIndex);
-                                   } else if (propValue === '{itemId}') {
-                                       node.properties[propKey] = baseId;
-                                   } else if (typeof itemValue === 'object') {
-                                       propValue = propValue.replace(/\{\{item\.(\w+)\}\}/g, (_: any, fieldName: string) => {
-                                          return itemValue[fieldName] !== undefined ? String(itemValue[fieldName]) : `{{item.${fieldName}}}`;
-                                       });
-                                       node.properties[propKey] = propValue;
-                                   }
-                               }
-                           }
-                       } else if (key === 'methods' && typeof node.methods === 'object') {
-                           // Process method actions
-                           for (const methodKey in node.methods) {
-                               if (typeof node.methods[methodKey] === 'object' && node.methods[methodKey] !== null) {
-                                   if (Array.isArray(node.methods[methodKey].actions)) {
-                                       node.methods[methodKey].actions = node.methods[methodKey].actions.map((action: any) => {
-                                           // Ensure payload exists, create if necessary
-                                           let payloadSource = action.payload || action; // Check payload first, then action itself
-                                           let finalPayload: Record<string, any> = {}; // Build the final payload
-                                           let originalPayloadExists = !!action.payload;
-
-                                           for (const paramKey in payloadSource) {
-                                               // Skip copying the 'type' key if reading from action itself
-                                               if (!originalPayloadExists && paramKey === 'type') continue;
-                                               
-                                               let paramValue = payloadSource[paramKey];
-                                               if (typeof paramValue === 'string') {
-                                                   // Perform replacements
-                                                   if (paramValue === '{{item}}' || paramValue === '{itemId}') {
-                                                      finalPayload[paramKey] = baseId; // Use unique item ID
-                                                   } else if (paramValue === '{{index}}') {
-                                                       finalPayload[paramKey] = itemIndex;
-                                                   } else if (typeof itemValue === 'object') {
-                                                       // Handle item.fieldName
-                                                       const replacedValue = paramValue.replace(/\{\{item\.(\w+)\}\}/g, (_: any, fieldName: string) => {
-                                                            return itemValue[fieldName] !== undefined ? String(itemValue[fieldName]) : `{{item.${fieldName}}}`;
-                                                       });
-                                                       finalPayload[paramKey] = replacedValue;
-                                                   } else if (typeof itemValue === 'string') {
-                                                        // Handle simple {{item}} replacement if itemValue is string
-                                                        finalPayload[paramKey] = paramValue.replace(/\{\{item\}\}/g, itemValue);
-                                                   } else {
-                                                       finalPayload[paramKey] = paramValue; // No replacement needed
-                                                   }
-                                               } else {
-                                                  finalPayload[paramKey] = paramValue; // Copy non-string values directly
-                                               }
-                                           }
-                                           // Return the action with parameters guaranteed to be in payload
-                                           return { ...action, payload: finalPayload }; 
-                                       });
-                                   }
-                               }
-                           }
-                       } else if (typeof node[key] === 'string') {
-                           // Handle placeholders in other top-level string properties (e.g., styles?)
-                           let value = node[key];
-                           if (value === '{{item}}' && typeof itemValue === 'string') node[key] = itemValue;
-                           if (value === '{itemId}') node[key] = baseId;
-                           if (value === '{{index}}') node[key] = String(itemIndex);
-                           // Add item.fieldName replacement if necessary for other props
-                       }
-                   }
-                   
-                   // Recursively process children
-                   if (Array.isArray(node.children)) {
-                       node.children = node.children.map((child: any) => processTemplateNode(child, node.id));
-                   }
-                   
-                   return node;
-                };
-
-                newItemConfig = processTemplateNode(newItemConfig, baseId); // Process starting with baseId
-                // Ensure the top-level item gets the correct base ID
-                newItemConfig.id = baseId; 
-                newItemToAdd = newItemConfig; // Use the processed config object
-                console.log("Generated new item from template:", newItemToAdd);
-              } catch (e) {
-                console.error("Error processing item template:", e);
-                // Fallback to adding raw value if template processing fails
-                newItemToAdd = itemValue; 
-              }
-            } else {
-                console.log("No item template found, adding raw value:", itemValue);
-            }
-
-            return { 
-              ...comp, 
-              properties: { 
-                ...currentProperties, 
-                items: [...currentItems, newItemToAdd] // Add the new item (object or raw)
-              }
-            };
-          }
-          // Recursively update children
-          if (Array.isArray(comp.children)) {
-            const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
-            return { ...comp, children: updateRecursive(childComponents) };
-          }
-          return comp;
-        });
-      };
-      return updateRecursive(prevComponents);
-    });
-  }, []); // Depends on setAppComponents
-  // --- End addItem ---
-
-  // --- Add removeItem function --- 
-  const removeItem = useCallback((listId: string, itemIdentifier: any) => {
-    if (!listId) {
-      console.error('removeItem requires a listId');
-      return;
-    }
-    const targetId = listId.replace('#', '');
-    console.log(`Attempting to remove item identified by: '${itemIdentifier}' from list '${targetId}'`);
-
-    setAppComponents(prevComponents => {
-      const updateRecursive = (components: ComponentChild[]): ComponentChild[] => {
-        return components.map(comp => {
-          if (comp.id === targetId && (comp.type === 'list' || comp.type === 'List')) {
-            console.log(`Found list ${targetId}, attempting to remove item.`);
-            const currentProperties = comp.properties || {};
-            const currentItems = Array.isArray(currentProperties.items) ? currentProperties.items : [];
-            let updatedItems = [...currentItems];
-            let itemRemoved = false;
-
-            // Try removing by ID first if identifier looks like our generated ID format
-            if (typeof itemIdentifier === 'string' && itemIdentifier.startsWith('item-')) {
-                const initialLength = updatedItems.length;
-                updatedItems = updatedItems.filter(item => !(typeof item === 'object' && item.id === itemIdentifier));
-                if (updatedItems.length < initialLength) {
-                    console.log(`Removed item by ID: ${itemIdentifier}`);
-                    itemRemoved = true;
-                }
-            }
-            
-            // If not removed by ID, try by index
-            if (!itemRemoved && typeof itemIdentifier === 'number') { 
-              if (itemIdentifier >= 0 && itemIdentifier < currentItems.length) {
-                console.log(`Removing item by index: ${itemIdentifier}`);
-                updatedItems.splice(itemIdentifier, 1);
-                itemRemoved = true;
-              } else {
-                console.warn(`removeItem: Index ${itemIdentifier} out of bounds for list ${targetId}`);
-              }
-            } 
-            
-            // If still not removed, try by simple value comparison (fallback)
-            if (!itemRemoved) { 
-              const initialLength = updatedItems.length;
-              updatedItems = currentItems.filter(item => {
-                  // Handle comparison for both objects (check ID) and primitives
-                  if (typeof item === 'object' && item !== null && typeof itemIdentifier ==='object' && itemIdentifier !== null) {
-                      return item.id !== itemIdentifier.id; // Example: Compare by ID if both are objects
-                  } else if (typeof item === 'object' && item !== null && item.properties?.content === itemIdentifier) {
-                      // Example: Try matching content if item is object and identifier is primitive
-                      return false; // Remove if content matches
-                  } else {
-                     return item !== itemIdentifier; // Primitive comparison
-                  }
-              });
-              if (updatedItems.length < initialLength) {
-                  console.log(`Removed item by value comparison: ${itemIdentifier}`);
-                  itemRemoved = true;
-              } 
-            }
-
-            // Final check if removal happened
-            if (!itemRemoved) {
-               console.warn(`removeItem: Could not find item to remove using identifier: ${itemIdentifier} (type: ${typeof itemIdentifier}) in list ${targetId}`);
-            }
-
-            return { 
-              ...comp, 
-              properties: { 
-                ...currentProperties, 
-                items: updatedItems 
-              }
-            };
-          }
-          // Recursively update children
-          if (Array.isArray(comp.children)) {
-            const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
-            return { ...comp, children: updateRecursive(childComponents) };
-          }
-          return comp;
-        });
-      };
-      return updateRecursive(prevComponents);
-    });
-  }, []); // Depends on setAppComponents
-  // --- End removeItem ---
-
-  // --- Utility for deep merging state updates --- 
-  const deepMerge = (target: any, source: any): any => {
-    const output = { ...target };
-    if (isObject(target) && isObject(source)) {
-      Object.keys(source).forEach(key => {
-        if (isObject(source[key])) {
-          if (!(key in target)) {
-            Object.assign(output, { [key]: source[key] });
-  } else {
-            output[key] = deepMerge(target[key], source[key]);
-          }
-        } else {
-          Object.assign(output, { [key]: source[key] });
-        }
-      });
-    }
-    return output;
-  };
-
-  const isObject = (item: any): boolean => {
-    return (item && typeof item === 'object' && !Array.isArray(item));
-  };
-
-  // --- Add updateComponent function with deep merge --- 
-  const updateComponent = useCallback((componentId: string, updates: Partial<ComponentChild>) => {
-    if (!componentId || !updates || typeof updates !== 'object') {
-      console.error('updateComponent requires a componentId and an updates object');
-      return;
-    }
-    const targetId = componentId.replace('#', ''); // Allow selectors like #id
-    console.log(`Updating component ${targetId} with:`, updates);
-
-    // Recursive function to find and update the component
-    const updateRecursive = (components: ComponentChild[]): ComponentChild[] => {
-      return components.map(comp => {
-        if (!comp || typeof comp !== 'object') return comp; // Safety check
-
-        if (comp.id === targetId) {
-          console.log(`Found component ${targetId} to update. Current:`, comp, "Applying:" , updates);
-          // --- Apply Deep Merge --- 
-          let newCompState = { ...comp };
-          
-          // Deep merge properties if provided in updates
-          if (updates.properties || updates.props) {
-            const updateProps = updates.properties || updates.props || {};
-            const currentProps = comp.properties || comp.props || {};
-            newCompState.properties = deepMerge(currentProps, updateProps);
-            // Ensure props alias is removed if properties exists
-            if (newCompState.props) delete newCompState.props;
-          }
-          
-          // Deep merge styles if provided in updates
-          if (updates.styles) {
-            const currentStyles = comp.styles || {};
-            newCompState.styles = deepMerge(currentStyles, updates.styles);
-          }
-          
-          // Apply other top-level updates (excluding properties/styles already merged)
-          const { properties, props, styles, ...otherUpdates } = updates;
-          newCompState = { ...newCompState, ...otherUpdates };
-
-          console.log(`Merged state for ${targetId}:`, newCompState);
-          return newCompState;
-          // --- End Deep Merge Logic ---
-        }
-
-        // Recursively update children
-        if (Array.isArray(comp.children)) {
-          const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
-          const updatedChildren = updateRecursive(childComponents);
-          // Combine updated children with any string children
-          const finalChildren = comp.children.map(child => 
-              typeof child === 'object' ? updatedChildren.find(uc => uc.id === child.id) || child : child
-          );
-          return { ...comp, children: finalChildren };
-        }
-        return comp;
-      });
-    };
-
-    setAppComponents(prevComponents => updateRecursive(prevComponents));
-  }, [appComponents]); // Depend on appComponents state for recursive updates
-  // --- End updateComponent ---
-
-  // --- Add getComponentProperty function (Ensure this exists and works) ---
-  const getComponentProperty = useCallback((componentId: string, propertyName: string): any => {
-    const targetId = componentId.replace('#', '');
-    let foundValue: any = undefined;
-    console.log(`[getComponentProperty] Searching for ${targetId}.${propertyName}`);
-
-    // Support for nested properties using dot notation (e.g., "styles.fontWeight")
-    const propertyParts = propertyName.split('.');
-    const baseProperty = propertyParts[0];
-    const nestedPath = propertyParts.slice(1);
-
-    const findRecursive = (components: ComponentChild[]) => {
-      for (const comp of components) {
-        if (!comp || typeof comp !== 'object') continue; // Add safety check
-        if (comp.id === targetId) {
-          // --- CORRECTED LOGIC: Check styles object first if baseProperty is 'styles' --- 
-          let sourceObject: Record<string, any> = {}; // Start with empty object
-
-          if (baseProperty === 'styles' && comp.styles) {
-            sourceObject = comp.styles;
-          } else if (baseProperty === 'properties' && comp.properties) {
-            sourceObject = comp.properties;
-            if (propertyName.startsWith('properties.')) {
-                nestedPath.shift(); 
-            }
-          } else if (comp.properties) { // Default check order
-            sourceObject = comp.properties;
-          } else if (comp.props) {
-            sourceObject = comp.props;
-          }
-          // If none of the above assigned, sourceObject remains {}
-
-          // Initialize foundValue to undefined for each component check
-          let componentSpecificFoundValue: any = undefined;
-
-          // Use the guaranteed-to-be-object sourceObject
-          if (nestedPath.length > 0) { // Handle nested properties
-            let currentValue: Record<string, any> | undefined = sourceObject; // Start search from sourceObject, allow undefined type
-            for (const pathPart of nestedPath) {
-              // Check if currentValue is an object before indexing
-              if (currentValue && typeof currentValue === 'object' && pathPart in currentValue) {
-                currentValue = currentValue[pathPart];
-              } else {
-                console.warn(`getComponentProperty: Nested path '${propertyName}' not fully resolved at '${pathPart}' in component state/styles.`);
-                currentValue = undefined; 
-                break;
-              }
-            }
-            componentSpecificFoundValue = currentValue;
-          } else if (baseProperty in sourceObject && nestedPath.length === 0) { // Handle direct properties
-             if (sourceObject[baseProperty] !== undefined && sourceObject[baseProperty] !== null) {
-                 componentSpecificFoundValue = sourceObject[baseProperty];
-             }
-          }
-          
-          // Only assign to foundValue if something was actually found in this component's state/styles
-          if (componentSpecificFoundValue !== undefined) {
-              foundValue = componentSpecificFoundValue;
-          }
-          // --- END CORRECTED LOGIC --- 
-          
-          // Found component, stop searching state/styles further down this branch
-          return true; 
-        }
-
-        // Recursively search children
-        if (Array.isArray(comp.children)) {
-          const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
-          if (findRecursive(childComponents)) {
-            return true; // Found in children
-          }
-        }
-      }
-      return false; // Not found in this branch
-    };
-    
-    findRecursive(appComponents);
-
-    // --- (Keep the rest of getComponentProperty including DOM fallback) --- 
-
-    if (foundValue === undefined) {
-      console.log(`Property '${propertyName}' not found in component state for '${targetId}'. Falling back to DOM.`);
-      try {
-        const element = document.getElementById(targetId);
-        if (element) {
-           if (nestedPath.length > 0 && (baseProperty === 'style' || baseProperty === 'styles')) {
-             // Handle nested style property (e.g., styles.fontWeight)
-             const styleProperty = nestedPath[0];
-             // Convert camelCase to kebab-case for CSS properties
-             const cssProperty = styleProperty.replace(/([A-Z])/g, "-$1").toLowerCase();
-             foundValue = getComputedStyle(element).getPropertyValue(cssProperty);
-           } else if (baseProperty === 'style' || baseProperty === 'styles') {
-             // Handle request for the entire style object
-             const computedStyle = getComputedStyle(element);
-             const styleObj: Record<string, string> = {};
-             for (let i = 0; i < computedStyle.length; i++) {
-               const prop = computedStyle[i];
-               const value = computedStyle.getPropertyValue(prop);
-               if (value) {
-                 // Convert kebab-case to camelCase for API consistency
-                 const camelProp = prop.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
-                 styleObj[camelProp] = value;
-               }
-             }
-             foundValue = styleObj;
-           } else if (baseProperty === 'value' && 'value' in element) {
-             foundValue = (element as HTMLInputElement).value;
-           } else if (baseProperty === 'checked' && 'checked' in element) {
-             foundValue = (element as HTMLInputElement).checked;
-           } else if (baseProperty === 'textContent' || baseProperty === 'content') { // Added 'content' mapping
-             foundValue = element.textContent;
-           } else if (baseProperty === 'innerHTML') {
-             foundValue = element.innerHTML;
-           } else {
-              // Generic attribute fallback for non-nested properties
-              if (nestedPath.length === 0) {
-                 foundValue = element.getAttribute(propertyName);
-              } else {
-                 console.warn(`Cannot get nested non-style property '${propertyName}' directly from DOM.`);
-              }
-           }
-        }
-      } catch (e) {
-          console.error(`Error reading property '${propertyName}' from DOM element '${targetId}':`, e);
-          foundValue = undefined;
-      }
-    }
-
-    // Return {} for styles if still undefined, otherwise return found value
-    if (foundValue === undefined && (baseProperty === 'style' || baseProperty === 'styles')) {
-        console.log(`Returning empty object for undefined style property '${propertyName}' on '${targetId}'.`);
-        return {}; 
-    }
-    
-    console.log(`[getComponentProperty Final] Got '${propertyName}' from '${targetId}' =`, foundValue);
-    return foundValue;
-  }, [appComponents]); // Depend on state
-  // --- End getComponentProperty --- 
-
-  // --- Modify setComponentProperty function --- 
-  const setComponentProperty = useCallback((componentId: string, propertyName: string, value: any) => {
-    console.log(`setComponentProperty: Setting '${propertyName}' to`, value, `on component '${componentId.replace('#', '')}'`);
-    
-    // --- Check for internal TOGGLE action --- 
-    if (value && typeof value === 'object' && value.type === '_TOGGLE_INTERNAL_') {
-      const toggleValues = value.values;
-      if (Array.isArray(toggleValues) && toggleValues.length === 2) {
-        const currentValue = getComponentProperty(componentId, propertyName);
-        const newValue = (currentValue === toggleValues[0]) ? toggleValues[1] : toggleValues[0];
-        console.log(`Toggle Action: Current='${currentValue}', New='${newValue}'`);
-        setComponentProperty(componentId, propertyName, newValue);
-        return;
-      } else {
-        console.warn("Invalid TOGGLE value received:", value);
-        return;
-      }
-    }
-
-    // Existing logic for setting properties (including nested and styles)
-    let processedValue = value; 
-    const targetId = componentId.replace('#', '');
-
-    const propertyParts = propertyName.split('.');
-    const baseProperty = propertyParts[0];
-    const nestedPath = propertyParts.slice(1);
-    
-    // Handle nested property setting differently
-    if (nestedPath.length > 0) {
-      // Construct the nested update object
-      const nestedUpdate = nestedPath.reduceRight((val, key) => ({ [key]: val }), processedValue);
-      
-      // Determine if this is a style update or a regular property update
-      if (baseProperty === 'styles') {
-        updateComponent(componentId, { styles: nestedUpdate });
-      } else {
-        // Assume it's under 'properties'
-        updateComponent(componentId, { properties: { [baseProperty]: nestedUpdate } });
-      }
-
-      return; // Return after handling nested property via state update
-    }
-    
-    // Handle direct style property (setting the whole style object)
-    if (propertyName === 'style' && typeof processedValue === 'object') {
-        updateComponent(componentId, { styles: processedValue }); 
-        return; 
-    }
-    
-    // Default behavior for non-nested properties (under 'properties')
-    updateComponent(componentId, { 
-        properties: { [propertyName]: processedValue } 
-    });
-
-  }, [updateComponent, getComponentProperty, appComponents]); // Added appComponents dependency for deep merge access
-  // --- End setComponentProperty --- 
-
-  // --- Define callComponentMethod ---
-  const callComponentMethod = useCallback((componentId: string, methodName: string, ...args: any[]) => {
-    console.log(`Attempting to call method '${methodName}' on component '${componentId}' with args:`, args);
-    const targetId = componentId.replace('#', '');
-    let foundComponent: ComponentChild | null = null;
-    let methodCode: string | null = null;
-
-    // Recursive search function
-    const findComponentAndMethod = (components: ComponentChild[]) => {
-      for (const comp of components) {
-        if (comp.id === targetId) {
-          foundComponent = comp;
-          if (comp.methods && typeof comp.methods === 'object' && comp.methods[methodName]) {
-            const methodInfo = comp.methods[methodName];
-            if (typeof methodInfo === 'string') {
-              methodCode = methodInfo;
-            } else if (typeof methodInfo === 'object' && methodInfo.code) {
-              methodCode = methodInfo.code;
-            }
-          }
-          return true; // Found component, stop searching this branch
-        }
-        if (Array.isArray(comp.children)) {
-          // Filter out strings before recursive call
-          const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
-          if (findComponentAndMethod(childComponents)) {
-            return true; // Found in children, stop searching
-          }
-        }
-      }
-      return false; // Not found in this branch
-    };
-
-    findComponentAndMethod(appComponents); // Start search from root
-
-    if (!foundComponent) {
-      console.error(`callComponentMethod Error: Component with ID '${targetId}' not found.`);
-      return;
-    }
-
-    if (!methodCode) {
-      console.error(`callComponentMethod Error: Method '${methodName}' not found on component '${targetId}'.`);
-      return;
-    }
-    
-    // --- Type guard passed, methodCode is now guaranteed to be string ---
-
-    console.log(`Executing method '${methodName}' for component '${targetId}'`);
-    console.log("Method code:", methodCode);
-
-    try {
-      // Recreate the $m utility locally for this execution context
-      const $m = (selector: string) => {
-        console.log(`($m in callComponentMethod) selector called with: ${selector}`);
-        const elementId = selector.startsWith('#') ? selector.substring(1) : selector;
-        const element = document.getElementById(elementId);
-        if (!element) {
-          console.warn(`($m in callComponentMethod) Element not found: ${selector}`);
-          // Return a similar dummy object as in DynamicComponent's $m
-          return {
-            getProperty: () => null,
-            setProperty: () => {},
-            setStyle: () => {},
-            // Add other methods if needed, possibly calling global functions
-          };
-        }
-        // Return a simplified $m interface - might need expansion
-        return {
-           getProperty: (prop: string) => {
-              if (prop === 'value' && 'value' in element) return (element as HTMLInputElement).value;
-              if (prop === 'checked' && 'checked' in element) return (element as HTMLInputElement).checked;
-              if (prop === 'innerHTML') return element.innerHTML;
-              if (prop === 'innerText' || prop === 'content') return element.textContent;
-              return element.getAttribute(prop);
-           },
-           setProperty: (prop: string, value: any) => {
-              if (prop === 'value' && 'value' in element) (element as HTMLInputElement).value = value;
-              else if (prop === 'checked' && 'checked' in element) (element as HTMLInputElement).checked = value;
-              else if (prop === 'innerHTML') element.innerHTML = value;
-              else if (prop === 'innerText' || prop === 'content') element.textContent = value;
-              else element.setAttribute(prop, value);
-           },
-           setStyle: (prop: string, value: string) => {
-             (element.style as any)[prop] = value;
-           }
-        };
-      };
-
-      // Prepare the execution body
-      let functionBody = '';
-      // Use type assertion here to fix the 'never' type issue
-      const codeAsString = methodCode as string;
-      if (codeAsString.trim().startsWith('function')) {
-        const bodyStart = codeAsString.indexOf('{');
-        const bodyEnd = codeAsString.lastIndexOf('}');
-        if (bodyStart !== -1 && bodyEnd > bodyStart) {
-          functionBody = codeAsString.substring(bodyStart + 1, bodyEnd);
-        }
-  } else {
-        functionBody = codeAsString; // Assume it's plain code if not a function string
-      }
-
-      // Create the function with necessary scope
-      // Pass addComponent, removeComponent, updateComponent directly from useCallback closure
-      // Pass args as an array named 'methodArgs'
-      const func = new Function('$m', 'addComponent', 'removeComponent', 'updateComponent', 'methodArgs', functionBody);
-      
-      // Execute the function
-      func($m, addComponent, removeComponent, updateComponent, args);
-
-    } catch (error) {
-      console.error(`Error executing method '${methodName}' for component '${targetId}':`, error);
-      console.error("Method code that failed:", methodCode);
-    }
-  }, [appComponents, addComponent, removeComponent, updateComponent]); // Depend on state and callbacks
-  // --- End callComponentMethod ---
-
-  // --- Attach to window object --- 
-  useEffect(() => {
-    // Ensure $morpheo object exists
-    window.$morpheo = window.$morpheo || {};
-    // Assign the method to the global object
-    window.$morpheo.callComponentMethod = callComponentMethod;
-    console.log('callComponentMethod attached to window.$morpheo');
-
-    // Cleanup function to remove from window on unmount
-    return () => {
-      if (window.$morpheo) {
-        delete window.$morpheo.callComponentMethod;
-        console.log('callComponentMethod removed from window.$morpheo');
-      }
-    };
-  }, [callComponentMethod]); // Re-run if callComponentMethod instance changes
-  // --- End attach to window --- 
-
-  // Organize components from the *state* not the initial config
-  const componentsByRegion: Record<string, ComponentChild[]> = {};
-  if (initialConfig.layout?.regions) {
-    initialConfig.layout.regions.forEach(region => { componentsByRegion[region] = []; });
-  } else {
-    componentsByRegion['main'] = [];
-  }
-  if (appComponents) {
-    appComponents.forEach(component => {
-      const componentWithKey = {
-        ...component,
-        key: `${component.id || 'comp'}-${JSON.stringify(component.properties || component.props || {})}`
-      };
-      const region = component.region || 'main';
-      if (!componentsByRegion[region]) componentsByRegion[region] = [];
-      componentsByRegion[region].push(componentWithKey);
-    });
-  }
-
-  // --- NEW: Handler for CALL_METHOD --- 
-  const callComponentMethodHandler = useCallback((targetComponentId: string, methodName: string, ...args: any[]) => {
-    console.log(`[ProcessAppConfig] Received CALL_METHOD request for ${targetComponentId}.${methodName}`, args);
-    const targetId = targetComponentId.replace('#', '');
-
-    let targetMethodActions: any[] | null = null;
-
-    // Recursive function to find the component and its method's IR actions
-    const findComponentAndMethod = (components: ComponentChild[]) => {
-      for (const comp of components) {
-        if (!comp || typeof comp !== 'object') continue; 
-
-        if (comp.id === targetId) {
-          if (comp.methods && typeof comp.methods === 'object' && comp.methods[methodName]) {
-            const methodData = comp.methods[methodName];
-            // Expecting the translated format { actions: [...] } here
-            if (typeof methodData === 'object' && methodData !== null && Array.isArray(methodData.actions)) {
-              targetMethodActions = methodData.actions;
-              console.log(`[ProcessAppConfig] Found method actions for ${targetId}.${methodName}:`, targetMethodActions);
-              return true; // Found
-            }
-          }
-          return true; // Found component, but method/actions not found or invalid
-        }
-
-        // Recursively search children
-        if (Array.isArray(comp.children)) {
-          const childComponents = comp.children.filter((c): c is ComponentChild => typeof c === 'object');
-          if (findComponentAndMethod(childComponents)) {
-            return true; // Found in children
-          }
-        }
-      }
-      return false; // Not found in this branch
-    };
-
-    findComponentAndMethod(appComponents); // Search in current state
-
-    if (targetMethodActions) {
-      // --- How to execute these actions? --- 
-      // This is the challenging part. We have the actions, but executing them requires
-      // the context (variable scope, event object?) of the target component's method.
-      // For now, we'll just log that we found them.
-      // A more complex implementation might involve passing a dedicated executeIrActions function
-      // down through props, or using a global event bus/state management.
-      console.warn(`[ProcessAppConfig] Found actions for ${targetId}.${methodName}, but direct execution from here is not yet implemented.`);
-      // TODO: Implement a way to trigger execution of targetMethodActions
-    } else {
-      console.error(`[ProcessAppConfig] Could not find valid method actions for ${targetId}.${methodName}`);
-    }
-  }, [appComponents]); // Depends on component state
-  // --- END CALL_METHOD Handler ---
-
+  // --- Region Rendering Logic ---
   const renderRegion = (region: string) => {
-    const components = componentsByRegion[region] || [];
+    const components = (renderedComponents || []).filter(c => (c.region || 'main') === region);
+    if (components.length === 0 && region !== 'main') return null; // Don't render empty non-main regions
+
                 return (
-      <div key={region} className={`region region-${region}`} style={getRegionStyle(region)}>
-        {components.map((component, index) => (
+      <Box key={region} className={`region region-${region}`} {...getRegionStyleProps(region)}>
+        {components.length > 0 ? components.map((component, index) => (
                   <DynamicComponent
-            key={component.key || component.id || `${region}-component-${index}`}
+            key={component.id || `${region}-component-${index}`} 
             component={component}
-            functionality={initialConfig.functionality}
-            eventHandlers={{
-                ...eventHandlers,
-                addComponent,
-                removeComponent,
-                updateComponent,
-                getComponentProperty,
-                setComponentProperty,
-                addItem,
-                removeItem,
-                callComponentMethod: callComponentMethodHandler // Pass the new handler
-            }}
-            config={initialConfig} 
+            appState={appState}
+            handleStateUpdateAction={handleStateUpdateAction}
+            updateAppState={updateAppState} // Pass down the central updater
           />
-        ))}
-      </div>
+        )) : (region === 'main' ? <Text>No components in main region.</Text> : null) }
+      </Box>
     );
   };
 
-  const getRegionStyle = (region: string): React.CSSProperties => {
+  // --- Region Styling ---
+  const getRegionStyleProps = (region: string): Record<string, any> => {
+     const themeColors = initialConfig.theme?.colors || {};
     switch (region) {
-      case 'header': return { padding: '1rem', backgroundColor: initialConfig.theme?.colors?.primary || '#f8f9fa', borderBottom: '1px solid #dee2e6' };
-      case 'footer': return { padding: '1rem', backgroundColor: initialConfig.theme?.colors?.secondary || '#f8f9fa', borderTop: '1px solid #dee2e6', marginTop: 'auto' };
-      case 'sidebar': return { width: '250px', backgroundColor: initialConfig.theme?.colors?.surface || '#ffffff', padding: '1rem', borderRight: '1px solid #dee2e6' };
-      case 'main': return { flex: 1, padding: '1rem', backgroundColor: initialConfig.theme?.colors?.background || '#ffffff' };
-      default: return { padding: '1rem' }; // Ensure default returns a value
-    }
+         case 'header': return { p: "1rem", bg: themeColors.primary || 'gray.100', borderBottomWidth: '1px', mb: "1rem" };
+         case 'footer': return { p: "1rem", bg: themeColors.secondary || 'gray.100', borderTopWidth: '1px', mt: 'auto' }; // mt: auto pushes footer down
+         case 'sidebar': return { w: { base: '100%', md: '250px' }, bg: themeColors.surface || 'gray.50', p: "1rem", borderRightWidth: { base: '0', md: '1px'}, borderBottomWidth: { base: '1px', md: '0' }, mb: {base: "1rem", md: 0} };
+         case 'main': return { flex: 1, p: "1rem", bg: themeColors.background || 'white' };
+         default: return { p: '1rem' };
+     }
   };
 
+  // --- Layout Structure Logic ---
   const getLayoutStructure = () => {
-    const layoutType = initialConfig.layout?.type || 'singlepage';
-    const regions = initialConfig.layout?.regions || ['main'];
-    const appLayout: React.CSSProperties = { display: 'flex', flexDirection: 'column', minHeight: '100%', width: '100%' };
+       const layoutType = initialConfig.layout?.type || 'singlepage'; // Default layout
+       const regions = initialConfig.layout?.regions || ['main']; // Default regions
+       const appLayoutProps: Record<string, any> = { display: 'flex', flexDir: 'column', minH: '100vh', w: '100%' }; // Use minH: 100vh
 
-    if (layoutType === 'sidebar') {
-        // --- Ensure this block RETURNS the JSX --- 
+       if (layoutType === 'sidebar' && regions.includes('sidebar')) {
+           // Sidebar layout (responsive)
         return (
-          <div style={{ ...appLayout, flexDirection: 'row' }}>
-            {regions.includes('sidebar') && renderRegion('sidebar')}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-              {regions.filter(r => r !== 'sidebar' && r !== 'footer').map(region => renderRegion(region))}
-              {regions.includes('footer') && renderRegion('footer')}
-          </div>
-            </div>
-          );
-    } else { // singlepage or default
-      // --- Ensure this block also RETURNS the JSX --- 
+             <Flex {...appLayoutProps} flexDir={{ base: 'column', md: 'row' }}>
+              {renderRegion('sidebar')}
+               <Flex flex='1' display='flex' flexDir='column' minH="0"> {/* Added minH to prevent flex overflow */}
+                 {regions.filter(r => r !== 'sidebar' && r !== 'footer').map(region => renderRegion(region))}
+                 {regions.includes('footer') && renderRegion('footer')}
+               </Flex>
+             </Flex>
+           );
+       } else {
+         // Default single page layout (stacking regions)
       return (
-          <div style={appLayout}>
-            {regions.map(region => renderRegion(region))}
-        </div>
+             <Flex {...appLayoutProps}>
+               {regions.filter(r => r !== 'footer').map(region => renderRegion(region))}
+               {regions.includes('footer') && renderRegion('footer')}
+             </Flex>
       );
     }
-    // Remove any implicit return path - all paths should return JSX now
   };
 
-  // --- RESTORED Return Statement --- 
-  return (
-    <div className="app-container" style={{ 
-      height: '100%', 
-      width: '100%',
-      fontFamily: initialConfig.theme?.typography?.fontFamily || 'inherit',
-      fontSize: initialConfig.theme?.typography?.fontSize || 'inherit',
-      color: initialConfig.theme?.colors?.text || 'inherit',
-      backgroundColor: initialConfig.theme?.colors?.background || 'inherit'
-    }}>
-      {getLayoutStructure()}
-    </div>
-  );
-}; // <-- Ensure this closing brace exists for ProcessAppConfig
+  // --- Root Styling ---
+  const themeProps = initialConfig.theme || {};
+  const typographyProps = themeProps.typography || {};
+  const colorProps = themeProps.colors || {};
+  const rootStyleProps = {
+      minH:'100vh', // Ensure takes full viewport height
+      w:'100%',
+      fontFamily: typographyProps.fontFamily || 'sans-serif', // Sensible default
+      fontSize: typographyProps.fontSize || 'md', // Chakra size token
+      color: colorProps.text || 'gray.800', // Sensible default
+      bg: colorProps.background || 'gray.50', // Sensible default
+  };
 
-// ... (Keep DynamicComponent export etc.) ... 
+  return (
+    <Box className="app-container" {...rootStyleProps}>
+      {getLayoutStructure()}
+    </Box>
+  );
+};
+
+
+// --- AppConfig Interface (ensure it matches expected structure) ---
+interface AppConfig {
+  app?: {
+    name?: string;
+    description?: string;
+    theme?: string; // Could be a theme name or identifier
+    initialState?: Record<string, any>;
+  };
+  layout?: {
+    type?: string; // e.g., 'singlepage', 'sidebar'
+    regions?: string[]; // e.g., ['header', 'main', 'footer', 'sidebar']
+  };
+  components?: ComponentChild[]; // Array of root-level components
+  theme?: {
+    colors?: Record<string, string>; // e.g., { primary: '#007bff', background: '#ffffff' }
+    typography?: {
+        fontFamily?: string;
+        fontSize?: string; // e.g., 'md', '16px'
+        // other typography settings...
+    };
+    // other theme settings...
+  };
+} 

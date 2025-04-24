@@ -1,0 +1,289 @@
+{
+  "app": {
+    "name": "Todo List App",
+    "description": "A simple todo list application.",
+    "theme": "light",
+    "initialState": {
+      "newItemText": "",
+      "todoItems": []
+    }
+  },
+  "layout": {
+    "type": "singlepage",
+    "regions": ["main"]
+  },
+  "components": [
+    {
+      "id": "todoListContainer",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "p": 4,
+        "align": "stretch",
+        "maxWidth": "container.sm",
+        "mx": "auto"
+      },
+      "children": [
+        {
+          "id": "inputAndButton",
+          "type": "HStack",
+          "props": {
+            "spacing": 2
+          },
+          "children": [
+            {
+              "id": "newItemInput",
+              "type": "Input",
+              "props": {
+                "placeholder": "Add a new task...",
+                "value": {
+                  "$state": "newItemText"
+                }
+              },
+              "methods": {
+                "change": [
+                  {
+                    "type": "GET_EVENT_DATA",
+                    "payload": {
+                      "path": "target.value",
+                      "resultVariable": "newTask"
+                    }
+                  },
+                  {
+                    "type": "SET_PROPERTY",
+                    "payload": {
+                      "propertyName": "newItemText",
+                      "value": {
+                        "type": "VARIABLE",
+                        "name": "newTask"
+                      }
+                    }
+                  }
+                ],
+                "keyDown": [
+                  {
+                    "type": "GET_EVENT_DATA",
+                    "payload": {
+                      "path": "key",
+                      "resultVariable": "keyPressed"
+                    }
+                  },
+                  {
+                    "type": "IF",
+                    "payload": {
+                      "condition": {
+                        "type": "EQUALS",
+                        "payload": {
+                          "left": {
+                            "type": "VARIABLE",
+                            "name": "keyPressed"
+                          },
+                          "right": "Enter"
+                        }
+                      },
+                      "then": [
+                        {
+                          "type": "GET_PROPERTY",
+                          "payload": {
+                            "propertyName": "newItemText",
+                            "resultVariable": "textToAdd"
+                          }
+                        },
+                        {
+                          "type": "ADD_ITEM",
+                          "payload": {
+                            "targetId": "todoItems",
+                            "itemValue": {
+                              "type": "VARIABLE",
+                              "name": "textToAdd"
+                            }
+                          }
+                        },
+                        {
+                          "type": "SET_PROPERTY",
+                          "payload": {
+                            "propertyName": "newItemText",
+                            "value": ""
+                          }
+                        }
+                      ],
+                      "else": []
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "id": "addButton",
+              "type": "Button",
+              "props": {
+                "children": "Add",
+                "colorPalette": "blue"
+              },
+              "methods": {
+                "click": [
+                  {
+                    "type": "GET_PROPERTY",
+                    "payload": {
+                      "propertyName": "newItemText",
+                      "resultVariable": "textToAdd"
+                    }
+                  },
+                  {
+                    "type": "ADD_ITEM",
+                    "payload": {
+                      "targetId": "todoItems",
+                      "itemValue": {
+                        "type": "VARIABLE",
+                        "name": "textToAdd"
+                      }
+                    }
+                  },
+                  {
+                    "type": "SET_PROPERTY",
+                    "payload": {
+                      "propertyName": "newItemText",
+                      "value": ""
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "todoList",
+          "type": "List",
+          "props": {
+            "spacing": 3,
+            "items": {
+              "$state": "todoItems"
+            },
+            "itemTemplate": {
+              "id": "listItemTemplate",
+              "type": "ListItem",
+              "props": {
+                "display": "flex",
+                "alignItems": "center",
+                "p": 2,
+                "borderWidth": "1px",
+                "borderRadius": "md",
+                "borderColor": "gray.200"
+              },
+              "children": [
+                {
+                  "id": "itemCheckbox",
+                  "type": "Checkbox",
+                  "props": {
+                    "checked": {
+                      "$itemState": "completed"
+                    },
+                    "mr": 3
+                  },
+                  "methods": {
+                    "change": [
+                      {
+                        "type": "GET_ITEM_CONTEXT",
+                        "payload": {
+                          "resultVariableId": "itemId",
+                          "resultVariableIndex": "itemIndex"
+                        }
+                      },
+                      {
+                        "type": "GET_EVENT_DATA",
+                        "payload": {
+                          "path": "target.checked",
+                          "resultVariable": "isChecked"
+                        }
+                      },
+                      {
+                        "type": "UPDATE_ITEM_PROPERTY",
+                        "payload": {
+                          "targetId": "todoItems",
+                          "itemIdentifier": {
+                            "key": "id",
+                            "value": {
+                              "type": "VARIABLE",
+                              "name": "itemId"
+                            }
+                          },
+                          "property": "completed",
+                          "value": {
+                            "type": "VARIABLE",
+                            "name": "isChecked"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "itemText",
+                  "type": "Text",
+                  "props": {
+                    "children": {
+                      "$itemState": "text"
+                    },
+                    "flex": 1,
+                    "textDecoration": {
+                      "$condition": {
+                        "type": "IF",
+                        "payload": {
+                          "condition": {
+                            "type": "EQUALS",
+                            "payload": {
+                              "left": {
+                                "$itemState": "completed"
+                              },
+                              "right": true
+                            }
+                          },
+                          "then": "line-through",
+                          "else": "none"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "deleteItemButton",
+                  "type": "IconButton",
+                  "props": {
+                    "aria-label": "Delete item",
+                    "variant": "ghost",
+                    "colorPalette": "red",
+                    "size": "sm"
+                  },
+                  "methods": {
+                    "click": [
+                      {
+                        "type": "GET_ITEM_CONTEXT",
+                        "payload": {
+                          "resultVariableId": "itemId",
+                          "resultVariableIndex": "itemIndex"
+                        }
+                      },
+                      {
+                        "type": "DELETE_ITEM",
+                        "payload": {
+                          "targetId": "todoItems",
+                          "itemIdentifier": {
+                            "key": "id",
+                            "value": {
+                              "type": "VARIABLE",
+                              "name": "itemId"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

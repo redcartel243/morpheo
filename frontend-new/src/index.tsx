@@ -5,6 +5,8 @@ import App from './App';
 import reportWebVitals from './reportWebVitals';
 import { Provider } from 'react-redux';
 import { store } from './store';
+// Import ChakraProvider and theme
+import { ChakraProvider, defaultSystem } from '@chakra-ui/react';
 
 // Register all components with the component registry
 import { registerAllComponents } from './components/ui/ComponentRegistry';
@@ -22,7 +24,10 @@ const root = ReactDOM.createRoot(
 root.render(
   <React.StrictMode>
     <Provider store={store}>
+      {/* Wrap App with ChakraProvider (simplest usage) */}
+      <ChakraProvider value={defaultSystem}>
       <App />
+      </ChakraProvider>
     </Provider>
   </React.StrictMode>
 );

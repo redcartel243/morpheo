@@ -346,6 +346,10 @@ export function registerAllComponents() {
         // Convert string 'true'/'false' to boolean for React props
         const fullWidth = props.fullWidth === 'true' || props.fullWidth === true;
         
+        // --- WORKAROUND: Remove 'disabled' from rest props if present ---
+        delete rest.disabled;
+        // --- END WORKAROUND ---
+
         // Determine if the input should be controlled
         // It's controlled only if an onChange handler is provided
         const isControlled = onChange !== undefined;
@@ -362,7 +366,7 @@ export function registerAllComponents() {
           },
           id,
           onChange,
-          ...rest
+          ...rest // Pass the modified rest props (without disabled)
         };
 
         if (isControlled) {
@@ -614,7 +618,10 @@ export function registerAllComponents() {
             return React.createElement('li', { key: itemKey }, 
               React.createElement(DynamicComponent, {
                 component: item, // Pass the actual item object directly
-                eventHandlers: props.eventHandlers // Pass handlers down
+                // Pass necessary state/handlers if ListComponent itself becomes stateful later
+                appState: props.appState, // Pass down state if available
+                handleStateUpdateAction: props.handleStateUpdateAction, // Pass down handler if available
+                updateAppState: props.updateAppState // Pass down the central state updater
               })
             );
           } else {

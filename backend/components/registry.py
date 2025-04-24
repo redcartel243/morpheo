@@ -50,7 +50,7 @@ class ComponentRegistry:
         self.register_component({
             "type": "container",
             "name": "Container",
-            "description": "A flexible container that can hold other components.",
+            "description": "A flexible container that can hold other components. Can be styled for layout (e.g., display: flex).",
             "examples": [
                 {"properties": {}, "styles": {"padding": "16px", "backgroundColor": "#f5f5f5", "borderRadius": "8px"}},
                 {"properties": {}, "styles": {"display": "flex", "flexDirection": "column", "gap": "8px"}}
@@ -69,10 +69,14 @@ class ComponentRegistry:
             ],
             "properties": {
                 "text": {"type": "string", "description": "The button text"},
-                "variant": {"type": "string", "enum": ["primary", "secondary", "text"], "description": "Button style variant"}
+                "variant": {"type": "string", "enum": ["primary", "secondary", "text"], "description": "Button style variant"},
+                "colorPalette": {"type": "string", "description": "The color palette to use (e.g., 'blue', 'red', 'green'). Defines background, text, and border colors."},
+                "size": {"type": "string"},
+                "isLoading": {"type": "boolean"},
+                "disabled": {"type": "boolean"}
             },
             "methods": {
-                "onClick": {"description": "Called when the button is clicked"},
+                "click": {"description": "Called when the button is clicked"},
                 "onMouseEnter": {"description": "Called when mouse enters the button area"},
                 "onMouseLeave": {"description": "Called when mouse leaves the button area"}
             }
@@ -91,7 +95,9 @@ class ComponentRegistry:
                 "placeholder": {"type": "string", "description": "Placeholder text"},
                 "label": {"type": "string", "description": "Label for the input"},
                 "value": {"type": "string", "description": "Current input value"},
-                "type": {"type": "string", "enum": ["text", "password", "email", "number", "tel"], "description": "Input type"}
+                "type": {"type": "string", "enum": ["text", "password", "email", "number", "tel"], "description": "Input type"},
+                "disabled": {"type": "boolean"},
+                "invalid": {"type": "boolean"}
             },
             "methods": {
                 "onChange": {"description": "Called when the input value changes"},
@@ -112,7 +118,9 @@ class ComponentRegistry:
             "properties": {
                 "placeholder": {"type": "string", "description": "Placeholder text"},
                 "label": {"type": "string", "description": "Label for the input"},
-                "value": {"type": "string", "description": "Current input value"}
+                "value": {"type": "string", "description": "Current input value"},
+                "disabled": {"type": "boolean"},
+                "invalid": {"type": "boolean"}
             },
             "methods": {
                 "onChange": {"description": "Called when the input value changes"},
@@ -135,7 +143,8 @@ class ComponentRegistry:
                 "label": {"type": "string", "description": "Label for the textarea"},
                 "value": {"type": "string", "description": "Current textarea content"},
                 "rows": {"type": "number", "description": "Number of visible text rows"},
-                "readOnly": {"type": "boolean", "description": "Whether the textarea is read-only"}
+                "readOnly": {"type": "boolean", "description": "Whether the textarea is read-only"},
+                "disabled": {"type": "boolean"}
             },
             "methods": {
                 "onChange": {"description": "Called when the textarea content changes"},
@@ -270,7 +279,8 @@ class ComponentRegistry:
                 "label": {"type": "string", "description": "Label for the toggle"},
                 "checked": {"type": "boolean", "description": "Whether the toggle is checked/active"},
                 "labelPosition": {"type": "string", "enum": ["left", "right"], "description": "Position of the label relative to the toggle"},
-                "disabled": {"type": "boolean", "description": "Whether the toggle is disabled"}
+                "disabled": {"type": "boolean", "description": "Whether the toggle is disabled"},
+                "colorPalette": {"type": "string", "description": "The color palette to use (e.g., 'blue', 'red')."} 
             },
             "methods": {
                 "onChange": {"description": "Called when the toggle state changes"}
@@ -332,7 +342,8 @@ class ComponentRegistry:
             ],
             "properties": {
                 "label": {"type": "string", "description": "Label for the checkbox"},
-                "checked": {"type": "boolean", "description": "Whether the checkbox is checked"}
+                "checked": {"type": "boolean", "description": "Whether the checkbox is checked"},
+                "disabled": {"type": "boolean"}
             },
             "methods": {
                 "onChange": {"description": "Called when the checkbox state changes"}
@@ -353,6 +364,60 @@ class ComponentRegistry:
                 "alt": {"type": "string", "description": "Alternative text for the image"}
             }
         })
+        
+        # --- Add Layout Components ---
+        # Flex component (Generic Flexbox)
+        self.register_component({
+            "type": "flex",
+            "name": "Flex Container",
+            "description": "A flexible layout container using Flexbox. Control direction, alignment, and wrapping.",
+            "examples": [
+                {"properties": {"direction": "row", "align": "center", "justify": "space-between"}, "styles": {"padding": "10px", "border": "1px solid lightgray"}},
+                {"properties": {"direction": "column", "gap": "10px"}, "styles": {}}
+            ],
+            "properties": {
+                "direction": {"type": "string", "enum": ["row", "column", "row-reverse", "column-reverse"], "description": "Flex direction"},
+                "justify": {"type": "string", "enum": ["flex-start", "flex-end", "center", "space-between", "space-around", "space-evenly"], "description": "Justify content"},
+                "align": {"type": "string", "enum": ["stretch", "flex-start", "flex-end", "center", "baseline"], "description": "Align items"},
+                "wrap": {"type": "string", "enum": ["nowrap", "wrap", "wrap-reverse"], "description": "Flex wrap"},
+                "gap": {"type": "string", "description": "Gap between items (e.g., '8px', '1rem')"}
+            }
+        })
+
+        # HStack component (Horizontal Flex)
+        self.register_component({
+            "type": "hstack",
+            "name": "Horizontal Stack",
+            "description": "Arranges child components horizontally using Flexbox.",
+            "examples": [
+                {"properties": {"spacing": "12px", "align": "center"}, "styles": {"padding": "8px", "border": "1px dashed blue"}},
+                {"properties": {"justify": "flex-end", "spacing": "4px"}, "styles": {}}
+            ],
+            "properties": {
+                "spacing": {"type": "string", "description": "Spacing between items (e.g., '8px', '1rem')"},
+                "justify": {"type": "string", "enum": ["flex-start", "flex-end", "center", "space-between", "space-around"], "description": "Horizontal alignment"},
+                "align": {"type": "string", "enum": ["stretch", "flex-start", "flex-end", "center", "baseline"], "description": "Vertical alignment"},
+                "wrap": {"type": "string", "enum": ["nowrap", "wrap", "wrap-reverse"], "description": "Wrapping behavior"}
+            }
+        })
+
+        # VStack component (Vertical Flex)
+        self.register_component({
+            "type": "vstack",
+            "name": "Vertical Stack",
+            "description": "Arranges child components vertically using Flexbox.",
+            "examples": [
+                {"properties": {"spacing": "8px", "align": "stretch"}, "styles": {"padding": "16px", "border": "1px dashed green"}},
+                {"properties": {"align": "center", "spacing": "1rem"}, "styles": {}}
+            ],
+            "properties": {
+                "spacing": {"type": "string", "description": "Spacing between items (e.g., '8px', '1rem')"},
+                "justify": {"type": "string", "enum": ["flex-start", "flex-end", "center", "space-between", "space-around"], "description": "Vertical alignment"},
+                "align": {"type": "string", "enum": ["stretch", "flex-start", "flex-end", "center"], "description": "Horizontal alignment"}
+                # Note: wrap is less common for VStack but could be added if needed
+            }
+        })
+        # --- End Layout Components ---
     
     def _register_advanced_components(self):
         """Register advanced UI components."""

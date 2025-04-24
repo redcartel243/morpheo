@@ -1,9 +1,9 @@
 /* Import Leaflet styles */
 @import 'leaflet/dist/leaflet.css';
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@tailwind base; /* Restore base */
+@tailwind components; /* Restore components */
+@tailwind utilities; /* Utilities already restored */
 
 body {
   margin: 0;
@@ -17,4 +17,20 @@ body {
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
+}
+
+/* Force Gradient Override for Buttons */
+.gradient-button {
+  background: linear-gradient(to right, pink 50%, blue 50%) !important;
+  background-image: linear-gradient(to right, pink 50%, blue 50%) !important; /* Explicitly set image */
+  background-color: transparent !important; /* Ensure base color is transparent */
+  color: white !important; /* Ensure text color contrasts */
+  /* Add hover effect if needed */
+  background-size: 200% 100%;
+  background-position: right bottom;
+  transition: all 0.5s ease-out;
+}
+
+.gradient-button:hover {
+    background-position: left bottom;
 }

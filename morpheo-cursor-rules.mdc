@@ -50,12 +50,28 @@ Morpheo is an AI-driven component system with these fundamental principles:
    - Add safety checks around evaluation and manipulation functions
    - Provide user feedback for errors in a consistent way
 
+## 2.5 Chakra UI v3 Integration
+
+1.  **Primary Styling Method:** Prioritize using Chakra UI style props (e.g., `bg`, `p`, `color`) and theme tokens (e.g., `blue.500`) for styling components.
+2.  **High Specificity Overrides:** For complex styles (like gradients) or to resolve conflicts with global/external CSS, utilize the `sx` prop with direct CSS properties, referencing theme tokens via `token()` where possible (e.g., `sx: { backgroundImage: "linear-gradient(...)" }`).
+3.  **Component Naming:** Strictly adhere to Chakra UI v3 component names (e.g., use `Field`, `Dialog`, `Collapsible` instead of `FormControl`, `AlertDialog`, `Collapse`).
+4.  **Prop Naming:** Strictly adhere to Chakra UI v3 prop names:
+    *   Use `colorPalette` instead of `colorScheme`.
+    *   Use direct boolean props (`disabled`, `invalid`, `required`, `open`) instead of the `is<X>` convention (`isDisabled`, `isInvalid`, etc.).
+5.  **Icon Usage:** Avoid using Chakra's icon-related props (`icon`, `leftIcon`, `rightIcon`, etc.) as `@chakra-ui/icons` is removed. Icon integration requires a separate library (e.g., `lucide-react`) and specific implementation handling. (Future rule: Define how icon names should be passed via props if library is added).
+6.  **Tailwind CSS Coexistence (If Applicable):**
+    *   **Disable Preflight:** Ensure Tailwind's `preflight` is disabled (`corePlugins: { preflight: false }` in `tailwind.config.js`) to prevent base style conflicts.
+    *   **Prioritize Chakra:** Use Chakra style props/`sx` over Tailwind utility classes for component-specific styling.
+    *   **Limited Utilities:** Use Tailwind utility classes (`className`) sparingly, primarily for layout or simple spacing/typography where Chakra props are less convenient. Be aware they can still cause conflicts. (Alternative: Consider enforcing a Tailwind prefix if utilities are used extensively).
+    *   **Avoid Tailwind Components:** Do not use `@tailwind components;` if relying on Chakra components, to minimize conflicts.
+
 ## 3. Prompt Engineering Principles
 
 1. **Instruction Clarity**:
    - Be explicit about functional requirements without being domain-specific
    - Include examples that demonstrate patterns, not specific implementations
    - Request initialization, validation, and error handling for all components
+   - Ensure prompt examples strictly follow the latest Chakra UI v3 component names, prop names (`colorPalette`, `disabled`), and styling conventions (`sx` for overrides).
 
 2. **Balance**:
    - Guide the AI without constraining its creativity
@@ -68,6 +84,7 @@ Morpheo is an AI-driven component system with these fundamental principles:
    - Test for functionality patterns, not specific domain behaviors
    - Verify components work together without assuming specific use cases
    - Validate that error handling works across all component interactions
+   - Test components under different conditions (e.g., light/dark mode) to identify potential style conflicts arising from external CSS or utility libraries.
 
 2. **Continuous Improvement**:
    - Use feedback to improve prompts and components, not to add domain-specific logic
@@ -120,6 +137,7 @@ Morpheo is an AI-driven component system with these fundamental principles:
    - Document component capabilities, limitations and integration patterns
    - Include expected behaviors and failure modes
    - Provide clear guidance on component composition
+   - Regularly review and update the embedded component/prop documentation within the AI prompt (`gemini_prompt_template.md`) to match the current Chakra UI version and project conventions.
 
 3. **Guidance Without Restriction**:
    - Suggest approaches without requiring specific implementations
