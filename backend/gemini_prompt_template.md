@@ -18,10 +18,13 @@ Generate **only the body** of a React functional component (hooks, handlers, ret
 - **Props:** Assume props are destructured from the first argument if needed (e.g., `{ prop1, prop2 }`). Mention in comments if props are expected.
 - **Chakra UI Usage:**
     - Use **only** Chakra UI v3 components (referencing the provided `llms-full.txt` documentation).
-    - Adhere strictly to v3 component names (e.g., `Field`, `Dialog`) and prop names (`colorPalette`, `disabled`, `invalid`, `required`, `open`). **Do not use** removed v3 props like `isDisabled`, `isInvalid`, `colorScheme`.
+    - Adhere strictly to v3 component names (e.g., `Field`, `Dialog`, `Separator`) and prop names (`colorPalette`, `disabled`, `invalid`, `required`, `open`). **Do not use** removed v3 props like `isDisabled`, `isInvalid`, `colorScheme`.
     - Apply styling primarily using Chakra UI **style props** (e.g., `bg`, `p`, `color`, `fontSize`). Use theme tokens (e.g., `"blue.500"`).
     - Use the `sx` prop **only** for complex styles (e.g., gradients, overrides) or where style props are insufficient. Reference theme tokens via `token()` if needed within `sx`.
-    - **Do not** use `@chakra-ui/icons` or icon-related props (`leftIcon`, `rightIcon`, etc.). If icons are needed, use placeholder text or a generic `Icon` component if available *without* the separate icon library.
+    - **Icons:** The `@chakra-ui/icons` package is **not available**. **Do NOT** attempt to import or use icons like `CheckIcon`, `EmailIcon`, etc. **Do NOT** use the `ListIcon` component. **NEVER use the `leftIcon` or `rightIcon` props on any component.** If you need an icon, use plain text (e.g., `+`, `->`) or render a generic `<Icon>` component if appropriate *without* importing a specific icon.
+    - **Links:** **Do NOT** use the Chakra UI `<Link>` component. Instead, use a standard HTML `<a>` tag and apply styling using Chakra style props (e.g., `<Box as="a" href="..." color="blue.500" _hover={{ textDecoration: "underline" }}>Link Text</Box>`).
+    - **Dividers:** Use the `<Separator />` component for horizontal or vertical dividers. **Do NOT** use `<Divider />`.
+    - **Sliders/Carousels:** The `Slider` component is for numerical input ranges only. **Do NOT** use `Slider` or invent components like `Slide` for displaying sequences of content (e.g., testimonials, image carousels). Use `SimpleGrid`, `HStack`, or `VStack` to display such items instead.
 - **State Management:**
     - Use standard React hooks (`useState`, `useEffect`, `useCallback`, `useRef`) for internal component state. **Use plain JavaScript (no TypeScript generics like useState<string>)**.
     - Manage shared state by accepting state variables and setter functions via props (e.g., `appState`, `setAppState`) or using React Context if appropriate for the complexity.

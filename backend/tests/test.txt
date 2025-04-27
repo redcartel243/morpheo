@@ -1,56 +1,51 @@
-const [todos, setTodos] = useState([]);
-  const [inputValue, setInputValue] = useState('');
+const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
-  const handleInputChange = (event) => {
-    setInputValue(event.target.value);
+useEffect(() => {
+  const handleResize = () => {
+    setIsMobile(window.innerWidth <= 768);
   };
 
-  const handleAddTodo = () => {
-    if (inputValue.trim() !== '') {
-      setTodos([...todos, { text: inputValue, completed: false }]);
-      setInputValue('');
-    }
-  };
+  window.addEventListener('resize', handleResize);
 
-  const handleTodoToggle = (index) => {
-    const newTodos = [...todos];
-    newTodos[index].completed = !newTodos[index].completed;
-    setTodos(newTodos);
+  return () => {
+    window.removeEventListener('resize', handleResize);
   };
+}, []);
 
-  const handleTodoDelete = (index) => {
-    const newTodos = [...todos];
-    newTodos.splice(index, 1);
-    setTodos(newTodos);
-  };
+return (
+  <Box bg="gray.50" minH="100vh">
+    <Container maxW="container.lg" py={10}>
+      <Flex direction={isMobile ? "column" : "row"} align="center">
+        <Avatar size="2xl" name="David Bukedi" src="https://media.licdn.com/dms/image/D4E03AQGgM4wz-rN1CQ/profile-displayphoto-shrink_400_400/0/1668773352430?e=1720156800&v=beta&t=yT3a5QnE8V9X-g2X8-TjQGvG-2cEaW3i24yF_i_R_0" mr={isMobile ? 0 : 8} mb={isMobile ? 4 : 0} />
+        <Box>
+          <Heading as="h1" size="2xl" mb={2}>David Bukedi</Heading>
+          <Text fontSize="lg" color="gray.700" mb={4}>Software Engineer</Text>
+          <HStack spacing={4}>
+            <Link href="https://www.linkedin.com/in/david-bukedi-38a5b1197/" isExternal color="blue.500">LinkedIn</Link>
+            <Link href="#" isExternal color="blue.500">GitHub</Link>
+            <Link href="#" isExternal color="blue.500">Portfolio</Link>
+          </HStack>
+        </Box>
+      </Flex>
 
-  return (
-    <VStack align="stretch" spacing={4} p={5} borderWidth={1} borderRadius="md" boxShadow="md" bg="bg.surface">
-      <Heading size="lg">Todo List</Heading>
-      <HStack>
-        <Input
-          placeholder="Add a todo..."
-          value={inputValue}
-          onChange={handleInputChange}
-        />
-        <Button colorPalette="blue" onClick={handleAddTodo}>
-          Add
-        </Button>
-      </HStack>
-      <List spacing={3}>
-        {todos.map((todo, index) => (
-          <ListItem key={index} display="flex" alignItems="center" justifyContent="space-between">
-            <HStack>
-              <Checkbox isChecked={todo.completed} onChange={() => handleTodoToggle(index)} />
-              <Text as={todo.completed ? 's' : 'span'}>{todo.text}</Text>
-            </HStack>
-            <IconButton
-              aria-label="Delete todo"
-              icon="Delete" // Replace with a suitable placeholder if necessary
-              onClick={() => handleTodoDelete(index)}
-            />
-          </ListItem>
-        ))}
-      </List>
-    </VStack>
-  );
+      <Box mt={12}>
+        <Heading as="h2" size="xl" mb={4}>About Me</Heading>
+        <Text fontSize="md" color="gray.700">
+          Passionate software engineer with experience in developing and maintaining web applications. 
+          Proficient in JavaScript, React, and Node.js. 
+          Dedicated to creating high-quality, scalable, and user-friendly solutions.
+        </Text>
+      </Box>
+
+      <Box mt={12}>
+        <Heading as="h2" size="xl" mb={4}>Contact</Heading>
+        <Text fontSize="md" color="gray.700" mb={2}>
+          Email: david.bukedi@example.com
+        </Text>
+        <Text fontSize="md" color="gray.700">
+          Phone: +1 555-123-4567
+        </Text>
+      </Box>
+    </Container>
+  </Box>
+);

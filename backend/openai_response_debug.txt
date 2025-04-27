@@ -19,10 +19,13 @@ Generate **only the body** of a React functional component (hooks, handlers, ret
 - **Props:** Assume props are destructured from the first argument if needed (e.g., `{ prop1, prop2 }`). Mention in comments if props are expected.
 - **Chakra UI Usage:**
     - Use **only** Chakra UI v3 components (referencing the provided `llms-full.txt` documentation).
-    - Adhere strictly to v3 component names (e.g., `Field`, `Dialog`) and prop names (`colorPalette`, `disabled`, `invalid`, `required`, `open`). **Do not use** removed v3 props like `isDisabled`, `isInvalid`, `colorScheme`.
+    - Adhere strictly to v3 component names (e.g., `Field`, `Dialog`, `Separator`) and prop names (`colorPalette`, `disabled`, `invalid`, `required`, `open`). **Do not use** removed v3 props like `isDisabled`, `isInvalid`, `colorScheme`.
     - Apply styling primarily using Chakra UI **style props** (e.g., `bg`, `p`, `color`, `fontSize`). Use theme tokens (e.g., `"blue.500"`).
     - Use the `sx` prop **only** for complex styles (e.g., gradients, overrides) or where style props are insufficient. Reference theme tokens via `token()` if needed within `sx`.
-    - **Do not** use `@chakra-ui/icons` or icon-related props (`leftIcon`, `rightIcon`, etc.). If icons are needed, use placeholder text or a generic `Icon` component if available *without* the separate icon library.
+    - **Icons:** The `@chakra-ui/icons` package is **not available**. **Do NOT** attempt to import or use icons like `CheckIcon`, `EmailIcon`, etc. **Do NOT** use the `ListIcon` component. **NEVER use the `leftIcon` or `rightIcon` props on any component.** If you need an icon, use plain text (e.g., `+`, `->`) or render a generic `<Icon>` component if appropriate *without* importing a specific icon.
+    - **Links:** **Do NOT** use the Chakra UI `<Link>` component. Instead, use a standard HTML `<a>` tag and apply styling using Chakra style props (e.g., `<Box as="a" href="..." color="blue.500" _hover={{ textDecoration: "underline" }}>Link Text</Box>`).
+    - **Dividers:** Use the `<Separator />` component for horizontal or vertical dividers. **Do NOT** use `<Divider />`.
+    - **Sliders/Carousels:** The `Slider` component is for numerical input ranges only. **Do NOT** use `Slider` or invent components like `Slide` for displaying sequences of content (e.g., testimonials, image carousels). Use `SimpleGrid`, `HStack`, or `VStack` to display such items instead.
 - **State Management:**
     - Use standard React hooks (`useState`, `useEffect`, `useCallback`, `useRef`) for internal component state. **Use plain JavaScript (no TypeScript generics like useState<string>)**.
     - Manage shared state by accepting state variables and setter functions via props (e.g., `appState`, `setAppState`) or using React Context if appropriate for the complexity.
@@ -89,116 +92,92 @@ return (
 ## User Request:
 
 ```text
-a calculator 
+a tesseract 
 ```
 
 --- Raw Response ---
 ```javascript
 // Expects no props
 
-const [displayValue, setDisplayValue] = useState("0");
-const [operator, setOperator] = useState(null);
-const [firstOperand, setFirstOperand] = useState(null);
+const [rotation, setRotation] = useState({
+  xy: 0,
+  xz: 0,
+  xw: 0,
+  yz: 0,
+  yw: 0,
+  zw: 0,
+});
 
-const handleNumberClick = (number) => {
-  setDisplayValue(displayValue === "0" ? String(number) : displayValue + number);
+const handleRotationChange = (axis, value) => {
+  setRotation(prevRotation => ({
+    ...prevRotation,
+    [axis]: value,
+  }));
 };
 
-const handleOperatorClick = (nextOperator) => {
-  if (firstOperand === null) {
-    setFirstOperand(parseFloat(displayValue));
-  } else if (operator) {
-    const result = calculate(firstOperand, parseFloat(displayValue), operator);
-    setDisplayValue(String(result));
-    setFirstOperand(result);
-  }
-  setOperator(nextOperator);
-  setDisplayValue("0");
+// Function to calculate 4D coordinates (simplified)
+const calculate4DCoordinates = (xy, xz, xw, yz, yw, zw) => {
+  // Placeholder logic - replace with actual 4D rotation calculations
+  // This is a highly simplified representation
+  const x = Math.cos(xy) + Math.cos(xz) + Math.cos(xw);
+  const y = Math.sin(xy) + Math.cos(yz) + Math.cos(yw);
+  const z = Math.sin(xz) + Math.sin(yz) + Math.cos(zw);
+  const w = Math.sin(xw) + Math.sin(yw) + Math.sin(zw);
+
+  // Scale the coordinates for visibility
+  const scale = 50; // Adjust the scaling factor as needed
+  return { x: x * scale, y: y * scale, z: z * scale, w: w * scale };
 };
 
-const handleEqualsClick = () => {
-  if (firstOperand && operator) {
-    const result = calculate(firstOperand, parseFloat(displayValue), operator);
-    setDisplayValue(String(result));
-    setFirstOperand(null);
-    setOperator(null);
-  }
-};
-
-const handleClearClick = () => {
-  setDisplayValue("0");
-  setOperator(null);
-  setFirstOperand(null);
-};
-
-const handleDecimalClick = () => {
-  if (!displayValue.includes(".")) {
-    setDisplayValue(displayValue + ".");
-  }
-};
-
-const calculate = (firstOperand, secondOperand, operator) => {
-  switch (operator) {
-    case "+":
-      return firstOperand + secondOperand;
-    case "-":
-      return firstOperand - secondOperand;
-    case "*":
-      return firstOperand * secondOperand;
-    case "/":
-      return firstOperand / secondOperand;
-    default:
-      return secondOperand;
-  }
-};
+const coordinates = calculate4DCoordinates(
+  rotation.xy,
+  rotation.xz,
+  rotation.xw,
+  rotation.yz,
+  rotation.yw,
+  rotation.zw
+);
 
 return (
-  <VStack align="stretch" bg="gray.100" p={4} borderRadius="md" boxShadow="md">
-    <Input readOnly value={displayValue} textAlign="right" fontSize="2xl" p={2} bg="white" />
+  <VStack spacing={4} p={5} borderWidth={1} borderRadius="md" boxShadow="md" bg="bg.surface">
+    <Heading size="md">4D Tesseract (Simplified Representation)</Heading>
+    <Text>
+      This is a simplified conceptualization.  A true tesseract visualization would involve significantly more complex calculations and rendering.
+    </Text>
+    <Box>
+      <Text>Rotation (XY): {rotation.xy.toFixed(2)}</Text>
+      <Input type="range" min="0" max="6.28" step="0.01" value={rotation.xy} onChange={(e) => handleRotationChange('xy', parseFloat(e.target.value))} />
+    </Box>
+    <Box>
+      <Text>Rotation (XZ): {rotation.xz.toFixed(2)}</Text>
+      <Input type="range" min="0" max="6.28" step="0.01" value={rotation.xz} onChange={(e) => handleRotationChange('xz', parseFloat(e.target.value))} />
+    </Box>
+     <Box>
+      <Text>Rotation (XW): {rotation.xw.toFixed(2)}</Text>
+      <Input type="range" min="0" max="6.28" step="0.01" value={rotation.xw} onChange={(e) => handleRotationChange('xw', parseFloat(e.target.value))} />
+    </Box>
+    <Box>
+      <Text>Rotation (YZ): {rotation.yz.toFixed(2)}</Text>
+      <Input type="range" min="0" max="6.28" step="0.01" value={rotation.yz} onChange={(e) => handleRotationChange('yz', parseFloat(e.target.value))} />
+    </Box>
+    <Box>
+      <Text>Rotation (YW): {rotation.yw.toFixed(2)}</Text>
+      <Input type="range" min="0" max="6.28" step="0.01" value={rotation.yw} onChange={(e) => handleRotationChange('yw', parseFloat(e.target.value))} />
+    </Box>
+     <Box>
+      <Text>Rotation (ZW): {rotation.zw.toFixed(2)}</Text>
+      <Input type="range" min="0" max="6.28" step="0.01" value={rotation.zw} onChange={(e) => handleRotationChange('zw', parseFloat(e.target.value))} />
+    </Box>
 
-    <Grid templateColumns="repeat(4, 1fr)" gap={2}>
-      <Button colorPalette="gray" onClick={() => handleClearClick()}>
-        AC
-      </Button>
-      <Button colorPalette="gray" onClick={() => handleOperatorClick("+/-")}>
-        +/-
-      </Button>
-      <Button colorPalette="gray" onClick={() => handleOperatorClick("%")}>
-        %
-      </Button>
-      <Button colorPalette="orange" onClick={() => handleOperatorClick("/")}>
-        /
-      </Button>
+    <Text>Calculated Coordinates:</Text>
+    <Text>X: {coordinates.x.toFixed(2)}</Text>
+    <Text>Y: {coordinates.y.toFixed(2)}</Text>
+    <Text>Z: {coordinates.z.toFixed(2)}</Text>
+    <Text>W: {coordinates.w.toFixed(2)}</Text>
 
-      <Button onClick={() => handleNumberClick(7)}>7</Button>
-      <Button onClick={() => handleNumberClick(8)}>8</Button>
-      <Button onClick={() => handleNumberClick(9)}>9</Button>
-      <Button colorPalette="orange" onClick={() => handleOperatorClick("*")}>
-        *
-      </Button>
-
-      <Button onClick={() => handleNumberClick(4)}>4</Button>
-      <Button onClick={() => handleNumberClick(5)}>5</Button>
-      <Button onClick={() => handleNumberClick(6)}>6</Button>
-      <Button colorPalette="orange" onClick={() => handleOperatorClick("-")}>
-        -
-      </Button>
-
-      <Button onClick={() => handleNumberClick(1)}>1</Button>
-      <Button onClick={() => handleNumberClick(2)}>2</Button>
-      <Button onClick={() => handleNumberClick(3)}>3</Button>
-      <Button colorPalette="orange" onClick={() => handleOperatorClick("+")}>
-        +
-      </Button>
-
-      <Button gridColumn="span 2" onClick={() => handleNumberClick(0)}>
-        0
-      </Button>
-      <Button onClick={() => handleDecimalClick()}>.</Button>
-      <Button colorPalette="orange" onClick={() => handleEqualsClick()}>
-        =
-      </Button>
-    </Grid>
+    <Text color="gray.500" fontSize="sm">
+      Note: This is a vastly simplified demonstration. Real 4D rendering is beyond the scope of this example.
+    </Text>
   </VStack>
 );
 ```
@@ -206,108 +185,84 @@ return (
 --- Extracted Component Code ---
 // Expects no props
 
-const [displayValue, setDisplayValue] = useState("0");
-const [operator, setOperator] = useState(null);
-const [firstOperand, setFirstOperand] = useState(null);
+const [rotation, setRotation] = useState({
+  xy: 0,
+  xz: 0,
+  xw: 0,
+  yz: 0,
+  yw: 0,
+  zw: 0,
+});
 
-const handleNumberClick = (number) => {
-  setDisplayValue(displayValue === "0" ? String(number) : displayValue + number);
+const handleRotationChange = (axis, value) => {
+  setRotation(prevRotation => ({
+    ...prevRotation,
+    [axis]: value,
+  }));
 };
 
-const handleOperatorClick = (nextOperator) => {
-  if (firstOperand === null) {
-    setFirstOperand(parseFloat(displayValue));
-  } else if (operator) {
-    const result = calculate(firstOperand, parseFloat(displayValue), operator);
-    setDisplayValue(String(result));
-    setFirstOperand(result);
-  }
-  setOperator(nextOperator);
-  setDisplayValue("0");
+// Function to calculate 4D coordinates (simplified)
+const calculate4DCoordinates = (xy, xz, xw, yz, yw, zw) => {
+  // Placeholder logic - replace with actual 4D rotation calculations
+  // This is a highly simplified representation
+  const x = Math.cos(xy) + Math.cos(xz) + Math.cos(xw);
+  const y = Math.sin(xy) + Math.cos(yz) + Math.cos(yw);
+  const z = Math.sin(xz) + Math.sin(yz) + Math.cos(zw);
+  const w = Math.sin(xw) + Math.sin(yw) + Math.sin(zw);
+
+  // Scale the coordinates for visibility
+  const scale = 50; // Adjust the scaling factor as needed
+  return { x: x * scale, y: y * scale, z: z * scale, w: w * scale };
 };
 
-const handleEqualsClick = () => {
-  if (firstOperand && operator) {
-    const result = calculate(firstOperand, parseFloat(displayValue), operator);
-    setDisplayValue(String(result));
-    setFirstOperand(null);
-    setOperator(null);
-  }
-};
-
-const handleClearClick = () => {
-  setDisplayValue("0");
-  setOperator(null);
-  setFirstOperand(null);
-};
-
-const handleDecimalClick = () => {
-  if (!displayValue.includes(".")) {
-    setDisplayValue(displayValue + ".");
-  }
-};
-
-const calculate = (firstOperand, secondOperand, operator) => {
-  switch (operator) {
-    case "+":
-      return firstOperand + secondOperand;
-    case "-":
-      return firstOperand - secondOperand;
-    case "*":
-      return firstOperand * secondOperand;
-    case "/":
-      return firstOperand / secondOperand;
-    default:
-      return secondOperand;
-  }
-};
+const coordinates = calculate4DCoordinates(
+  rotation.xy,
+  rotation.xz,
+  rotation.xw,
+  rotation.yz,
+  rotation.yw,
+  rotation.zw
+);
 
 return (
-  <VStack align="stretch" bg="gray.100" p={4} borderRadius="md" boxShadow="md">
-    <Input readOnly value={displayValue} textAlign="right" fontSize="2xl" p={2} bg="white" />
+  <VStack spacing={4} p={5} borderWidth={1} borderRadius="md" boxShadow="md" bg="bg.surface">
+    <Heading size="md">4D Tesseract (Simplified Representation)</Heading>
+    <Text>
+      This is a simplified conceptualization.  A true tesseract visualization would involve significantly more complex calculations and rendering.
+    </Text>
+    <Box>
+      <Text>Rotation (XY): {rotation.xy.toFixed(2)}</Text>
+      <Input type="range" min="0" max="6.28" step="0.01" value={rotation.xy} onChange={(e) => handleRotationChange('xy', parseFloat(e.target.value))} />
+    </Box>
+    <Box>
+      <Text>Rotation (XZ): {rotation.xz.toFixed(2)}</Text>
+      <Input type="range" min="0" max="6.28" step="0.01" value={rotation.xz} onChange={(e) => handleRotationChange('xz', parseFloat(e.target.value))} />
+    </Box>
+     <Box>
+      <Text>Rotation (XW): {rotation.xw.toFixed(2)}</Text>
+      <Input type="range" min="0" max="6.28" step="0.01" value={rotation.xw} onChange={(e) => handleRotationChange('xw', parseFloat(e.target.value))} />
+    </Box>
+    <Box>
+      <Text>Rotation (YZ): {rotation.yz.toFixed(2)}</Text>
+      <Input type="range" min="0" max="6.28" step="0.01" value={rotation.yz} onChange={(e) => handleRotationChange('yz', parseFloat(e.target.value))} />
+    </Box>
+    <Box>
+      <Text>Rotation (YW): {rotation.yw.toFixed(2)}</Text>
+      <Input type="range" min="0" max="6.28" step="0.01" value={rotation.yw} onChange={(e) => handleRotationChange('yw', parseFloat(e.target.value))} />
+    </Box>
+     <Box>
+      <Text>Rotation (ZW): {rotation.zw.toFixed(2)}</Text>
+      <Input type="range" min="0" max="6.28" step="0.01" value={rotation.zw} onChange={(e) => handleRotationChange('zw', parseFloat(e.target.value))} />
+    </Box>
 
-    <Grid templateColumns="repeat(4, 1fr)" gap={2}>
-      <Button colorPalette="gray" onClick={() => handleClearClick()}>
-        AC
-      </Button>
-      <Button colorPalette="gray" onClick={() => handleOperatorClick("+/-")}>
-        +/-
-      </Button>
-      <Button colorPalette="gray" onClick={() => handleOperatorClick("%")}>
-        %
-      </Button>
-      <Button colorPalette="orange" onClick={() => handleOperatorClick("/")}>
-        /
-      </Button>
+    <Text>Calculated Coordinates:</Text>
+    <Text>X: {coordinates.x.toFixed(2)}</Text>
+    <Text>Y: {coordinates.y.toFixed(2)}</Text>
+    <Text>Z: {coordinates.z.toFixed(2)}</Text>
+    <Text>W: {coordinates.w.toFixed(2)}</Text>
 
-      <Button onClick={() => handleNumberClick(7)}>7</Button>
-      <Button onClick={() => handleNumberClick(8)}>8</Button>
-      <Button onClick={() => handleNumberClick(9)}>9</Button>
-      <Button colorPalette="orange" onClick={() => handleOperatorClick("*")}>
-        *
-      </Button>
-
-      <Button onClick={() => handleNumberClick(4)}>4</Button>
-      <Button onClick={() => handleNumberClick(5)}>5</Button>
-      <Button onClick={() => handleNumberClick(6)}>6</Button>
-      <Button colorPalette="orange" onClick={() => handleOperatorClick("-")}>
-        -
-      </Button>
-
-      <Button onClick={() => handleNumberClick(1)}>1</Button>
-      <Button onClick={() => handleNumberClick(2)}>2</Button>
-      <Button onClick={() => handleNumberClick(3)}>3</Button>
-      <Button colorPalette="orange" onClick={() => handleOperatorClick("+")}>
-        +
-      </Button>
-
-      <Button gridColumn="span 2" onClick={() => handleNumberClick(0)}>
-        0
-      </Button>
-      <Button onClick={() => handleDecimalClick()}>.</Button>
-      <Button colorPalette="orange" onClick={() => handleEqualsClick()}>
-        =
-      </Button>
-    </Grid>
+    <Text color="gray.500" fontSize="sm">
+      Note: This is a vastly simplified demonstration. Real 4D rendering is beyond the scope of this example.
+    </Text>
   </VStack>
 );

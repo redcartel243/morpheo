@@ -3,6 +3,7 @@ import {
   // V3 Imports - Add more as needed based on AI generation & errors
   // Layout
   Box, Center, Flex, Grid, GridItem, Spacer, Stack, HStack, VStack, Wrap, WrapItem,
+  Container, SimpleGrid,
   // Forms (using Field component where applicable)
   Button, IconButton, Checkbox, CheckboxGroup, Editable, Field, Input, InputGroup, InputAddon, InputElement,
   NumberInput, PinInput, RadioGroup, Select, Slider, SliderTrack, SliderThumb, SliderMarker,
@@ -21,11 +22,12 @@ import {
   Avatar, AvatarGroup, Icon, Image,
   // Other
   AspectRatio, Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbSeparator,
+  Link, Separator, AbsoluteCenter,
   CloseButton, Portal, VisuallyHidden,
   // Hooks (Only Chakra-specific ones)
   useCallbackRef, useControllableState, useMediaQuery, // Keep useDisclosure listed above
 } from '@chakra-ui/react';
-import { LiveProvider, LiveEditor, LiveError, LivePreview } from 'react-live'; // Import react-live
+import { LiveProvider, LiveError, LivePreview } from 'react-live'; // Import react-live
 import { useAppSelector } from '../store/hooks';
 import { RootState } from '../store';
 
@@ -51,12 +53,24 @@ const liveScope = {
   React: React,                         // Provide React
   useState: React.useState,
   useEffect: React.useEffect,
-  useCallback: React.useCallback,
-  useRef: React.useRef,
-  useMemo: React.useMemo,
-  // Chakra UI V3 Components & Hooks (Explicit Mapping)
+  useCallback: React.useCallback, // Keep for potential handlers
+  useRef: React.useRef,         // Keep for potential refs
+  // Keep Box as it's fundamental
+  Box: Box,
+  // Add back Container
+  Container: Container,
+  // Add back Flex
+  Flex: Flex,
+  // Media & Icons
+  Avatar: Avatar, // Restore Avatar
+  // Add back Heading
+  Heading: Heading,
+  // Add back HStack
+  HStack: HStack,
+  // === Restore other components ===
   // Layout
-  Box: Box, Center: Center, Flex: Flex, Grid: Grid, GridItem: GridItem, Spacer: Spacer, Stack: Stack, HStack: HStack, VStack: VStack, Wrap: Wrap, WrapItem: WrapItem,
+  Center: Center, Grid: Grid, GridItem: GridItem, Spacer: Spacer, Stack: Stack, VStack: VStack, Wrap: Wrap, WrapItem: WrapItem,
+  SimpleGrid: SimpleGrid, // Restore SimpleGrid
   // Forms
   Button: Button, IconButton: IconButton, Checkbox: Checkbox, CheckboxGroup: CheckboxGroup, Editable: Editable, Field: Field, Input: Input, InputGroup: InputGroup, InputAddon: InputAddon, InputElement: InputElement,
   NumberInput: NumberInput, PinInput: PinInput, RadioGroup: RadioGroup, Select: Select, Slider: Slider, SliderTrack: SliderTrack, SliderThumb: SliderThumb, SliderMarker: SliderMarker,
@@ -66,18 +80,20 @@ const liveScope = {
   // Feedback
   Alert: Alert, Progress: Progress, Skeleton: Skeleton, SkeletonCircle: SkeletonCircle, SkeletonText: SkeletonText, Spinner: Spinner,
   // Typography
-  Text: Text, Heading: Heading,
+  Text: Text, // Restore Text
   // Overlay
   Dialog: Dialog, Drawer: Drawer, Menu: Menu, Popover: Popover, Tooltip: Tooltip,
   // Disclosure
   Accordion: Accordion, Collapsible: Collapsible, Tabs: Tabs, useDisclosure: useDisclosure,
-  // Media & Icons
-  Avatar: Avatar, AvatarGroup: AvatarGroup, Icon: Icon, Image: Image,
+  // Media & Icons (Avatar already restored)
+  AvatarGroup: AvatarGroup, Icon: Icon, Image: Image,
   // Other
   AspectRatio: AspectRatio, Breadcrumb: Breadcrumb, BreadcrumbItem: BreadcrumbItem, BreadcrumbLink: BreadcrumbLink, BreadcrumbSeparator: BreadcrumbSeparator,
+  Separator: Separator, AbsoluteCenter: AbsoluteCenter,
   CloseButton: CloseButton, Portal: Portal, VisuallyHidden: VisuallyHidden,
   // Hooks
   useCallbackRef: useCallbackRef, useControllableState: useControllableState, useMediaQuery: useMediaQuery,
+  // === End Restored Components ===
   // Any custom components or utility functions the AI should access
 };
 

@@ -47,6 +47,7 @@ export interface UIConfig {
 
 export interface UIState {
   componentCode: string | null;
+  lastPrompt: string | null;
   savedConfigs: UIConfig[];
   loading: boolean;
   error: string | null;
@@ -56,6 +57,7 @@ export interface UIState {
 // Initial state
 const initialState: UIState = {
   componentCode: null,
+  lastPrompt: null,
   savedConfigs: [],
   loading: false,
   error: null,
@@ -427,7 +429,7 @@ const uiSlice = createSlice({
           state.error = null;
           state.componentCode = null; // Clear previous code
       })
-      .addCase(generateUI.fulfilled, (state, action: PayloadAction<string>) => {
+      .addCase(generateUI.fulfilled, (state, action: PayloadAction<string, string, { arg: { prompt?: string } }>) => {
           // Payload here should be the component code string
           console.log('[generateUI.fulfilled] Received component code:', action.payload ? action.payload.substring(0, 50) + '...' : 'null');
           
@@ -442,6 +444,13 @@ const uiSlice = createSlice({
           // Store the code directly as received from backend (should be clean JS now)
           state.componentCode = cleanedCode || null;
           state.error = null;
+          // Store the prompt used for this successful generation
+          if (action.meta && action.meta.arg && typeof action.meta.arg.prompt === 'string') {
+             state.lastPrompt = action.meta.arg.prompt;
+             console.log('[generateUI.fulfilled] Stored lastPrompt:', state.lastPrompt);
+          } else {
+             console.warn('[generateUI.fulfilled] Could not find prompt in action meta to store.');
+          }
       })
       .addCase(generateUI.rejected, (state, action) => {
           console.error('[generateUI.rejected] Error:', action.payload || action.error.message);
@@ -458,12 +467,19 @@ const uiSlice = createSlice({
         state.error = null;
         state.componentCode = null; // Clear previous code
       })
-      .addCase(generateAppThunk.fulfilled, (state, action: PayloadAction<string>) => {
+      .addCase(generateAppThunk.fulfilled, (state, action: PayloadAction<string, string, { arg: { requirements?: { purpose?: string } } }>) => {
         console.log('[generateAppThunk.fulfilled] Received component code:', action.payload.substring(0, 50) + '...');
         state.generatingUI = false;
         state.loading = false;
         state.componentCode = action.payload; // Store the code string
         state.error = null;
+        // Store the prompt used for this successful generation
+        if (action.meta && action.meta.arg && action.meta.arg.requirements && typeof action.meta.arg.requirements.purpose === 'string') {
+           state.lastPrompt = action.meta.arg.requirements.purpose;
+           console.log('[generateAppThunk.fulfilled] Stored lastPrompt:', state.lastPrompt);
+        } else {
+           console.warn('[generateAppThunk.fulfilled] Could not find prompt in action meta to store.');
+        }
       })
       .addCase(generateAppThunk.rejected, (state, action) => {
         console.error('[generateAppThunk.rejected] Error:', action.payload || action.error.message);

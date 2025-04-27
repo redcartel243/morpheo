@@ -24,6 +24,11 @@ import time
 import asyncio
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+import logging # Import the logging module
+
+# Set up logging (basic configuration)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__) # Get a logger instance for this module
 
 # Import Gemini library using the new SDK pattern
 from google import genai 
@@ -1595,3 +1600,29 @@ async def modify_component_ui(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to modify component code. Check backend logs."
         ) 
+
+# NEW: Model for the full code generation response
+class FullCodeResponse(BaseModel):
+    component_code: Optional[str] = None
+    error: Optional[str] = None
+
+# NEW: Model for the request, only needs prompt
+class PromptRequest(BaseModel):
+    prompt: str
+
+# NEW: Endpoint for generating full, runnable component code
+@app.post("/api/generate-full-component", response_model=FullCodeResponse)
+async def generate_full_component(request: PromptRequest):
+    """Generates a complete, runnable React component file (.tsx)."""
+    logger.info(f"Received request for /api/generate-full-component with prompt: {request.prompt[:100]}...")
+    try:
+        full_code = component_service.generate_full_component_code(request.prompt)
+        if full_code:
+            logger.info("Successfully generated full component code for /api/generate-full-component.")
+            return FullCodeResponse(component_code=full_code)
+        else:
+            logger.error("Full code generation failed for /api/generate-full-component.")
+            return FullCodeResponse(error="Failed to generate full component code. AI might have encountered an issue.")
+    except Exception as e:
+        logger.exception(f"Exception in /api/generate-full-component endpoint: {e}")
+        return FullCodeResponse(error=f"Server error during full code generation: {e}") 

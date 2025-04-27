@@ -596,17 +596,16 @@ class ComponentService:
         logger.info("Created enhanced prompt for direct React code generation.")
         return final_prompt
 
-    # NEW: Method to create prompt for modifying existing code
-    def _create_modification_prompt(self, modification_prompt: str, current_code: str) -> str:
+    # NEW: Method to create prompt for generating full, runnable component code
+    def _create_full_code_prompt(self, user_request: str) -> str:
         """
-        Creates the prompt for the AI to modify existing React component code.
+        Creates the prompt for the AI to generate a complete, standalone React component file.
 
         Args:
-            modification_prompt: The user's instruction for how to modify the code.
-            current_code: The existing React component code string.
+            user_request: The user's request text.
 
         Returns:
-            The final prompt string to send to the AI for modification.
+            The final prompt string to send to the AI.
         """
         prompt_template = ""
         template_path = ""
@@ -618,32 +617,183 @@ class ComponentService:
         except FileNotFoundError:
             logger.error(f"ERROR: Prompt template not found at {template_path}")
             prompt_template = (
-                "You are a helpful AI. Modify the provided React functional component using Chakra UI v3 "
+                "You are a helpful AI. Generate a COMPLETE React functional component file using Chakra UI v3 "
                 "based on the user request below.\n\nOutput Requirements:\n"
-                "- Valid React functional component code as a string, enclosed in ```typescript ... ```.\n"
-                "- Include all necessary imports from react and @chakra-ui/react.\n"
-                "- Use Chakra UI v3 components and style props.\n"
+                "- A single block of valid Typescript React (.tsx) code, enclosed in ```typescript ... ```.\n"
+                "- The code MUST include all necessary `import` statements from 'react' (e.g., React, useState, useEffect).\n"
+                "- The code MUST include all necessary `import` statements from '@chakra-ui/react' for the components used.\n"
+                "- Define a functional component (e.g., `const MyComponent = () => { ... };`).\n"
+                "- Include `export default MyComponent;` at the end.\n"
+                "- Use Chakra UI v3 components and style props ONLY.\n"
+                "- Follow all Chakra UI v3 naming conventions (e.g., `Field`, `colorPalette`, `disabled`, `Separator`).\n"
+                "- **DO NOT** use `<Link>`, use styled `<a>` tags instead.\n"
+                "- **DO NOT** use icons from `@chakra-ui/icons` or `leftIcon`/`rightIcon` props.\n"
                 "- Use standard React hooks for state and event handlers.\n"
-                "- Return the COMPLETE modified component code, not just the changes."
+                "- The generated code should be ready to be saved as a .tsx file and run."
             )
+
+        # Modify the template section asking for the output format
+        # Emphasize returning ONLY the code block with the full component
+        prompt_template = re.sub(
+            r"Generate only the body.*?```\.", # Original pattern might be too specific
+            r"MUST return ONLY the complete React component code as a single file string, including all imports and the final export default statement, enclosed in a single ```typescript ... ``` block. Do not include any other text before or after the block.", # More direct instruction
+            prompt_template, flags=re.DOTALL | re.IGNORECASE
+        )
 
         final_prompt = (
             f"{prompt_template}\n\n"
-            f"## Task: Modify Existing Component\n\n"
-            f"Please modify the following React component code based on the user's request.\n"
-            f"Ensure the output is the complete, modified component code, including all necessary imports and structure.\n\n"
-            f"### User Modification Request:\n\n"
-            f"```text\n{modification_prompt}\n```\n\n"
-            f"### Current Component Code:\n\n"
+            f"## Task: Generate Full Component File\n\n"
+            f"Based on the user request below, generate a complete, runnable React functional component (.tsx) file.\n"
+            f"Output Requirements Reminder:\n"
+            f"- **COMPLETE** file content inside ONE ```typescript ... ``` block.\n"
+            f"- Includes `import React...`, all necessary `@chakra-ui/react` imports, component definition, and `export default ...`."
+            f"- NO extra text, comments, or explanations outside the code block.\n"
+            f"### User Request:\n\n"
+            f"```text\n{user_request}\n```\n\n"
+            f"### Full Component Code Output:\n\n"
+            f"```typescript"
+            # Removed the closing parenthesis here, AI should generate the closing ```
+        )
+
+        logger.info("Created prompt for full React component code generation.")
+        return final_prompt
+    
+
+    # NEW: Method to generate full, runnable component code
+    def generate_full_component_code(self, user_request: str) -> Optional[str]:
+        """
+        Generates a complete, runnable React component code string based on a user prompt.
+
+        Args:
+            user_request: A description of the application the user wants to create.
+
+        Returns:
+            A string containing the full React component code (.tsx), or None if generation fails.
+        """
+        full_component_code: Optional[str] = None
+        error_message: Optional[str] = None
+        prompt: str = ""
+        response_text: str = ""
+
+        try:
+            # Step 1: Create the prompt for full code generation
+            prompt = self._create_full_code_prompt(user_request)
+            if not prompt:
+                logger.error("Full code prompt creation failed (template likely missing).")
+                self.error_count += 1
+                return None
+
+            # Step 2: Call the API
+            response_text = self._call_gemini_api(prompt)
+            if not response_text or not response_text.strip():
+                logger.warning("Empty response received from Gemini API for full code.")
+                self.error_count += 1
+                return None
+
+            # Step 3: Extract the code block
+            # Use the same extraction logic as generate_app_config
+            match = re.search(r"```(?:typescript|javascript|jsx|tsx)?\n(.*?)```", response_text, re.DOTALL | re.IGNORECASE)
+            if match:
+                full_component_code = match.group(1).strip()
+                logger.info(f"Successfully extracted full component code ({len(full_component_code)} chars).")
+            else:
+                logger.warning("Code block ```...``` not found in full code response. Assuming entire response is code.")
+                potential_code = response_text.strip()
+                # Stronger check for full component structure
+                if ("import React" in potential_code and "export default" in potential_code):
+                    full_component_code = potential_code
+                    logger.info(f"Using fallback response as full component code ({len(full_component_code)} chars).")
+                else:
+                    logger.warning("Fallback content doesn't strongly resemble a full React component file.")
+                    error_message = "AI did not return a recognizable full React code block."
+                    # full_component_code remains None
+
+            # Step 4: Check extraction result and handle errors
+            if full_component_code:
+                self.error_count = 0 # Reset error count on success
+                return full_component_code
+            else:
+                if not error_message:
+                    error_message = "Full code extraction failed for unknown reasons."
+                logger.error(f"Failed to extract valid full component code. Error: {error_message}")
+                self.error_count += 1
+                return None # Indicate failure
+
+        except Exception as e:
+            logger.error(f"Exception during full code generation or processing: {e}")
+            traceback.print_exc()
+            self.error_count += 1
+            error_message = f"Exception during full code generation: {e}"
+            return None # Indicate failure
+
+        finally:
+            # Log this specific operation
+            log_content = {
+                "timestamp": datetime.datetime.now().isoformat(),
+                "operation_type": "generate_full_code",
+                "user_request": user_request,
+                "prompt_sent_preview": (prompt[:200] + '...') if prompt else "(Prompt creation failed)",
+                "raw_response_preview": (response_text[:200] + '...') if response_text else "(No response)",
+                "extracted_code_preview": (full_component_code[:200] + '...') if full_component_code else "(None)",
+                "final_status": "Success" if full_component_code else "Failure",
+                "error_message": error_message if error_message else None
+            }
+            try:
+                with open("morpheo_generation_log.jsonl", "a", encoding="utf-8") as log_file:
+                    log_file.write(json.dumps(log_content) + "\n")
+            except Exception as log_e:
+                logger.error(f"Error writing full code generation logs in finally block: {log_e}")
+
+    # NEW: Method to create the prompt for modifying code
+    def _create_modification_prompt(self, modification_prompt: str, current_code: str) -> str:
+        """
+        Creates the prompt for the AI to modify existing React code.
+
+        Args:
+            modification_prompt: The user's modification instructions.
+            current_code: The current React code string.
+
+        Returns:
+            The final prompt string to send to the AI.
+        """
+        prompt_template = ""
+        template_path = ""
+        try:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            template_path = os.path.join(current_dir, '..', 'gemini_prompt_template.md')
+            with open(template_path, "r", encoding="utf-8") as f:
+                prompt_template = f.read()
+        except FileNotFoundError:
+            logger.error(f"ERROR: Prompt template not found at {template_path}")
+            # Basic fallback if template is missing
+            prompt_template = (
+                "You are a helpful AI assistant specializing in React and Chakra UI v3.\n"
+                "Modify the provided React component code based on the user's instructions.\n"
+                "Output ONLY the complete, modified React component code enclosed in a ```typescript ... ``` block.\n"
+                "Ensure all imports are correct and the code is runnable."
+            )
+
+        # Structure the modification prompt
+        # We provide the original template rules, the current code, and the modification request
+        final_prompt = (
+            f"{prompt_template}\n\n"
+            f"## Task: Modify Existing React Component\n\n"
+            f"Below is the current React component code. Please modify it according to the user's request.\n"
+            f"Return the ENTIRE modified component code, including all imports and the export statement, enclosed in a single ```typescript ... ``` block.\n"
+            f"Do not add any explanations before or after the code block.\n\n"
+            f"### Current Code:\n\n"
             f"```typescript\n{current_code}\n```\n\n"
+            f"### Modification Request:\n\n"
+            f"```text\n{modification_prompt}\n```\n\n"
             f"### Modified Component Code Output:\n\n"
-            f"(Return the complete modified code in a ```typescript block below)"
+            f"```typescript"
+            # Removed the closing parenthesis here, AI should generate the closing ```
         )
 
         logger.info("Created modification prompt for React code.")
         return final_prompt
 
-    # NEW: Method to handle modification requests
+    # Method to handle modification requests (already exists)
     def modify_app_config(self, modification_prompt: str, current_code: str) -> Optional[str]:
         """
         Modify an existing React component code string based on a user prompt.
