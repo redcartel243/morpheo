@@ -1,21 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Link, useNavigate } from 'react-router-dom';
-import { fetchSavedConfigs, clearCurrentConfig } from '../../store/slices/uiSlice';
+import { Link } from 'react-router-dom';
+import { fetchSavedConfigs } from '../../store/slices/uiSlice';
 import { RootState } from '../../store';
 
 const Dashboard: React.FC = () => {
   const dispatch = useDispatch();
-  const navigate = useNavigate();
-  const [prompt, setPrompt] = useState('');
   const [fetchError, setFetchError] = useState<string | null>(null);
   const { user } = useSelector((state: RootState) => state.auth);
   const { savedConfigs, loading, error } = useSelector((state: RootState) => state.ui);
   
   useEffect(() => {
-    // Clear any current config when visiting the dashboard
-    dispatch(clearCurrentConfig());
-    
     // Fetch saved configs with error handling
     const fetchConfigs = async () => {
       try {
@@ -236,15 +231,13 @@ const Dashboard: React.FC = () => {
                 >
                   View Demo →
                 </Link>
-                <button
-                  onClick={() => {
-                    setPrompt("Create a calculator with standard operations and a clean modern design.");
-                    navigate('/generate');
-                  }}
+                <Link
+                  to="/generate"
+                  state={{ initialPrompt: "Create a calculator with standard operations and a clean modern design." }}
                   className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium"
                 >
                   Try this example →
-                </button>
+                </Link>
               </div>
             </div>
           </div>
@@ -261,15 +254,13 @@ const Dashboard: React.FC = () => {
                 A finance dashboard with a pie chart, an income/expense tracker, and weekly summaries.
               </p>
               <div className="flex justify-end">
-                <button
-                  onClick={() => {
-                    setPrompt("I need a finance dashboard with a pie chart, an income/expense tracker, and weekly summaries.");
-                    navigate('/generate');
-                  }}
+                <Link
+                  to="/generate"
+                  state={{ initialPrompt: "I need a finance dashboard with a pie chart, an income/expense tracker, and weekly summaries." }}
                   className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium"
                 >
                   Try this example →
-                </button>
+                </Link>
               </div>
             </div>
           </div>
@@ -292,15 +283,13 @@ const Dashboard: React.FC = () => {
                 >
                   View Demo →
                 </Link>
-                <button
-                  onClick={() => {
-                    setPrompt("Create a todo list app with task management and priority levels.");
-                    navigate('/generate');
-                  }}
+                <Link
+                  to="/generate"
+                  state={{ initialPrompt: "Create a todo list app with task management and priority levels." }}
                   className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium"
                 >
                   Try this example →
-                </button>
+                </Link>
               </div>
             </div>
           </div>
@@ -323,15 +312,13 @@ const Dashboard: React.FC = () => {
                 >
                   View Demo →
                 </Link>
-                <button
-                  onClick={() => {
-                    setPrompt("Create a comprehensive to-do list app with categorization and priority levels.");
-                    navigate('/generate');
-                  }}
+                <Link
+                  to="/generate"
+                  state={{ initialPrompt: "Create a comprehensive to-do list app with categorization and priority levels." }}
                   className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium"
                 >
                   Try this example →
-                </button>
+                </Link>
               </div>
             </div>
           </div>
@@ -354,15 +341,13 @@ const Dashboard: React.FC = () => {
                 >
                   View Demo →
                 </Link>
-                <button
-                  onClick={() => {
-                    setPrompt("Create a modern UI component library with reusable elements and responsive layouts.");
-                    navigate('/generate');
-                  }}
+                <Link
+                  to="/generate"
+                  state={{ initialPrompt: "Create a modern UI component library with reusable elements and responsive layouts." }}
                   className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium"
                 >
                   Try this example →
-                </button>
+                </Link>
               </div>
             </div>
           </div>

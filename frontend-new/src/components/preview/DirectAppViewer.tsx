@@ -77,11 +77,7 @@ const DirectAppViewer: React.FC = () => {
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-6">{appConfig.name || appConfig.app?.name || 'App Preview'}</h1>
       <div className="border rounded-lg bg-white p-6 min-h-[600px] shadow-lg">
-        <AppViewer 
-          appConfig={appConfig} 
-          height="100%" 
-          width="100%" 
-        />
+        <AppViewer />
       </div>
     </div>
   );

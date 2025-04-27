@@ -2,11 +2,10 @@ import React, { useState, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { AppState } from '../../store/store';
-import { generateUI, loadManualConfig, UIConfig } from '../../store/slices/uiSlice';
+import { generateUI, setComponentCode } from '../../store/slices/uiSlice';
 import Card from '../ui/components/layout/Card';
 import Grid from '../ui/components/layout/Grid';
 import Text from '../ui/components/basic/Text';
-import { AppRequirements } from './AppRequirementsForm';
 
 // Simple UI generator UI
 export const UIGenerator: React.FC = () => {
@@ -62,26 +61,20 @@ export const UIGenerator: React.FC = () => {
     reader.onload = async (e) => {
       const content = e.target?.result;
       if (typeof content !== 'string') {
-        setError('Failed to read file content.');
+        setError('Failed to read file content as text.');
         return;
       }
 
       try {
-        const parsedConfig = JSON.parse(content);
-        console.log('Parsed JSON config:', parsedConfig);
+        console.log('Read code from file:', content.substring(0, 100) + '...');
 
-        const result = await dispatch(loadManualConfig(parsedConfig) as any);
+        dispatch(setComponentCode(content));
 
-        if (result.error) {
-          console.error('Error loading manual config:', result.error);
-          setError(result.error.message || 'Failed to load manual configuration');
-        } else {
-          console.log('Manual config loaded successfully, navigating to preview...');
+        console.log('Raw code loaded successfully, navigating to preview...');
           navigate('/preview');
-        }
-      } catch (jsonError) {
-        console.error('Error parsing JSON:', jsonError);
-        setError('Invalid JSON file. Please select a valid configuration file.');
+      } catch (dispatchError: any) {
+        console.error('Error setting component code or navigating:', dispatchError);
+        setError(dispatchError.message || 'An error occurred loading the code.');
       }
     };
 
@@ -93,7 +86,7 @@ export const UIGenerator: React.FC = () => {
 
     event.target.value = ''; 
   };
-
+  
   return (
     <div className="container mx-auto px-4 py-8">
       <input 
@@ -166,7 +159,7 @@ export const UIGenerator: React.FC = () => {
                 >
                   {loading ? 'Loading...' : 'Import JSON'}
                 </button>
-
+                
                 <button
                   type="button"
                   onClick={() => navigate('/guided')}

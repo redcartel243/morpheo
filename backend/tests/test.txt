@@ -1,0 +1,56 @@
+const [todos, setTodos] = useState([]);
+  const [inputValue, setInputValue] = useState('');
+
+  const handleInputChange = (event) => {
+    setInputValue(event.target.value);
+  };
+
+  const handleAddTodo = () => {
+    if (inputValue.trim() !== '') {
+      setTodos([...todos, { text: inputValue, completed: false }]);
+      setInputValue('');
+    }
+  };
+
+  const handleTodoToggle = (index) => {
+    const newTodos = [...todos];
+    newTodos[index].completed = !newTodos[index].completed;
+    setTodos(newTodos);
+  };
+
+  const handleTodoDelete = (index) => {
+    const newTodos = [...todos];
+    newTodos.splice(index, 1);
+    setTodos(newTodos);
+  };
+
+  return (
+    <VStack align="stretch" spacing={4} p={5} borderWidth={1} borderRadius="md" boxShadow="md" bg="bg.surface">
+      <Heading size="lg">Todo List</Heading>
+      <HStack>
+        <Input
+          placeholder="Add a todo..."
+          value={inputValue}
+          onChange={handleInputChange}
+        />
+        <Button colorPalette="blue" onClick={handleAddTodo}>
+          Add
+        </Button>
+      </HStack>
+      <List spacing={3}>
+        {todos.map((todo, index) => (
+          <ListItem key={index} display="flex" alignItems="center" justifyContent="space-between">
+            <HStack>
+              <Checkbox isChecked={todo.completed} onChange={() => handleTodoToggle(index)} />
+              <Text as={todo.completed ? 's' : 'span'}>{todo.text}</Text>
+            </HStack>
+            <IconButton
+              aria-label="Delete todo"
+              icon="Delete" // Replace with a suitable placeholder if necessary
+              onClick={() => handleTodoDelete(index)}
+            />
+          </ListItem>
+        ))}
+      </List>
+    </VStack>
+  );

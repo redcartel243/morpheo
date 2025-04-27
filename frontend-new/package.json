@@ -31,6 +31,7 @@
     "react-bootstrap": "^2.10.9",
     "react-dom": "^19.0.0",
     "react-leaflet": "^5.0.0",
+    "react-live": "^4.1.8",
     "react-redux": "^9.2.0",
     "react-router-dom": "^7.3.0",
     "react-scripts": "5.0.1",

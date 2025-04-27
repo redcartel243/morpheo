@@ -203,168 +203,157 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
 # Refactored generate_ui_config function
 async def generate_ui_config(prompt: str, style_preferences: Optional[Dict[str, Any]] = None):
     """Generate UI config using NEW Gemini SDK pattern or fallback."""
-    # Create a log file
+    # Load the new prompt template
+    try:
+        with open("backend/gemini_prompt_template.md", "r", encoding="utf-8") as f:
+            prompt_template = f.read()
+    except FileNotFoundError:
+        print("ERROR: backend/gemini_prompt_template.md not found.", file=sys.stderr)
+        # Fallback or raise error - for now, using a basic instruction
+        prompt_template = "Generate a React component using Chakra UI for the following request: {user_prompt}"
+
+    # Construct the final prompt for the AI
+    # Inject the user's actual prompt into the template
+    # NOTE: This is a basic placeholder for injection. A more robust method 
+    # might involve finding a specific marker like {{USER_REQUEST}} in the template.
+    # For now, we assume the template expects the user prompt to be appended or 
+    # described within its structure.
+    # Let's structure it assuming the template has an ## Input section
+    # A simple approach: append the user request under a clear heading
+    final_prompt_for_ai = prompt_template + "\n\n## User Request:\n\n" + prompt
+
+    # Log the final prompt being sent to the AI
+    # Consider logging to a file or system for better tracking
+    print(f"--- Sending Prompt to AI ---\n{final_prompt_for_ai}\n--------------------------")
+
+    # Create a log file (keeping logging for now)
     with open("openai_request_log.txt", "w", encoding="utf-8") as log_file:
-        log_file.write(f"Prompt: {prompt}\n")
-        log_file.write(f"Style preferences: {json.dumps(style_preferences or {}, indent=2)}\n\n")
-        
-    # Create the system message (to be used as a prefix in Gemini)
-    system_message = """You are an expert UI developer who creates complete, functional UI configurations based on user requests.
-Your task is to generate a UI configuration that implements the functionality exactly as described or implied by the user.
+        log_file.write(f"User Prompt: {prompt}\n")
+        log_file.write(f"Style preferences: {json.dumps(style_preferences or {}, indent=2)}\n")
+        log_file.write(f"\n--- Compiled Prompt for AI ---\n{final_prompt_for_ai}\n")
 
-The UI configuration should include:
-1. Components: All necessary UI components with appropriate properties, styles, and event handlers
-2. Layout: The layout structure for organizing components
-3. Theme: Visual styling including colors, typography, and spacing
-4. Functionality: Application-specific logic and behavior
+    # Initialize response variables
+    raw_response_content = None
+    component_code = None
+    error_message = None
 
-IMPORTANT: We use an EVENT-SOURCED approach for state management. Instead of individual event handlers for each component, implement a single "stateReducer" function in the eventHandlers object.
-
-The stateReducer function:
-1. Takes (state, event) as parameters
-2. Identifies components by componentId from event.payload
-3. Returns a new state object without modifying the original state
-4. Handles all possible events (click, change, etc.) for all components
-
-Components should have empty event objects as actual handling happens in the stateReducer.
-
-External Services Integration:
-When the user request implies the need for external data (weather, stocks, maps, news, etc.):
-1. Include appropriate API configuration in the stateReducer's initial state
-2. Add fetch logic in the stateReducer to handle data loading and refreshing
-3. Implement error handling for API failures
-4. Add loading states for components that display external data
-5. Use mock data for initial rendering before API data is available
-
-Your response must be a complete, valid JSON object with no additional text.
-    """
-    
-    # Keep the user message simple to let the model interpret the full prompt
-    user_message = f"""
-    I need you to create a complete, functional UI with this exact description: {prompt}
-    
-    Make this UI fully functional and ready to use. Include all necessary components, styles, and implement the functionality using the event-sourced architecture with a single stateReducer function.
-    
-    Remember: The goal is to create a UI that looks and works EXACTLY as I've imagined it, with no details overlooked or changed.
-
-    IMPORTANT: Your response MUST be a complete, valid JSON object. Do not include any text before or after the JSON.
-    
-    CRITICAL: Use the event-sourced architecture with a single stateReducer function that handles all events based on component IDs.
-
-    END OF RESPONSE MARKER: Please include "End of Response" at the end of your JSON response to confirm completion.
-    """
-        
-    print("Calling Gemini API using NEW SDK client...")
-        
-    with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
-        log_file.write("System message + User message for Gemini:\n")
-        log_file.write(system_message + "\n\n" + user_message)
-        log_file.write("\n\n")
-    
-    max_retries = 3
-    retry_count = 0
-    response_text = None # Initialize response_text
-    
-    while retry_count < max_retries:
+    # --- AI CALL (Using Gemini Client - adapt as needed) ---
+    if client and genai_types:
         try:
-            # Use the NEW SDK client if available
-            if client and genai_types:
-                print(f"Calling Gemini API (Attempt {retry_count+1}/{max_retries})...")
-                # Call Gemini API - Assuming 'client' is the initialized Gemini client
-                # Pass the combined prompt as contents
-                gemini_response = client.models.generate_content(
-                    model="gemini-1.5-flash", # Using flash model
-                    contents=system_message + "\n\n" + user_message # Combine system and user messages
-                    # Note: Removed generation_config for simplicity as per previous steps
+            print("Attempting to generate UI config using Gemini Pro...", file=sys.stderr)
+            # Configure Gemini generation
+            # IMPORTANT: Ensure Gemini doesn't try to return structured JSON unless specifically asked
+            # Adjust temperature, safety settings as needed
+            generation_config = genai_types.GenerationConfig(
+                temperature=0.7, # Adjust as needed for creativity vs predictability
+                # top_p=1,
+                # top_k=1,
+                # max_output_tokens=8192, # Adjust based on expected component size
+            )
+            safety_settings = [
+                {
+                    "category": "HARM_CATEGORY_HARASSMENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+            ]
+
+            # Create the Gemini request parts
+            # No specific system instruction needed if handled in the main prompt text
+            parts = [final_prompt_for_ai] 
+
+            # --- IMPORTANT: Use generate_content, NOT generate_response_from_text
+            # Ensure the model knows we expect text output
+            gemini_model = client.generative_model(
+                model_name="gemini-1.5-pro-latest", # Or your preferred model
+                generation_config=generation_config,
+                safety_settings=safety_settings
+            )
+            
+            response = await asyncio.to_thread(
+                 gemini_model.generate_content,
+                 parts,
+                 stream=False, # Get the full response at once
+                 # request_options={"timeout": 300} # Example timeout
                 )
                 
-                # Safely get response text
-                try: 
-                    response_text = gemini_response.text
-                except AttributeError: 
-                    response_text = None 
-                    print("Warning: Gemini response missing text attribute.")
-                except Exception as text_ex:
-                    response_text = None
-                    print(f"Warning: Error accessing Gemini response text: {text_ex}")
-
+            # Check if the response has content and parts
+            if response.parts:
+                 raw_response_content = response.text # Access text directly
+                 print("--- Raw AI Response ---", file=sys.stderr)
+                 print(raw_response_content, file=sys.stderr)
+                 print("-----------------------")
             else:
-                print("Gemini client not available.")
-                return create_error_ui(prompt, "Gemini client not initialized")
+                # Handle cases where the response might be blocked or empty
+                error_message = "AI response was empty or blocked."
+                print(f"Warning: {error_message} Response: {response}", file=sys.stderr)
+                # You might want to inspect response.prompt_feedback for block reasons
+                if response.prompt_feedback:
+                    print(f"Prompt Feedback: {response.prompt_feedback}", file=sys.stderr)
+                    error_message += f" Reason: {response.prompt_feedback}"
 
-            # --- Process Response --- 
-            if not response_text:
-                print("Warning: Received empty response from model. Retrying...")
-                raise ValueError("Received empty response from model") # Trigger retry
-                
-            # Check for marker and remove it before parsing
-            if "End of Response" in response_text:
-                cleaned_response = response_text.split("End of Response")[0].strip()
-            else:
-                print("Warning: End of Response marker not found. Attempting parse anyway.")
-                cleaned_response = response_text.strip()
+                else:
+                    error_message = "Gemini client not initialized."
+                    print(error_message, file=sys.stderr)
 
-            # Attempt to parse JSON directly from the cleaned response
-            try:
-                ui_config = json.loads(cleaned_response)
-                print("Successfully parsed JSON response.")
-                # Log successful response before returning
-                with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
-                    log_file.write(f"Successful Parsed JSON:\n{json.dumps(ui_config, indent=2)}\n")
-                return ui_config # Success! Break the loop and return
-            
-            except json.JSONDecodeError as e:
-                print(f"JSON decode error on cleaned response (Attempt {retry_count+1}): {e}")
-                # Log the problematic response
-                with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
-                    log_file.write(f"Failed JSON Parse Attempt {retry_count+1}:\n{response_text}\n")
-                
-                # If JSON parsing fails, try repair/extraction before retrying API call
-                if retry_count < max_retries - 1:
-                    repaired_json = attempt_json_repair(cleaned_response)
-                    if repaired_json:
-                        try: 
-                            ui_config = json.loads(repaired_json)
-                            print("Successfully parsed REPAIRED JSON response.")
-                            return ui_config
-                        except json.JSONDecodeError: 
-                            print("Repair attempt failed to produce valid JSON.")
-                    
-                    extracted_json = extract_partial_json(cleaned_response)
-                    if extracted_json:
-                        try: 
-                            ui_config = json.loads(extracted_json)
-                            print("Successfully parsed EXTRACTED JSON response.")
-                            return ui_config
-                        except json.JSONDecodeError: 
-                            print("Extraction attempt failed to produce valid JSON.")
-                
-                # If repairs/extraction failed or last retry, raise to trigger outer loop retry/failure
-                raise ValueError(f"Failed to parse JSON even after repairs/extraction (Attempt {retry_count+1})") from e
-                
-        except Exception as ex:
-            # Catch errors from API call or response processing (including ValueError from above)
-            print(f"Exception during attempt {retry_count+1}: {ex}")
-            # traceback.print_exc() # Uncomment for full traceback if needed
-            retry_count += 1 # Increment retry count
-            
-            if retry_count >= max_retries:
-                # If we've exhausted retries, create and return an error UI
-                error_message = f"Failed to generate UI config after {max_retries} attempts. Last error: {ex}"
-                print(error_message)
-                # Log final failure
-                with open("openai_request_log.txt", "a", encoding="utf-8") as log_file:
-                    log_file.write(f"FINAL FAILURE: {error_message}\nOriginal Prompt: {prompt}\n")
-                return create_error_ui(prompt, error_message)
-            else:
-                # Wait before the next retry
-                wait_time = 1 * retry_count
-                print(f"Waiting {wait_time}s before retrying...")
-                await asyncio.sleep(wait_time) # Simple backoff
+        except Exception as e:
+            error_message = f"Error calling Gemini API: {e}"
+            print(error_message, file=sys.stderr)
+            traceback.print_exc()
 
-    # This line should theoretically be unreachable if logic is correct, but acts as a final fallback
-    print("Exited retry loop unexpectedly.")
-    return create_error_ui(prompt, f"Failed to generate UI after {max_retries} attempts (unexpected loop exit).")
+    
+
+    # --- New Response Handling: Extract React code --- 
+    if raw_response_content:
+        # Attempt to extract code block
+        match = re.search(r"```(?:typescript|javascript|jsx|tsx)?\n(.*?)```", raw_response_content, re.DOTALL | re.IGNORECASE)
+        if match:
+            component_code = match.group(1).strip()
+            print("--- Extracted Component Code ---")
+            print(component_code)
+            print("----------------------------")
+        else:
+            # Fallback: Assume the entire response might be code if no block found
+            print("Warning: Code block ```...``` not found in AI response. Assuming entire response is code.")
+            component_code = raw_response_content.strip()
+            # Very basic check if it looks like React code
+            if not ("import React" in component_code or "=> {" in component_code or "export const" in component_code):
+                 print("Warning: Fallback content doesn't strongly resemble React code.")
+                 error_message = "AI did not return a recognizable React code block."
+                 component_code = None # Don't return potentially wrong content
+
+    # Handle errors
+    if error_message and not component_code:
+        print(f"Final error before returning: {error_message}")
+        # Decide what to return on error. Maybe raise an exception or return an error structure?
+        # For now, returning a simple error dictionary, but endpoints need to handle this.
+        # Alternatively, return None or raise HTTPException
+        # return {"error": error_message, "details": "Failed to generate UI component code."} 
+        # Let's return None for now, the endpoint should handle this
+        return None 
+    
+    # Log the successful component code
+    with open("openai_response_debug.txt", "w", encoding="utf-8") as debug_file:
+        debug_file.write("--- Prompt Sent ---\n")
+        debug_file.write(final_prompt_for_ai + "\n")
+        debug_file.write("\n--- Raw Response ---\n")
+        debug_file.write(raw_response_content + "\n")
+        debug_file.write("\n--- Extracted Component Code ---\n")
+        debug_file.write(component_code if component_code else "None")
+
+    # Return the extracted code string
+    return component_code
 
 # Helper function to add default event handlers for interactive components
 def add_default_event_handlers(component, event_handlers):
@@ -509,33 +498,23 @@ async def generate_component_ui(
 ):
     # This correctly calls component_service, which uses the new SDK pattern
     print("Received request for /generate-component-ui endpoint")
-    app_config = component_service.generate_app_config(request.prompt)
+    # component_service.generate_app_config now returns the code string or None
+    component_code_string = component_service.generate_app_config(request.prompt)
     
-    # Create a unique ID for this configuration
-    config_id = str(uuid.uuid4())
-    now = datetime.utcnow()
-    
-    # Log successful generation
-    print(f"Successfully generated app config with {len(app_config.get('components', []))} components")
-    
-    # Add explicit JSON serialization check
-    try:
-        import json
-        json_string = json.dumps({"id": config_id, "config": app_config})
-        print("App config successfully serialized to JSON string internally.")
-    except Exception as e:
-        print(f"ERROR: Failed to serialize app_config to JSON: {e}")
-        # Raise an HTTPException to send a proper JSON error response
+    if component_code_string:
+        print(f"Successfully generated component code string starting with: {component_code_string[:100]}...")
+        # Return the code string in a structure consistent with /api/generate
+        return {
+            "component_code": component_code_string,
+            "error": None
+        }
+    else:
+        # If component_service returned None, raise an error
+        print("Error: Failed to generate component code string.")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to serialize generated configuration: {e}"
+            detail="Failed to generate component code. Check backend logs."
         )
-    
-    # Return the generated configuration
-    return {
-        "id": config_id,
-        "config": app_config
-    }
 
 @app.get("/ui-configs", response_model=List[UIConfig])
 async def get_ui_configs(current_user: User = Depends(get_current_active_user)):
@@ -866,34 +845,46 @@ def fix_json(json_str: str) -> Optional[str]:
     
     return None 
 
-@app.post("/api/generate")
+# --- Add Response Model for Generated Code ---
+class GeneratedCodeResponse(BaseModel):
+    component_code: Optional[str] = None
+    error: Optional[str] = None
+# --- End Response Model ---
+
+@app.post("/api/generate", response_model=GeneratedCodeResponse) # Updated response model
 async def generate_app(request: Dict[str, Any] = Body(...)):
     """
-    Generate an app configuration based on a user request.
+    Generate a React component code string based on a user request.
+    Calls the updated component_service and returns the code or an error.
     """
     user_request = request.get("request", "")
     if not user_request:
-        raise HTTPException(status_code=400, detail="Request text is required")
+        # Return error using the response model
+        return GeneratedCodeResponse(error="Request text is required") 
     
-    # Generate app configuration
-    app_config = component_service.generate_app_config(user_request)
+    # Generate component code string (or None on error)
+    # component_service.generate_app_config now returns Optional[str]
+    component_code_string = component_service.generate_app_config(user_request)
     
-    # Store the configuration globally
-    global current_app_config
-    current_app_config = app_config
-    
-    return app_config
+    # Check the result and return appropriate response
+    if component_code_string:
+        return GeneratedCodeResponse(component_code=component_code_string)
+    else:
+        # If component_service returned None, it means an error occurred during generation/extraction
+        return GeneratedCodeResponse(error="Failed to generate component code. Check backend logs for details.")
 
-@app.get("/api/app/config")
+@app.get("/api/app/config") # This endpoint likely needs removal or complete rethink
 async def get_app_config():
     """
     Get the current app configuration.
+    NOTE: This is likely deprecated as we now generate code strings, not configs.
     """
-    global current_app_config
-    if current_app_config is None:
-        raise HTTPException(status_code=404, detail="No app configuration available")
-    
-    return current_app_config
+    # global current_app_config
+    # if current_app_config is None:
+    #     raise HTTPException(status_code=404, detail="No app configuration available")
+    # return current_app_config
+    # Returning an error or empty state as the concept of a single global config is removed
+    raise HTTPException(status_code=404, detail="Endpoint /api/app/config is deprecated. Generate code via /api/generate.")
 
 @app.get("/reset-app")
 async def reset_app():
@@ -1566,3 +1557,41 @@ async def load_config_manual(
             detail=f"Failed to process the provided configuration: {str(e)}"
         )
 # --- End New Endpoint --- 
+
+# NEW: Request model for component modification
+class ModifyComponentRequest(BaseModel):
+    prompt: str # The modification instruction
+    current_code: str # The existing component code string
+
+# NEW Endpoint for Modifying Component UI
+@app.post("/api/modify-component", response_model=Dict[str, Any])
+async def modify_component_ui(
+    request: ModifyComponentRequest,
+    current_user: User = Depends(get_current_active_user) # Reuse authentication
+):
+    print("Received request for /api/modify-component endpoint")
+    if not request.prompt or not request.current_code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Both modification prompt and current code are required."
+        )
+        
+    # Call a *new* method in component_service to handle modification
+    # This method needs to be created in service.py
+    modified_code_string = component_service.modify_app_config(
+        modification_prompt=request.prompt,
+        current_code=request.current_code
+    )
+    
+    if modified_code_string:
+        print(f"Successfully modified component code string starting with: {modified_code_string[:100]}...")
+        return {
+            "component_code": modified_code_string,
+            "error": None
+        }
+    else:
+        print("Error: Failed to modify component code string.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to modify component code. Check backend logs."
+        ) 

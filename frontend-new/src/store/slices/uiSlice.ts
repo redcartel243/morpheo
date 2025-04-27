@@ -2,8 +2,6 @@ import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import axios from 'axios';
 import { AppRequirements } from '../../components/generator/AppRequirementsForm';
 import { generateUIFromRequirements } from '../../services/appGenerationService';
-import { collection, addDoc, getDocs, query, where, getFirestore } from 'firebase/firestore';
-import { auth } from '../../config/firebase';
 
 // Define types
 export interface Component {
@@ -48,7 +46,7 @@ export interface UIConfig {
 }
 
 export interface UIState {
-  currentConfig: UIConfig | null;
+  componentCode: string | null;
   savedConfigs: UIConfig[];
   loading: boolean;
   error: string | null;
@@ -57,15 +55,12 @@ export interface UIState {
 
 // Initial state
 const initialState: UIState = {
-  currentConfig: null,
+  componentCode: null,
   savedConfigs: [],
   loading: false,
   error: null,
   generatingUI: false,
 };
-
-// Initialize Firestore
-const db = getFirestore();
 
 // Async thunks
 export const generateUI = createAsyncThunk(
@@ -128,8 +123,12 @@ export const generateUI = createAsyncThunk(
       
       console.log('API response received:', response.data);
       
-      if (response.data && response.data.config) {
-        return response.data;
+      if (response.data && response.data.error) {
+        console.error('Backend returned an error:', response.data.error);
+        throw new Error(response.data.error);
+      }
+      if (response.data && response.data.component_code) {
+        return response.data.component_code;
       } else {
         throw new Error('Invalid response structure received from backend');
       }
@@ -277,42 +276,65 @@ export const saveUIConfig = createAsyncThunk(
   }
 );
 
-// Thunk for generating UI from requirements
-export const generateAppThunk = createAsyncThunk(
+// Modify generateAppThunk
+export const generateAppThunk = createAsyncThunk<string, // Return type is now string
+  { requirements: AppRequirements; useSmartGeneration?: boolean }, // Args type
+  { rejectValue: string } // Type for rejectWithValue
+>(
   'ui/generateApp',
   async ({ 
     requirements, 
     useSmartGeneration = false 
-  }: { 
-    requirements: AppRequirements, 
-    useSmartGeneration?: boolean 
   }, { rejectWithValue }) => {
     try {
       console.log('generateAppThunk called with requirements:', requirements);
-      console.log('useSmartGeneration flag:', useSmartGeneration);
-      
-      // Use the service to generate UI from requirements
-      const uiConfig = await generateUIFromRequirements(requirements, useSmartGeneration);
-      return uiConfig;
+      // Use the updated service which returns a string
+      const generatedCode = await generateUIFromRequirements(requirements, useSmartGeneration);
+      return generatedCode; // Return the code string directly
     } catch (error: any) {
       console.error('Error in generateAppThunk:', error);
-      return rejectWithValue(error.message || 'Failed to generate UI');
+      return rejectWithValue(error.message || 'Failed to generate UI code');
     }
   }
 );
 
-// Add loadManualConfig Thunk
+// Add loadManualConfig Thunk (keep as is for now, might need removal later)
 export const loadManualConfig = createAsyncThunk(
   'ui/loadManualConfig',
   async (config: UIConfig, { rejectWithValue }) => {
-    try {
-      console.log('Dispatching loadManualConfig with config:', config);
+    // ... existing implementation ...
+    // THIS THUNK IS LIKELY OBSOLETE with the new code generation approach
+    // It loads old JSON format. Mark for potential removal.
+    console.warn("loadManualConfig is likely obsolete and loads the old config format.");
+    // ... rest of existing implementation ...
+    // Temporarily return something to satisfy TS, but expect backend to fail or logic to change
+    if (config) return { id: 'manual-load-placeholder', config }; 
+    throw new Error('Manual load failed or is incompatible');
+  }
+);
 
-      // Simplified Auth: Assume we need a token
+// NEW Thunk for Modification
+export const modifyUI = createAsyncThunk(
+  'ui/modifyUI',
+  async ({ 
+    modificationPrompt, 
+    currentCode 
+  }: { 
+    modificationPrompt: string, 
+    currentCode: string | null 
+  }, { rejectWithValue }) => {
+    if (!currentCode) {
+      return rejectWithValue('No current code available to modify.');
+    }
+    try {
+      console.log('Modifying UI with prompt:', modificationPrompt);
+      console.log('Current code length:', currentCode.length);
+      
+      // --- Authentication Flow (Copy from generateUI) --- 
+      let headers = {};
       const testUsername = process.env.REACT_APP_TEST_USERNAME || 'testuser';
       const testPassword = process.env.REACT_APP_TEST_PASSWORD || 'defaulttestpass';
       let accessToken = null;
-      let headers = {};
 
       try {
         const tokenResponse = await axios.post(
@@ -321,45 +343,49 @@ export const loadManualConfig = createAsyncThunk(
             'username': testUsername,
             'password': testPassword
           }),
-          {
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-          }
+          { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
         );
         accessToken = tokenResponse.data.access_token;
         headers = { 'Authorization': `Bearer ${accessToken}` };
-        console.log('Auth token obtained for loadManualConfig');
+        console.log('Auth token obtained for modifyUI');
       } catch (tokenError: any) {
-        console.error('Failed to obtain auth token for loadManualConfig:', tokenError);
+        console.error('Failed to obtain auth token for modifyUI:', tokenError);
         return rejectWithValue('Authentication failed: ' + (tokenError.response?.data?.detail || tokenError.message));
       }
-
-      const endpoint = `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/load-config-manual`;
-      console.log(`Posting to endpoint: ${endpoint}`);
-
-      // Post the raw config object
+      // --- End Authentication Flow --- 
+      
+      // Prepare payload for the new endpoint
+      const payload = {
+        prompt: modificationPrompt,
+        current_code: currentCode
+      };
+      
+      // Define the NEW endpoint (needs backend implementation)
+      const endpoint = 'api/modify-component'; 
+      console.log(`Using modification endpoint: ${process.env.REACT_APP_API_URL}/${endpoint}`);
+      
+      // Send request to the NEW API endpoint
       const response = await axios.post(
-        endpoint,
-        { config },
+        `${process.env.REACT_APP_API_URL}/${endpoint}`, 
+        payload,
         { headers }
       );
-
-      console.log('Manual load API response received:', response.data);
-
-      if (response.data && response.data.config) {
-        return response.data;
+      
+      console.log('Modification API response received:', response.data);
+      
+      // Assume response structure similar to generateUI
+      if (response.data && response.data.error) {
+        console.error('Backend returned an error during modification:', response.data.error);
+        throw new Error(response.data.error);
+      }
+      if (response.data && response.data.component_code) {
+        return response.data.component_code; // Return the modified code
       } else {
-        throw new Error('Invalid response structure received from manual load endpoint');
+        throw new Error('Invalid response structure received from modification endpoint');
       }
-
     } catch (error: any) {
-      console.error('Error loading manual config:', error);
-      let errorMessage = 'Failed to load manual configuration';
-      if (axios.isAxiosError(error) && error.response) {
-        errorMessage = `API Error (${error.response.status}): ${error.response.data?.detail || error.message}`;
-      } else if (error instanceof Error) {
-        errorMessage = error.message;
-      }
-      return rejectWithValue(errorMessage);
+      console.error('Error modifying UI:', error);
+      return rejectWithValue(error.message || 'Failed to modify UI');
     }
   }
 );
@@ -369,207 +395,143 @@ const uiSlice = createSlice({
   name: 'ui',
   initialState,
   reducers: {
-    setCurrentConfig: (state, action: PayloadAction<UIConfig | null>) => {
-      console.log('setCurrentConfig reducer called with:', action.payload);
-      state.currentConfig = action.payload;
+    setComponentCode: (state, action: PayloadAction<string | null>) => {
+      console.log('setComponentCode reducer called with code:', action.payload ? action.payload.substring(0, 50) + '...' : null);
+      state.componentCode = action.payload;
+      state.error = null; // Clear error on new code
+      state.loading = false;
+      state.generatingUI = false;
+    },
+    clearGeneratedCode: (state) => {
+      console.log('clearGeneratedCode reducer called');
+      state.componentCode = null;
       state.error = null;
     },
-    clearCurrentConfig: (state) => {
-      console.log('clearCurrentConfig reducer called');
-      state.currentConfig = null;
+    setUiLoading: (state, action: PayloadAction<boolean>) => {
+        state.loading = action.payload;
+        if(action.payload) state.error = null; // Clear error when starting load
     },
-    updateComponent: (state, action: PayloadAction<{ componentId: string; updates: Partial<Component> }>) => {
-      if (!state.currentConfig || !state.currentConfig.components) return;
-      
-      const { componentId, updates } = action.payload;
-      console.log(`updateComponent reducer called for component ${componentId}`);
-      
-      const updateComponentRecursive = (components: Component[]): boolean => {
-        if (!Array.isArray(components)) return false;
-        for (let i = 0; i < components.length; i++) {
-          if (typeof components[i] !== 'object' || components[i] === null) continue;
-
-          if (components[i].id === componentId) {
-            components[i] = { ...components[i], ...updates, id: components[i].id, type: components[i].type };
-            return true;
-          }
-          
-          if (Array.isArray(components[i].children) && components[i].children.length > 0) {
-            if (updateComponentRecursive(components[i].children)) {
-              return true;
-            }
-          }
-        }
-        return false;
-      };
-      
-      updateComponentRecursive(state.currentConfig.components || []);
-    },
-    addComponent: (state, action: PayloadAction<{ parentId: string | null; component: Component }>) => {
-      if (!state.currentConfig) return;
-      
-      if (!Array.isArray(state.currentConfig.components)) {
-        state.currentConfig.components = [];
-      }
-
-      const { parentId, component } = action.payload;
-      
-      if (!parentId) {
-        state.currentConfig.components.push(component);
-        return;
-      }
-      
-      const addComponentRecursive = (components: Component[]): boolean => {
-        if (!Array.isArray(components)) return false;
-        for (let i = 0; i < components.length; i++) {
-          if (typeof components[i] !== 'object' || components[i] === null) continue;
-
-          if (components[i].id === parentId) {
-            if (!Array.isArray(components[i].children)) {
-              components[i].children = [];
-            }
-            components[i].children.push(component);
-            return true;
-          }
-          
-          if (Array.isArray(components[i].children) && components[i].children.length > 0) {
-            if (addComponentRecursive(components[i].children)) {
-              return true;
-            }
-          }
-        }
-        return false;
-      };
-      
-      addComponentRecursive(state.currentConfig.components);
-    },
-    removeComponent: (state, action: PayloadAction<string>) => {
-      if (!state.currentConfig || !state.currentConfig.components) return;
-      
-      const componentId = action.payload;
-      
-      const removeComponentRecursive = (components: Component[]): boolean => {
-        if (!Array.isArray(components)) return false;
-        for (let i = 0; i < components.length; i++) {
-          if (typeof components[i] !== 'object' || components[i] === null) continue;
-
-          if (components[i].id === componentId) {
-            components.splice(i, 1);
-            return true;
-          }
-          
-          if (Array.isArray(components[i].children) && components[i].children.length > 0) {
-            if (removeComponentRecursive(components[i].children)) {
-              return true;
-            }
-          }
-        }
-        return false;
-      };
-      
-      removeComponentRecursive(state.currentConfig.components || []);
-    },
-    updateLayout: (state, action: PayloadAction<Partial<Layout>>) => {
-      if (!state.currentConfig) return;
-      // Ensure layout object exists before spreading
-      if (!state.currentConfig.layout) {
-        // Initialize with an empty object matching the optional structure
-        state.currentConfig.layout = {}; 
-      }
-      state.currentConfig.layout = { ...state.currentConfig.layout, ...action.payload };
-    },
+    setUiError: (state, action: PayloadAction<string | null>) => {
+        state.error = action.payload;
+        state.loading = false;
+        state.generatingUI = false;
+    }
   },
   extraReducers: (builder) => {
     builder
-      // Generate UI
+      // Handle generateUI (The one used by UIGenerator)
       .addCase(generateUI.pending, (state) => {
+          console.log('[generateUI.pending]');
+          state.generatingUI = true;
+          state.loading = true;
+          state.error = null;
+          state.componentCode = null; // Clear previous code
+      })
+      .addCase(generateUI.fulfilled, (state, action: PayloadAction<string>) => {
+          // Payload here should be the component code string
+          console.log('[generateUI.fulfilled] Received component code:', action.payload ? action.payload.substring(0, 50) + '...' : 'null');
+          
+          // Clean the received code: Remove potential BOM and trim whitespace
+          let cleanedCode = action.payload || '';
+          cleanedCode = cleanedCode.replace(/^\uFEFF?/, ''); // Remove potential BOM
+          cleanedCode = cleanedCode.trim();
+          console.log('[generateUI.fulfilled] Cleaned code for storage:', cleanedCode ? cleanedCode.substring(0, 50) + '...' : 'null');
+
+          state.generatingUI = false;
+          state.loading = false;
+          // Store the code directly as received from backend (should be clean JS now)
+          state.componentCode = cleanedCode || null;
+          state.error = null;
+      })
+      .addCase(generateUI.rejected, (state, action) => {
+          console.error('[generateUI.rejected] Error:', action.payload || action.error.message);
+          state.generatingUI = false;
+          state.loading = false;
+          state.error = typeof action.payload === 'string' ? action.payload : (action.error.message || 'Unknown error during UI generation');
+          state.componentCode = null;
+      })
+      // Handle generateAppThunk (Keep existing, might be used elsewhere or deprecated)
+      .addCase(generateAppThunk.pending, (state) => {
+        console.log('[generateAppThunk.pending]');
         state.generatingUI = true;
         state.loading = true;
         state.error = null;
-        state.currentConfig = null;
+        state.componentCode = null; // Clear previous code
       })
-      .addCase(generateUI.fulfilled, (state, action) => {
+      .addCase(generateAppThunk.fulfilled, (state, action: PayloadAction<string>) => {
+        console.log('[generateAppThunk.fulfilled] Received component code:', action.payload.substring(0, 50) + '...');
         state.generatingUI = false;
         state.loading = false;
-        state.currentConfig = action.payload.config;
-        console.log('generateUI fulfilled, set currentConfig:', state.currentConfig);
-      })
-      .addCase(generateUI.rejected, (state, action) => {
-        state.generatingUI = false;
-        state.loading = false;
-        state.error = action.payload as string;
-        state.currentConfig = null;
-      })
-      
-      // Load Manual Config
-      .addCase(loadManualConfig.pending, (state) => {
-        state.loading = true;
-        state.generatingUI = false;
+        state.componentCode = action.payload; // Store the code string
         state.error = null;
-        state.currentConfig = null;
+      })
+      .addCase(generateAppThunk.rejected, (state, action) => {
+        console.error('[generateAppThunk.rejected] Error:', action.payload || action.error.message);
+        state.generatingUI = false;
+        state.loading = false;
+        state.error = action.payload || action.error.message || 'Unknown error during UI generation';
+        state.componentCode = null;
+      })
+      // Handle loadManualConfig (Mark as potentially obsolete)
+      .addCase(loadManualConfig.pending, (state) => {
+        console.log('[loadManualConfig.pending] - OBSOLETE?');
+        state.loading = true;
+        state.error = null;
+        // state.currentConfig = null; // Removed
+        state.componentCode = null;
       })
       .addCase(loadManualConfig.fulfilled, (state, action) => {
+        console.warn('[loadManualConfig.fulfilled] - OBSOLETE? Loaded old format:', action.payload);
         state.loading = false;
-        state.currentConfig = action.payload.config;
-        console.log('loadManualConfig fulfilled, set currentConfig:', state.currentConfig);
+        // state.currentConfig = action.payload.config; // Removed
+        // We can't easily display this old config now. Clear code or show error?
+        state.componentCode = null; 
+        state.error = "Loaded manual configuration (old format) - Cannot display as code.";
       })
       .addCase(loadManualConfig.rejected, (state, action) => {
+        console.error('[loadManualConfig.rejected] - OBSOLETE? Error:', action.payload || action.error.message);
         state.loading = false;
-        state.error = action.payload as string;
-        state.currentConfig = null;
+        // Ensure error is always a string
+        state.error = typeof action.payload === 'string' 
+                        ? action.payload 
+                        : (action.error?.message || 'Failed to load manual configuration');
       })
-      
-      // Fetch saved configs
-      .addCase(fetchSavedConfigs.pending, (state) => {
-        console.log('fetchSavedConfigs.pending');
+      // --- Add cases for modifyUI --- 
+      .addCase(modifyUI.pending, (state) => {
+        console.log('[modifyUI.pending]');
+        state.generatingUI = true; // Reuse generatingUI flag for loading state
         state.loading = true;
         state.error = null;
+        // Keep existing code while modifying
       })
-      .addCase(fetchSavedConfigs.fulfilled, (state, action) => {
-        console.log('fetchSavedConfigs.fulfilled with payload:', action.payload);
+      .addCase(modifyUI.fulfilled, (state, action: PayloadAction<string>) => {
+        console.log('[modifyUI.fulfilled] Received modified code:', action.payload ? action.payload.substring(0, 50) + '...' : 'null');
+        
+        let cleanedCode = action.payload || '';
+        cleanedCode = cleanedCode.replace(/^\uFEFF?/, ''); // Remove BOM
+        cleanedCode = cleanedCode.trim();
+        
+        state.generatingUI = false;
         state.loading = false;
-        state.savedConfigs = Array.isArray(action.payload) ? action.payload : [];
-      })
-      .addCase(fetchSavedConfigs.rejected, (state, action) => {
-        console.log('fetchSavedConfigs.rejected with error:', action.payload);
-        state.loading = false;
-        state.error = action.payload as string;
-      })
-      
-      // Save UI config
-      .addCase(saveUIConfig.pending, (state) => {
-        console.log('saveUIConfig.pending');
-        state.loading = true;
+        state.componentCode = cleanedCode || null; // Update with modified code
         state.error = null;
       })
-      .addCase(saveUIConfig.fulfilled, (state, action) => {
-        console.log('saveUIConfig.fulfilled with payload:', action.payload);
+      .addCase(modifyUI.rejected, (state, action) => {
+        console.error('[modifyUI.rejected] Error:', action.payload || action.error.message);
+        state.generatingUI = false;
         state.loading = false;
-        if (state.currentConfig) {
-          state.currentConfig.id = action.payload.id;
-        }
-        const index = state.savedConfigs.findIndex(c => c.id === action.payload.id);
-        if (index !== -1) {
-          state.savedConfigs[index] = action.payload;
-        } else {
-          state.savedConfigs.push(action.payload);
-        }
-      })
-      .addCase(saveUIConfig.rejected, (state, action) => {
-        console.log('saveUIConfig.rejected with error:', action.payload);
-        state.loading = false;
-        state.error = action.payload as string;
+        state.error = typeof action.payload === 'string' ? action.payload : (action.error.message || 'Unknown error during UI modification');
+        // Keep existing code on modification failure? Or clear? Let's keep it for now.
       });
   },
 });
 
+// Export actions and reducer
 export const {
-  setCurrentConfig,
-  clearCurrentConfig,
-  updateComponent,
-  addComponent,
-  removeComponent,
-  updateLayout,
+  setComponentCode,
+  clearGeneratedCode,
+  setUiLoading,
+  setUiError,
 } = uiSlice.actions;
 
 export default uiSlice.reducer; 

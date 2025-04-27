@@ -1,1108 +1,313 @@
+--- Prompt Sent ---
+# Morpheo AI UI Generation Prompt
 
+## Core Task
 
-===== NEW RESPONSE =====
-Time: 2025-03-31T21:24:44.027692
-Raw response content:
+Generate **only the body** of a React functional component (hooks, handlers, return statement) **using plain JavaScript** that implements the user's request using Chakra UI v3 components. The output should be ready to be inserted into `const MyComponent = () => { /* HERE */ };` and rendered via react-live.
 
-===== END RESPONSE =====
+## Input
 
+- **User Request:** (User's natural language description of the desired UI/functionality)
+- **Current App State (Optional):** (JSON representation of relevant state variables, if provided)
+- **Target File/Component Name (Optional):** (Suggested name for the generated component)
 
+## Output Requirements
 
-===== NEW RESPONSE =====
-Time: 2025-03-31T21:54:48.328217
-Raw response content:
-{
-  "app": {
-    "name": "Calculator App",
-    "description": "A modern, interactive calculator with basic arithmetic functions.",
-    "theme": "light"
-  },
-  "layout": {
-    "type": "singlepage",
-    "regions": ["header", "main", "footer"]
-  },
-  "components": [
-    {
-      "id": "header-title",
-      "type": "text",
-      "region": "header",
-      "properties": {
-        "content": "Calculator"
-      },
-      "styles": {
-        "fontSize": "2rem",
-        "fontWeight": "bold",
-        "textAlign": "center",
-        "padding": "1rem",
-        "background": "linear-gradient(135deg, #6e8efb, #a777e3)",
-        "color": "#ffffff"
-      },
-      "methods": {},
-      "children": []
-    },
-    {
-      "id": "calculator-display",
-      "type": "input",
-      "region": "main",
-      "properties": {
-        "placeholder": "0",
-        "label": "Display",
-        "value": ""
-      },
-      "styles": {
-        "width": "100%",
-        "fontSize": "1.5rem",
-        "padding": "0.75rem",
-        "margin": "1rem auto",
-        "textAlign": "right",
-        "border": "1px solid #ccc",
-        "borderRadius": "4px",
-        "boxShadow": "0 2px 4px rgba(0,0,0,0.1)"
-      },
-      "methods": {},
-      "children": []
-    },
-    {
-      "id": "button-container",
-      "type": "container",
-      "region": "main",
-      "properties": {},
-      "styles": {
-        "display": "grid",
-        "gridTemplateColumns": "repeat(4, 1fr)",
-        "gap": "8px",
-        "padding": "0 1rem 1rem 1rem"
-      },
-      "methods": {},
-      "children": [
-        {
-          "id": "btn-7",
-          "type": "button",
-          "region": "main",
-          "properties": {
-            "text": "7"
-          },
-          "styles": {
-            "padding": "1rem",
-            "fontSize": "1.25rem",
-            "backgroundColor": "#f0f0f0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "all 0.2s ease"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { var current = $m('#calculator-display').getValue(); $m('#calculator-display').setValue(current + '7'); }",
-              "affectedComponents": ["calculator-display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#btn-7').setStyle('transform', 'scale(1.05)'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#btn-7').setStyle('transform', 'scale(1)'); }"
-            }
-          },
-          "children": []
-        },
-        {
-          "id": "btn-8",
-          "type": "button",
-          "region": "main",
-          "properties": {
-            "text": "8"
-          },
-          "styles": {
-            "padding": "1rem",
-            "fontSize": "1.25rem",
-            "backgroundColor": "#f0f0f0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "all 0.2s ease"
-          },
-          "methods": {
-            "onClick":
-===== END RESPONSE =====
+- **Format:** Valid **plain JavaScript** code representing the *inside* of a React functional component (hooks, logic, `return (...)` statement). **Do not** include the surrounding `const MyComponent = () => { ... };` definition. **Do not** wrap the code in markdown fences (```).
+- **Imports:** **Do NOT** include `import React...` or `import { ... } from \'@chakra-ui/react\'` statements. Assume `React` and all Chakra UI components/hooks are available in the execution scope.
+- **Component Definition:** **Do NOT** define the component function (e.g., `const MyGeneratedComponent = (props) => { ... };`). Output only the content that goes *inside* such a function.
+- **Props:** Assume props are destructured from the first argument if needed (e.g., `{ prop1, prop2 }`). Mention in comments if props are expected.
+- **Chakra UI Usage:**
+    - Use **only** Chakra UI v3 components (referencing the provided `llms-full.txt` documentation).
+    - Adhere strictly to v3 component names (e.g., `Field`, `Dialog`) and prop names (`colorPalette`, `disabled`, `invalid`, `required`, `open`). **Do not use** removed v3 props like `isDisabled`, `isInvalid`, `colorScheme`.
+    - Apply styling primarily using Chakra UI **style props** (e.g., `bg`, `p`, `color`, `fontSize`). Use theme tokens (e.g., `"blue.500"`).
+    - Use the `sx` prop **only** for complex styles (e.g., gradients, overrides) or where style props are insufficient. Reference theme tokens via `token()` if needed within `sx`.
+    - **Do not** use `@chakra-ui/icons` or icon-related props (`leftIcon`, `rightIcon`, etc.). If icons are needed, use placeholder text or a generic `Icon` component if available *without* the separate icon library.
+- **State Management:**
+    - Use standard React hooks (`useState`, `useEffect`, `useCallback`, `useRef`) for internal component state. **Use plain JavaScript (no TypeScript generics like useState<string>)**.
+    - Manage shared state by accepting state variables and setter functions via props (e.g., `appState`, `setAppState`) or using React Context if appropriate for the complexity.
+    - **Do not** use custom state management expressions like `$state` or `$setState`.
+- **Event Handling:**
+    - Use standard React event handlers (e.g., `onClick`, `onChange`).
+    - Implement event logic directly within inline arrow functions or separate handler functions defined within the component.
+    - If interacting with shared state, call the appropriate setter function received via props.
+    - **Do not** use custom action expressions like `$eval` or `$morpheo.functionName()`.
+- **Dynamic Values/Rendering:**
+    - Use standard JavaScript expressions directly within JSX (e.g., `{variable}`, `{condition ? \'A\' : \'B\'}`, `{array.map(...) }`).
+    - **Do not** use custom expression objects like `$if`, `$map`, `$eq`.
+- **Code Quality:**
+    - Generate clean, readable, and well-formatted **JavaScript** code.
+    - Ensure basic accessibility practices (e.g., appropriate HTML semantics via Chakra components, label association if using `Field`).
+- **No Domain Logic:** The generated component must contain **only** UI presentation and interaction logic. All business/domain-specific logic must be handled outside this component (presumably by the system calling the AI or through functions passed as props).
+- **No Render Call:** **Do NOT** include a `render()` call at the end of the component code.
 
+## Example Input
 
+User Request: "Create a simple counter component with a number display and two buttons: one to increment and one to decrement the count. The initial count should be 0."
 
-===== NEW RESPONSE =====
-Time: 2025-03-31T23:05:42.557167
-Raw response content:
+## Example Output (Illustrative - Plain JavaScript Component Body)
 
-===== END RESPONSE =====
+```javascript
+// No imports needed - React and Chakra UI are in scope
+// Expects no props
 
+const [count, setCount] = useState(0); // Plain JS useState
 
+const handleIncrement = useCallback(() => {
+  setCount(prevCount => prevCount + 1);
+}, []);
 
-===== NEW RESPONSE =====
-Time: 2025-04-01T16:13:56.807537
-Raw response content:
-{
-  "app": {
-    "name": "Basic Calculator",
-    "description": "A simple calculator that performs basic arithmetic operations.",
-    "theme": "light"
-  },
-  "layout": {
-    "type": "singlepage",
-    "regions": ["header", "main", "footer"]
-  },
-  "components": [
-    {
-      "id": "header-title",
-      "type": "text",
-      "region": "header",
-      "properties": {
-        "content": "Basic Calculator"
-      },
-      "styles": {
-        "fontSize": "2rem",
-        "textAlign": "center",
-        "padding": "1rem",
-        "backgroundColor": "#f3f4f6",
-        "color": "#333"
-      },
-      "methods": {}
-    },
-    {
-      "id": "calculator-container",
-      "type": "container",
-      "region": "main",
-      "properties": {},
-      "styles": {
-        "display": "grid",
-        "gridTemplateColumns": "repeat(4, 1fr)",
-        "gap": "10px",
-        "padding": "20px",
-        "maxWidth": "400px",
-        "margin": "0 auto",
-        "backgroundColor": "#fff",
-        "boxShadow": "0 4px 6px rgba(0,0,0,0.1)",
-        "borderRadius": "8px"
-      },
-      "methods": {},
-      "children": [
-        {
-          "id": "display",
-          "type": "input",
-          "properties": {
-            "placeholder": "0",
-            "label": ""
-          },
-          "styles": {
-            "gridColumn": "span 4",
-            "padding": "10px",
-            "fontSize": "1.5rem",
-            "textAlign": "right",
-            "border": "1px solid #ddd",
-            "borderRadius": "4px"
-          },
-          "methods": {}
-        },
-        {
-          "id": "btn-7",
-          "type": "button",
-          "properties": {
-            "text": "7"
-          },
-          "styles": {
-            "padding": "20px",
-            "fontSize": "1.2rem",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "background-color 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '7'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#btn-7').setStyle('backgroundColor', '#d4d4d4'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#btn-7').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          }
-        },
-        {
-          "id": "btn-8",
-          "type": "button",
-          "properties": {
-            "text": "8"
-          },
-          "styles": {
-            "padding": "20px",
-            "fontSize": "1.2rem",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "background-color 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '8'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#btn-8').setStyle('backgroundColor', '#d4d4d4'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#btn-8').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          }
-        },
-        {
-          "id": "btn-9",
-          "type": "button",
-          "properties": {
-            "text": "9"
-          },
-          "styles": {
-            "padding": "20px",
-            "fontSize": "1.2rem",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "background-color 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '9'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#btn-9').setStyle('backgroundColor', '#d4d4d4'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#btn-9').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          }
-        },
-        {
-          "id": "btn-divide",
-          "type": "button",
-          "properties": {
-            "text": "÷"
-          },
-          "styles": {
-            "padding": "20px",
-            "fontSize": "1.2rem",
-            "backgroundColor": "#ffd700",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "background-color 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + ' / '); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#btn-divide').setStyle('backgroundColor', '#e6c200'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#btn-divide').setStyle('backgroundColor', '#ffd700'); }"
-            }
-          }
-        },
-        {
-          "id": "btn-4",
-          "type": "button",
-          "properties": {
-            "text": "4"
-          },
-          "styles": {
-            "padding": "20px",
-            "fontSize": "1.2rem",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "background-color 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '4'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#btn-4').setStyle('backgroundColor', '#d4d4d4'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#btn-4').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          }
-        },
-        {
-          "id": "btn-5",
-          "type": "button",
-          "properties": {
-            "text": "5"
-          },
-          "styles": {
-            "padding": "20px",
-            "fontSize": "1.2rem",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "background-color 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '5'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#btn-5').setStyle('backgroundColor', '#d4d4d4'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#btn-5').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          }
-        },
-        {
-          "id": "btn-6",
-          "type": "button",
-          "properties": {
-            "text": "6"
-          },
-          "styles": {
-            "padding": "20px",
-            "fontSize": "1.2rem",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "background-color 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '6'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#btn-6').setStyle('backgroundColor', '#d4d4d4'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#btn-6').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          }
-        },
-        {
-          "id": "btn-multiply",
-          "type": "button",
-          "properties": {
-            "text": "×"
-          },
-          "styles": {
-            "padding": "20px",
-            "fontSize": "1.2rem",
-            "backgroundColor": "#ffd700",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "background-color 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + ' * '); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#btn-multiply').setStyle('backgroundColor', '#e6c200'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#btn-multiply').setStyle('backgroundColor', '#ffd700'); }"
-            }
-          }
-        },
-        {
-          "id": "btn-1",
-          "type": "button",
-          "properties": {
-            "text": "1"
-          },
-          "styles": {
-            "padding": "20px",
-            "fontSize": "1.2rem",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "background-color 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '1'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#btn-1').setStyle('backgroundColor', '#d4d4d4'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#btn-1').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          }
-        },
-        {
-          "id": "btn-2",
-          "type": "button",
-          "properties": {
-            "text": "2"
-          },
-          "styles": {
-            "padding": "20px",
-            "fontSize": "1.2rem",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "background-color 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '2'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#btn-2').setStyle('backgroundColor', '#d4d4d4'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#btn-2').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          }
-        },
-        {
-          "id": "btn-3",
-          "type": "button",
-          "properties": {
-            "text": "3"
-          },
-          "styles": {
-            "padding": "20px",
-            "fontSize": "1.2rem",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "background-color 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '3'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#btn-3').setStyle('backgroundColor', '#d4d4d4'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#btn-3').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          }
-        },
-        {
-          "id": "btn-subtract",
-          "type": "button",
-          "properties": {
-            "text": "-"
-          },
-          "styles": {
-            "padding": "20px",
-            "fontSize": "1.2rem",
-            "backgroundColor": "#ffd700",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "background-color 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + ' - '); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#btn-subtract').setStyle('backgroundColor', '#e6c200'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#btn-subtract').setStyle('backgroundColor', '#ffd700'); }"
-            }
-          }
-        },
-        {
-          "id": "btn-0",
-          "type": "button",
-          "properties": {
-            "text": "0"
-          },
-          "styles": {
-            "padding": "20px",
-            "fontSize": "1.2rem",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "background-color 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { let display = $m('#display').getValue(); $m('#display').setValue(display + '0'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#btn-0').setStyle('backgroundColor', '#d4d4d4'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#btn-0').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          }
-        },
-        {
-          "id": "btn-clear",
-          "type": "button",
-          "properties": {
-            "text": "C"
-          },
-          "styles": {
-            "padding": "20px",
-            "fontSize": "1.2rem",
-            "backgroundColor": "#ff4c4c",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "background-color 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { $m('#display').setValue(''); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#btn-clear').setStyle('backgroundColor', '#e64545'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#btn-clear').setStyle('backgroundColor', '#ff4c4c'); }"
-            }
-          }
-        },
-        {
-          "id": "btn-equals",
-          "type": "button",
-          "properties": {
-            "text": "="
-          },
-          "styles": {
-            "padding": "20px",
-            "gridColumn": "span 2",
-            "fontSize": "1.2rem",
-            "backgroundColor": "#4CAF50",
-            "color": "white",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "transition": "background-color 0.3s"
-          },
-          "methods": {
-            "onClick": {
-             
-===== END RESPONSE =====
+const handleDecrement = useCallback(() => {
+  setCount(prevCount => Math.max(0, prevCount - 1));
+}, []);
 
+return (
+  <VStack spacing={4} p={5} borderWidth={1} borderRadius="md" boxShadow="md" bg="bg.surface">
+    <Heading size="md">Simple Counter</Heading>
+    <Text fontSize="2xl" fontWeight="bold" color={count > 10 ? "red.500" : "blue.500"}>
+      Count: {count}
+    </Text>
+    <HStack spacing={3}>
+      <Button colorPalette="red" onClick={handleDecrement} disabled={count === 0}>
+        Decrement
+      </Button>
+      <Button colorPalette="green" onClick={handleIncrement}>
+        Increment
+      </Button>
+    </HStack>
+     {/* Example of conditional rendering */}
+    {count > 5 && (
+      <Text fontSize="sm" color="gray.500">Keep going!</Text>
+    )}
+  </VStack>
+);
 
+// NO const Component = ... wrapper
+// NO render() call here
+``` 
 
-===== NEW RESPONSE =====
-Time: 2025-04-01T20:52:18.413969
-Raw response content:
-{
-  "app": {
-    "name": "Basic Calculator",
-    "description": "A simple calculator with basic arithmetic operations.",
-    "theme": "light"
-  },
-  "layout": {
-    "type": "singlepage",
-    "regions": ["header", "main", "footer"]
-  },
-  "components": [
-    {
-      "id": "header-text",
-      "type": "text",
-      "region": "header",
-      "properties": {
-        "content": "Basic Calculator"
-      },
-      "styles": {
-        "fontSize": "2rem",
-        "padding": "20px",
-        "textAlign": "center",
-        "backgroundColor": "#f0f0f0",
-        "color": "#333"
-      },
-      "methods": {},
-      "children": []
-    },
-    {
-      "id": "calculator-container",
-      "type": "container",
-      "region": "main",
-      "properties": {},
-      "styles": {
-        "display": "grid",
-        "gridTemplateColumns": "repeat(4, 1fr)",
-        "gap": "10px",
-        "padding": "20px"
-      },
-      "methods": {},
-      "children": [
-        {
-          "id": "display",
-          "type": "input",
-          "properties": {
-            "placeholder": "0",
-            "label": ""
-          },
-          "styles": {
-            "gridColumn": "span 4",
-            "height": "40px",
-            "fontSize": "1.5rem",
-            "padding": "10px",
-            "textAlign": "right",
-            "border": "1px solid #ccc",
-            "borderRadius": "4px"
-          },
-          "methods": {},
-          "children": []
-        },
-        {
-          "id": "button-7",
-          "type": "button",
-          "properties": {
-            "text": "7"
-          },
-          "styles": {
-            "padding": "20px",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "fontSize": "1.2rem",
-            "transition": "background 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '7'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#button-7').setStyle('backgroundColor', '#d0d0d0'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#button-7').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          },
-          "children": []
-        },
-        {
-          "id": "button-8",
-          "type": "button",
-          "properties": {
-            "text": "8"
-          },
-          "styles": {
-            "padding": "20px",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "fontSize": "1.2rem",
-            "transition": "background 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '8'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#button-8').setStyle('backgroundColor', '#d0d0d0'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#button-8').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          },
-          "children": []
-        },
-        {
-          "id": "button-9",
-          "type": "button",
-          "properties": {
-            "text": "9"
-          },
-          "styles": {
-            "padding": "20px",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "fontSize": "1.2rem",
-            "transition": "background 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '9'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#button-9').setStyle('backgroundColor', '#d0d0d0'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#button-9').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          },
-          "children": []
-        },
-        {
-          "id": "button-divide",
-          "type": "button",
-          "properties": {
-            "text": "÷"
-          },
-          "styles": {
-            "padding": "20px",
-            "backgroundColor": "#ffcc00",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "fontSize": "1.2rem",
-            "transition": "background 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '/'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#button-divide').setStyle('backgroundColor', '#e6b800'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#button-divide').setStyle('backgroundColor', '#ffcc00'); }"
-            }
-          },
-          "children": []
-        },
-        {
-          "id": "button-4",
-          "type": "button",
-          "properties": {
-            "text": "4"
-          },
-          "styles": {
-            "padding": "20px",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "fontSize": "1.2rem",
-            "transition": "background 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '4'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#button-4').setStyle('backgroundColor', '#d0d0d0'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#button-4').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          },
-          "children": []
-        },
-        {
-          "id": "button-5",
-          "type": "button",
-          "properties": {
-            "text": "5"
-          },
-          "styles": {
-            "padding": "20px",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "fontSize": "1.2rem",
-            "transition": "background 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '5'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#button-5').setStyle('backgroundColor', '#d0d0d0'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#button-5').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          },
-          "children": []
-        },
-        {
-          "id": "button-6",
-          "type": "button",
-          "properties": {
-            "text": "6"
-          },
-          "styles": {
-            "padding": "20px",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "fontSize": "1.2rem",
-            "transition": "background 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '6'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#button-6').setStyle('backgroundColor', '#d0d0d0'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#button-6').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          },
-          "children": []
-        },
-        {
-          "id": "button-multiply",
-          "type": "button",
-          "properties": {
-            "text": "×"
-          },
-          "styles": {
-            "padding": "20px",
-            "backgroundColor": "#ffcc00",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "fontSize": "1.2rem",
-            "transition": "background 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '*'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#button-multiply').setStyle('backgroundColor', '#e6b800'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#button-multiply').setStyle('backgroundColor', '#ffcc00'); }"
-            }
-          },
-          "children": []
-        },
-        {
-          "id": "button-1",
-          "type": "button",
-          "properties": {
-            "text": "1"
-          },
-          "styles": {
-            "padding": "20px",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "fontSize": "1.2rem",
-            "transition": "background 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '1'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#button-1').setStyle('backgroundColor', '#d0d0d0'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#button-1').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          },
-          "children": []
-        },
-        {
-          "id": "button-2",
-          "type": "button",
-          "properties": {
-            "text": "2"
-          },
-          "styles": {
-            "padding": "20px",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "fontSize": "1.2rem",
-            "transition": "background 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '2'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#button-2').setStyle('backgroundColor', '#d0d0d0'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#button-2').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          },
-          "children": []
-        },
-        {
-          "id": "button-3",
-          "type": "button",
-          "properties": {
-            "text": "3"
-          },
-          "styles": {
-            "padding": "20px",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "fontSize": "1.2rem",
-            "transition": "background 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '3'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#button-3').setStyle('backgroundColor', '#d0d0d0'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#button-3').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          },
-          "children": []
-        },
-        {
-          "id": "button-minus",
-          "type": "button",
-          "properties": {
-            "text": "−"
-          },
-          "styles": {
-            "padding": "20px",
-            "backgroundColor": "#ffcc00",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "fontSize": "1.2rem",
-            "transition": "background 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '-'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#button-minus').setStyle('backgroundColor', '#e6b800'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#button-minus').setStyle('backgroundColor', '#ffcc00'); }"
-            }
-          },
-          "children": []
-        },
-        {
-          "id": "button-0",
-          "type": "button",
-          "properties": {
-            "text": "0"
-          },
-          "styles": {
-            "padding": "20px",
-            "backgroundColor": "#e0e0e0",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "fontSize": "1.2rem",
-            "transition": "background 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue() + '0'); }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#button-0').setStyle('backgroundColor', '#d0d0d0'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#button-0').setStyle('backgroundColor', '#e0e0e0'); }"
-            }
-          },
-          "children": []
-        },
-        {
-          "id": "button-equal",
-          "type": "button",
-          "properties": {
-            "text": "="
-          },
-          "styles": {
-            "padding": "20px",
-            "backgroundColor": "#4CAF50",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "fontSize": "1.2rem",
-            "gridColumn": "span 2",
-            "transition": "background 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { try { $m('#display').setValue(eval($m('#display').getValue())); } catch (e) { $m('#display').setValue('Error'); } }",
-              "affectedComponents": ["display"]
-            },
-            "onMouseEnter": {
-              "code": "function(event, $m) { $m('#button-equal').setStyle('backgroundColor', '#45a049'); }"
-            },
-            "onMouseLeave": {
-              "code": "function(event, $m) { $m('#button-equal').setStyle('backgroundColor', '#4CAF50'); }"
-            }
-          },
-          "children": []
-        },
-        {
-          "id": "button-plus",
-          "type": "button",
-          "properties": {
-            "text": "+"
-          },
-          "styles": {
-            "padding": "20px",
-            "backgroundColor": "#ffcc00",
-            "border": "none",
-            "borderRadius": "4px",
-            "cursor": "pointer",
-            "fontSize": "1.2rem",
-            "transition": "background 0.3s"
-          },
-          "methods": {
-            "onClick": {
-              "code": "function(event, $m) { $m('#display').setValue($m('#display').getValue
-===== END RESPONSE =====
+## User Request:
 
+```text
+a calculator 
+```
+
+--- Raw Response ---
+```javascript
+// Expects no props
+
+const [displayValue, setDisplayValue] = useState("0");
+const [operator, setOperator] = useState(null);
+const [firstOperand, setFirstOperand] = useState(null);
+
+const handleNumberClick = (number) => {
+  setDisplayValue(displayValue === "0" ? String(number) : displayValue + number);
+};
+
+const handleOperatorClick = (nextOperator) => {
+  if (firstOperand === null) {
+    setFirstOperand(parseFloat(displayValue));
+  } else if (operator) {
+    const result = calculate(firstOperand, parseFloat(displayValue), operator);
+    setDisplayValue(String(result));
+    setFirstOperand(result);
+  }
+  setOperator(nextOperator);
+  setDisplayValue("0");
+};
+
+const handleEqualsClick = () => {
+  if (firstOperand && operator) {
+    const result = calculate(firstOperand, parseFloat(displayValue), operator);
+    setDisplayValue(String(result));
+    setFirstOperand(null);
+    setOperator(null);
+  }
+};
+
+const handleClearClick = () => {
+  setDisplayValue("0");
+  setOperator(null);
+  setFirstOperand(null);
+};
+
+const handleDecimalClick = () => {
+  if (!displayValue.includes(".")) {
+    setDisplayValue(displayValue + ".");
+  }
+};
+
+const calculate = (firstOperand, secondOperand, operator) => {
+  switch (operator) {
+    case "+":
+      return firstOperand + secondOperand;
+    case "-":
+      return firstOperand - secondOperand;
+    case "*":
+      return firstOperand * secondOperand;
+    case "/":
+      return firstOperand / secondOperand;
+    default:
+      return secondOperand;
+  }
+};
+
+return (
+  <VStack align="stretch" bg="gray.100" p={4} borderRadius="md" boxShadow="md">
+    <Input readOnly value={displayValue} textAlign="right" fontSize="2xl" p={2} bg="white" />
+
+    <Grid templateColumns="repeat(4, 1fr)" gap={2}>
+      <Button colorPalette="gray" onClick={() => handleClearClick()}>
+        AC
+      </Button>
+      <Button colorPalette="gray" onClick={() => handleOperatorClick("+/-")}>
+        +/-
+      </Button>
+      <Button colorPalette="gray" onClick={() => handleOperatorClick("%")}>
+        %
+      </Button>
+      <Button colorPalette="orange" onClick={() => handleOperatorClick("/")}>
+        /
+      </Button>
+
+      <Button onClick={() => handleNumberClick(7)}>7</Button>
+      <Button onClick={() => handleNumberClick(8)}>8</Button>
+      <Button onClick={() => handleNumberClick(9)}>9</Button>
+      <Button colorPalette="orange" onClick={() => handleOperatorClick("*")}>
+        *
+      </Button>
+
+      <Button onClick={() => handleNumberClick(4)}>4</Button>
+      <Button onClick={() => handleNumberClick(5)}>5</Button>
+      <Button onClick={() => handleNumberClick(6)}>6</Button>
+      <Button colorPalette="orange" onClick={() => handleOperatorClick("-")}>
+        -
+      </Button>
+
+      <Button onClick={() => handleNumberClick(1)}>1</Button>
+      <Button onClick={() => handleNumberClick(2)}>2</Button>
+      <Button onClick={() => handleNumberClick(3)}>3</Button>
+      <Button colorPalette="orange" onClick={() => handleOperatorClick("+")}>
+        +
+      </Button>
+
+      <Button gridColumn="span 2" onClick={() => handleNumberClick(0)}>
+        0
+      </Button>
+      <Button onClick={() => handleDecimalClick()}>.</Button>
+      <Button colorPalette="orange" onClick={() => handleEqualsClick()}>
+        =
+      </Button>
+    </Grid>
+  </VStack>
+);
+```
+
+--- Extracted Component Code ---
+// Expects no props
+
+const [displayValue, setDisplayValue] = useState("0");
+const [operator, setOperator] = useState(null);
+const [firstOperand, setFirstOperand] = useState(null);
+
+const handleNumberClick = (number) => {
+  setDisplayValue(displayValue === "0" ? String(number) : displayValue + number);
+};
+
+const handleOperatorClick = (nextOperator) => {
+  if (firstOperand === null) {
+    setFirstOperand(parseFloat(displayValue));
+  } else if (operator) {
+    const result = calculate(firstOperand, parseFloat(displayValue), operator);
+    setDisplayValue(String(result));
+    setFirstOperand(result);
+  }
+  setOperator(nextOperator);
+  setDisplayValue("0");
+};
+
+const handleEqualsClick = () => {
+  if (firstOperand && operator) {
+    const result = calculate(firstOperand, parseFloat(displayValue), operator);
+    setDisplayValue(String(result));
+    setFirstOperand(null);
+    setOperator(null);
+  }
+};
+
+const handleClearClick = () => {
+  setDisplayValue("0");
+  setOperator(null);
+  setFirstOperand(null);
+};
+
+const handleDecimalClick = () => {
+  if (!displayValue.includes(".")) {
+    setDisplayValue(displayValue + ".");
+  }
+};
+
+const calculate = (firstOperand, secondOperand, operator) => {
+  switch (operator) {
+    case "+":
+      return firstOperand + secondOperand;
+    case "-":
+      return firstOperand - secondOperand;
+    case "*":
+      return firstOperand * secondOperand;
+    case "/":
+      return firstOperand / secondOperand;
+    default:
+      return secondOperand;
+  }
+};
+
+return (
+  <VStack align="stretch" bg="gray.100" p={4} borderRadius="md" boxShadow="md">
+    <Input readOnly value={displayValue} textAlign="right" fontSize="2xl" p={2} bg="white" />
+
+    <Grid templateColumns="repeat(4, 1fr)" gap={2}>
+      <Button colorPalette="gray" onClick={() => handleClearClick()}>
+        AC
+      </Button>
+      <Button colorPalette="gray" onClick={() => handleOperatorClick("+/-")}>
+        +/-
+      </Button>
+      <Button colorPalette="gray" onClick={() => handleOperatorClick("%")}>
+        %
+      </Button>
+      <Button colorPalette="orange" onClick={() => handleOperatorClick("/")}>
+        /
+      </Button>
+
+      <Button onClick={() => handleNumberClick(7)}>7</Button>
+      <Button onClick={() => handleNumberClick(8)}>8</Button>
+      <Button onClick={() => handleNumberClick(9)}>9</Button>
+      <Button colorPalette="orange" onClick={() => handleOperatorClick("*")}>
+        *
+      </Button>
+
+      <Button onClick={() => handleNumberClick(4)}>4</Button>
+      <Button onClick={() => handleNumberClick(5)}>5</Button>
+      <Button onClick={() => handleNumberClick(6)}>6</Button>
+      <Button colorPalette="orange" onClick={() => handleOperatorClick("-")}>
+        -
+      </Button>
+
+      <Button onClick={() => handleNumberClick(1)}>1</Button>
+      <Button onClick={() => handleNumberClick(2)}>2</Button>
+      <Button onClick={() => handleNumberClick(3)}>3</Button>
+      <Button colorPalette="orange" onClick={() => handleOperatorClick("+")}>
+        +
+      </Button>
+
+      <Button gridColumn="span 2" onClick={() => handleNumberClick(0)}>
+        0
+      </Button>
+      <Button onClick={() => handleDecimalClick()}>.</Button>
+      <Button colorPalette="orange" onClick={() => handleEqualsClick()}>
+        =
+      </Button>
+    </Grid>
+  </VStack>
+);

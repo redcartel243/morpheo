@@ -124,91 +124,120 @@ class ComponentService:
             try:
                 self.client = genai.Client()
                 print("NEW google.genai SDK Client initialized successfully.")
-            except Exception as e:
-                logger.error(f"Failed to initialize google.genai Client: {e}")
-                print(f"Error: Failed to initialize google.genai Client: {e}. Check API Key and env vars.")
-                self.client = None # Ensure client is None on init error
-            else:
+                # Check for API key *after* successful initialization attempt
                 if not os.getenv("GOOGLE_API_KEY"):
                      logger.warning("GOOGLE_API_KEY environment variable not set. Client might not be functional.")
                      print("Warning: GOOGLE_API_KEY environment variable not set.")
                      # Keep client instance for now, let calls fail later if needed
-        else:
+            except Exception as e: # Catch specific initialization errors
+                logger.error(f"Failed to initialize google.genai Client: {e}")
+                print(f"Error: Failed to initialize google.genai Client: {e}. Check API Key and env vars.")
+                self.client = None # Ensure client is None on init error
+        else: # This else corresponds to `if genai:`
             print("google.genai library not found or failed to import. Gemini features disabled.")
             # Ensure client is None if genai module itself is missing
             self.client = None
     
-    def generate_app_config(self, user_request: str) -> Dict[str, Any]:
+    def generate_app_config(self, user_request: str) -> Optional[str]:
         """
-        Generate a complete application configuration based on the user's request.
+        Generate a complete application configuration (now as React code) based on the user's request.
         
         Args:
             user_request: A description of the application the user wants to create
             
         Returns:
-            A dictionary containing the complete app configuration
+            A string containing the generated React component code, or None if generation fails.
         """
-        prompt = self._create_enhanced_prompt(user_request, [], False)
-        
+        component_code: Optional[str] = None
+        error_message: Optional[str] = None
+        prompt: str = ""
+        response_text: str = ""
+
         try:
-            # Try to call the API
+            # Step 1: Create the prompt
+            prompt = self._create_enhanced_prompt(user_request, [], False)
+            if not prompt:
+                logger.error("Prompt creation failed (template likely missing). Cannot generate UI.")
+                self.error_count += 1
+                # No need to proceed further, return None from the function
+                # The finally block will still execute for logging if needed
+                return None 
+
+            # Step 2: Call the API
             response_text = self._call_gemini_api(prompt)
-            
-            # DEBUG: Log the raw response length and preview
-            print(f"Raw API response length: {len(response_text)}")
-            print(f"Response preview: {response_text[:100]}...")
-            
-            # Check for empty response
-            if not response_text or response_text.strip() == "":
-                print("WARNING: Empty response from Gemini API")
-                return self._create_ai_fallback_app_config("Empty response from Gemini API")
+            if not response_text or not response_text.strip():
+                logger.warning("Empty response received from Gemini API.")
+                self.error_count += 1
+                # No need to proceed further
+                return None 
 
-            # Try to parse the JSON response
-            try:
-                # Attempt to extract JSON if it's wrapped in markdown/text
-                extracted_json = self._extract_json_from_text(response_text)
-                if not extracted_json:
-                    print("Failed to extract JSON from response")
-                    return self._create_ai_fallback_app_config("Failed to extract JSON from response")
-                
-                # Try to parse the JSON
-                app_config = json.loads(extracted_json)
-                
-                if not app_config:
-                    print("Parsed JSON is empty")
-                    return self._create_ai_fallback_app_config("Empty response from AI")
-                
-                # Post-process the app config
-                app_config = self._process_app_config(app_config, user_request)
+            # Step 3: Attempt to extract React code
+            match = re.search(r"```(?:typescript|javascript|jsx|tsx)?\n(.*?)```", response_text, re.DOTALL | re.IGNORECASE)
+            if match:
+                component_code = match.group(1).strip()
+                logger.info(f"Successfully extracted component code ({len(component_code)} chars).")
+            else:
+                logger.warning("Code block ```...``` not found. Assuming entire response is code.")
+                potential_code = response_text.strip()
+                # Basic check if it looks like React code
+                if ("import React" in potential_code or "=> {" in potential_code or "export const" in potential_code):
+                    component_code = potential_code
+                    logger.info(f"Using fallback response as component code ({len(component_code)} chars).")
+                else:
+                    logger.warning("Fallback content doesn't strongly resemble React code.")
+                    error_message = "AI did not return a recognizable React code block."
+                    # component_code remains None
             
-                # --- Ensure essential input handlers exist --- 
-                # print("Ensuring essential input handlers exist...")
-                # self._ensure_input_onchange_handlers(app_config.get("components", []))
-                # print("Finished ensuring input handlers.")
-                # --- REMOVED Input Handler Check ---
+            # Step 4: Check extraction result and handle errors
+            if component_code:
+                self.error_count = 0 # Reset error count on success
+                # Return the successfully extracted code
+                return component_code
+            else:
+                # If component_code is still None, it means extraction failed
+                if not error_message:
+                     error_message = "Code extraction failed for unknown reasons."
+                logger.error(f"Failed to extract valid component code. Error: {error_message}")
+                self.error_count += 1
+                return None # Indicate failure
 
-                # --- Translate IR methods to structured call objects --- 
-                # print("Translating all IR methods to structured call objects...")
-                # self._translate_all_ir_methods(app_config.get("components", []))
-                # print("Finished IR translation.")
-                # --- REMOVED IR Translation --- 
-
-                return app_config # Return the processed app config
-
-            except json.JSONDecodeError as e: # Top-level JSON decode error handling
-                print(f"Failed to parse JSON response: {e}")
-                print("Original Response text:", response_text)
-                return self._create_ai_fallback_app_config("Failed to parse JSON response")
-            except Exception as e: # Catch other processing or API errors
-                print(f"Error in generate_app_config: {str(e)}")
-                traceback.print_exc()
-                return self._create_ai_fallback_app_config(f"API or processing error: {str(e)}")
-            
         except Exception as e:
-            print(f"Error in generate_app_config: {str(e)}")
+            # Catch any exception during prompt creation, API call, or extraction
+            logger.error(f"Exception during AI interaction or code processing: {e}")
             traceback.print_exc()
-            return self._create_ai_fallback_app_config(f"API or processing error: {str(e)}")
-    
+            self.error_count += 1
+            error_message = f"Exception: {e}" # Store error for finally block logging
+            return None # Indicate failure
+        
+        finally:
+            # This block executes regardless of whether an exception occurred or return was called in try/except
+            log_content = {
+                "timestamp": datetime.datetime.now().isoformat(),
+                "user_request": user_request,
+                "prompt_sent_preview": (prompt[:200] + '...') if prompt else "(Prompt creation failed)",
+                "raw_response_preview": (response_text[:200] + '...') if response_text else "(No response)",
+                "extracted_code_preview": (component_code[:200] + '...') if component_code else "(None)",
+                "final_status": "Success" if component_code else "Failure",
+                "error_message": error_message if error_message else None
+            }
+            try:
+                # Append structured log entry
+                with open("morpheo_generation_log.jsonl", "a", encoding="utf-8") as log_file:
+                    log_file.write(json.dumps(log_content) + "\n")
+                
+                # Also write detailed debug log if needed (can be large)
+                with open("openai_response_debug.txt", "w", encoding="utf-8") as debug_file:
+                    debug_file.write("--- Prompt Sent ---\n")
+                    debug_file.write(prompt + "\n")
+                    debug_file.write("\n--- Raw Response ---\n")
+                    debug_file.write(response_text + "\n")
+                    debug_file.write("\n--- Extracted Component Code ---\n")
+                    debug_file.write(component_code if component_code else "(None)")
+                    if error_message:
+                        debug_file.write(f"\n\n--- ERROR ---\n{error_message}")
+            except Exception as log_e:
+                logger.error(f"Error writing to logs in finally block: {log_e}")
+                
     def _simplify_schema_for_api(self, schema: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create a simplified schema that avoids circular references and nested complexity.
@@ -525,92 +554,173 @@ class ComponentService:
 
     def _create_enhanced_prompt(self, user_request: str, ui_components: List[Dict[str, Any]], is_camera_app: bool) -> str:
         """
-        Create a comprehensive prompt for generating an app configuration.
-        This method generates a detailed prompt with extensive context and examples,
-        leveraging Gemini's large context window to provide comprehensive guidance.
+        Creates the prompt for the AI, now using the new template for direct code generation.
+        Removes logic related to injecting component lists or old JSON structures.
         
         Args:
-            user_request: The user's request description
-            ui_components: List of available UI components
-            is_camera_app: Whether the request is for a camera-based application
+            user_request: The user's request text.
+            ui_components: (No longer used in this simplified version)
+            is_camera_app: (No longer used in this simplified version)
             
         Returns:
-            A detailed prompt string
+            The final prompt string to send to the AI.
         """
-        # Simplify has_search check
-        has_search = GEMINI_CLIENT_AVAILABLE
-        
-        # Load base prompt template
-        base_template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "prompts", "gemini_prompt_template.md")
-        if os.path.exists(base_template_path):
-            with open(base_template_path, "r", encoding="utf-8") as f:
-                base_template = f.read()
-        else:
-            # Fallback if file doesn't exist - Log Error and Return Empty Prompt
-            logger.error(f"ERROR: Prompt template file not found at {base_template_path}. Cannot generate UI.")
-            print(f"ERROR: Prompt template file not found at {base_template_path}. Returning empty prompt.")
-            base_template = "" # Set to empty string instead of large fallback
-            # Optionally, could raise an exception here instead of returning empty
-            # raise FileNotFoundError(f"Prompt template file not found: {base_template_path}")
+        # Load the new prompt template
+        prompt_template = ""
+        template_path = ""
+        try:
+            # Construct the path relative to the current file's directory
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            # Go up one level from components/ to the backend/ directory
+            template_path = os.path.join(current_dir, '..', 'gemini_prompt_template.md')
+            with open(template_path, "r", encoding="utf-8") as f:
+                prompt_template = f.read()
+        except FileNotFoundError:
+            logger.error(f"ERROR: Prompt template not found at {template_path}")
+            # Fallback to a very basic instruction if template is missing
+            prompt_template = ("You are a helpful AI. Generate a React functional component using Chakra UI v3 "
+                             "based on the user request below.\n\nOutput Requirements:\n"
+                             "- Valid React functional component code as a string, enclosed in ```typescript ... ```.\n"
+                             "- Include all necessary imports from react and @chakra-ui/react.\n"
+                             "- Use Chakra UI v3 components and style props.\n"
+                             "- Use standard React hooks for state and event handlers.")
 
-        # If the base template ended up empty (because the file didn't load), return early
-        if not base_template:
-            return "" # Return empty string to prevent API call with no prompt
-        
-        # --- Rest of the prompt enhancement logic --- 
+        # Construct the final prompt by adding the user request
+        # This assumes the template is structured to guide the AI and we just need to append the specific request.
+        final_prompt = prompt_template + f"\n\n## User Request:\n\n```text\n{user_request}\n```"
 
-        # Load camera instructions if needed
-        camera_instructions = ""
-        if is_camera_app:
-            camera_template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "prompts", "camera_media_instructions.md")
-            if os.path.exists(camera_template_path):
-                with open(camera_template_path, "r", encoding="utf-8") as f:
-                    # Just load the important parts (we don't need the complete file)
-                    camera_instructions_content = f.read()
-                    # Extract the key sections
-                    camera_instructions = "\n## CAMERA AND MEDIA PROCESSING REQUIREMENTS\n\n"
-                    camera_instructions += "When implementing camera-based applications or applications requiring media input:\n\n"
-                    camera_instructions += "1. **ALWAYS use the proper video component type**:\n"
-                    camera_instructions += "   ```json\n"
-                    camera_instructions += "   {\n"
-                    camera_instructions += '     "id": "media-input",\n'
-                    camera_instructions += '     "type": "video", \n'
-                    camera_instructions += '     "properties": {\n'
-                    camera_instructions += '       "useCamera": true,\n'
-                    camera_instructions += '       "facingMode": "user",\n'
-                    camera_instructions += '       "autoPlay": true,\n'
-                    camera_instructions += '       "muted": true\n'
-                    camera_instructions += '     }\n'
-                    camera_instructions += "   }\n"
-                    camera_instructions += "   ```\n\n"
-                    camera_instructions += "2. **ALWAYS add canvas overlay for visualizations**:\n"
-                    camera_instructions += "3. **NEVER use static images or placeholder divs** for camera views\n"
-                    camera_instructions += "4. **ALWAYS implement proper camera access** using the MediaDevices API\n"
-                    camera_instructions += "5. **ALWAYS provide status feedback** during camera initialization and processing\n"
-                    camera_instructions += "6. **USE generic terminology** like \"Media Analysis\" or \"Object Detection\" instead of domain-specific terms\n"
-                    camera_instructions += "7. **IMPLEMENT proper cleanup** when stopping camera access\n"
+        # --- OLD Logic Removed ---
+        # (Removed logic that formatted component lists, schemas, etc.)
+        # --- End OLD Logic ---
 
-        # Prepare the component list as a JSON string
-        components_json = json.dumps(ui_components, indent=2)
+        logger.info("Created enhanced prompt for direct React code generation.")
+        return final_prompt
 
-        # Replace placeholder values in the template
-        prompt = base_template.replace("{{user_request}}", user_request)
+    # NEW: Method to create prompt for modifying existing code
+    def _create_modification_prompt(self, modification_prompt: str, current_code: str) -> str:
+        """
+        Creates the prompt for the AI to modify existing React component code.
 
-        # Insert camera instructions if this is a camera-based application
-        if is_camera_app and camera_instructions:
-            # Find the CORE PRINCIPLES section and insert camera instructions after it
-            core_principles_end = prompt.find("## YOUR TASK")
-            if core_principles_end != -1:
-                prompt = prompt[:core_principles_end] + camera_instructions + prompt[core_principles_end:]
+        Args:
+            modification_prompt: The user's instruction for how to modify the code.
+            current_code: The existing React component code string.
 
-        # Log the prompt to a file for debugging
-        with open("prompt_log.txt", "a", encoding="utf-8") as log_file:
-            log_file.write(f"--- Prompt at {datetime.datetime.now()} ---\n")
-            log_file.write(prompt)
-            log_file.write("\n--- End of Prompt ---\n\n")
+        Returns:
+            The final prompt string to send to the AI for modification.
+        """
+        prompt_template = ""
+        template_path = ""
+        try:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            template_path = os.path.join(current_dir, '..', 'gemini_prompt_template.md')
+            with open(template_path, "r", encoding="utf-8") as f:
+                prompt_template = f.read()
+        except FileNotFoundError:
+            logger.error(f"ERROR: Prompt template not found at {template_path}")
+            prompt_template = (
+                "You are a helpful AI. Modify the provided React functional component using Chakra UI v3 "
+                "based on the user request below.\n\nOutput Requirements:\n"
+                "- Valid React functional component code as a string, enclosed in ```typescript ... ```.\n"
+                "- Include all necessary imports from react and @chakra-ui/react.\n"
+                "- Use Chakra UI v3 components and style props.\n"
+                "- Use standard React hooks for state and event handlers.\n"
+                "- Return the COMPLETE modified component code, not just the changes."
+            )
 
-        return prompt
-    
+        final_prompt = (
+            f"{prompt_template}\n\n"
+            f"## Task: Modify Existing Component\n\n"
+            f"Please modify the following React component code based on the user's request.\n"
+            f"Ensure the output is the complete, modified component code, including all necessary imports and structure.\n\n"
+            f"### User Modification Request:\n\n"
+            f"```text\n{modification_prompt}\n```\n\n"
+            f"### Current Component Code:\n\n"
+            f"```typescript\n{current_code}\n```\n\n"
+            f"### Modified Component Code Output:\n\n"
+            f"(Return the complete modified code in a ```typescript block below)"
+        )
+
+        logger.info("Created modification prompt for React code.")
+        return final_prompt
+
+    # NEW: Method to handle modification requests
+    def modify_app_config(self, modification_prompt: str, current_code: str) -> Optional[str]:
+        """
+        Modify an existing React component code string based on a user prompt.
+
+        Args:
+            modification_prompt: A description of the desired modifications.
+            current_code: The current React component code string.
+
+        Returns:
+            A string containing the modified React component code, or None if modification fails.
+        """
+        modified_component_code: Optional[str] = None
+        error_message: Optional[str] = None
+        prompt: str = ""
+        response_text: str = ""
+
+        try:
+            prompt = self._create_modification_prompt(modification_prompt, current_code)
+            if not prompt:
+                logger.error("Modification prompt creation failed (template likely missing).")
+                self.error_count += 1
+                return None
+
+            response_text = self._call_gemini_api(prompt)
+            if not response_text or not response_text.strip():
+                logger.warning("Empty response received from Gemini API during modification.")
+                self.error_count += 1
+                return None
+
+            match = re.search(r"```(?:typescript|javascript|jsx|tsx)?\n(.*?)```", response_text, re.DOTALL | re.IGNORECASE)
+            if match:
+                modified_component_code = match.group(1).strip()
+                logger.info(f"Successfully extracted modified component code ({len(modified_component_code)} chars).")
+            else:
+                logger.warning("Code block ```...``` not found in modification response. Assuming entire response is code.")
+                potential_code = response_text.strip()
+                if ("import React" in potential_code or "=> {" in potential_code or "export const" in potential_code):
+                    modified_component_code = potential_code
+                    logger.info(f"Using fallback response as modified component code ({len(modified_component_code)} chars).")
+                else:
+                    logger.warning("Fallback modification content doesn't strongly resemble React code.")
+                    error_message = "AI did not return a recognizable React code block for modification."
+
+            if modified_component_code:
+                self.error_count = 0
+                return modified_component_code
+            else:
+                if not error_message:
+                    error_message = "Code extraction failed after modification for unknown reasons."
+                logger.error(f"Failed to extract valid modified component code. Error: {error_message}")
+                self.error_count += 1
+                return None
+
+        except Exception as e:
+            logger.error(f"Exception during AI modification or code processing: {e}")
+            traceback.print_exc()
+            self.error_count += 1
+            error_message = f"Exception during modification: {e}"
+            return None
+
+        finally:
+            log_content = {
+                "timestamp": datetime.datetime.now().isoformat(),
+                "modification_prompt": modification_prompt,
+                "current_code_preview": (current_code[:200] + '...') if current_code else "(None)",
+                "prompt_sent_preview": (prompt[:200] + '...') if prompt else "(Prompt creation failed)",
+                "raw_response_preview": (response_text[:200] + '...') if response_text else "(No response)",
+                "extracted_modified_code_preview": (modified_component_code[:200] + '...') if modified_component_code else "(None)",
+                "final_status": "Success" if modified_component_code else "Failure",
+                "error_message": error_message if error_message else None
+            }
+            try:
+                with open("morpheo_generation_log.jsonl", "a", encoding="utf-8") as log_file:
+                    log_file.write(json.dumps(log_content) + "\n")
+            except Exception as log_e:
+                logger.error(f"Error writing modification logs in finally block: {log_e}")
+
     def _create_ai_fallback_app_config(self, error_message: str) -> Dict[str, Any]:
         """
         Create a fallback app configuration when AI generation fails.
@@ -890,622 +1000,6 @@ class ComponentService:
                 # If all else fails, return the original string
                 return json_string
 
-    def _normalize_methods_to_events(self, components: List[Dict[str, Any]]) -> None:
-        """
-        Normalize component methods and event handlers.
-        
-        Args:
-            components: List of components to process
-        """
-        if not components:
-            return
-        
-        for component in components:
-            if not isinstance(component, dict):
-                continue
-            
-            # Normalize methods object
-            if "methods" in component and isinstance(component["methods"], dict):
-                methods = component["methods"]
-                
-                # Ensure all methods have the correct structure
-                for method_name, method_info in methods.items():
-                    if isinstance(method_info, str):
-                        # Convert string method to proper structure
-                        methods[method_name] = {
-                            "code": method_info,
-                            "affectedComponents": [component.get("id", "")]
-                        }
-                    elif isinstance(method_info, dict) and "code" in method_info:
-                        # Fix method code format to ensure it's properly wrapped
-                        code = method_info["code"]
-                        if code.startswith("function(") and not code.startswith("function(event, $m)"):
-                            # Replace the function declaration with the correct parameter list
-                            code = "function(event, $m)" + code[code.find("{"):]
-                            method_info["code"] = code
-                        # Ensure affected components exists
-                        if "affectedComponents" not in method_info:
-                            method_info["affectedComponents"] = [component.get("id", "")]
-            
-            # Process children recursively
-            if "children" in component and isinstance(component["children"], list):
-                self._normalize_methods_to_events(component["children"])
-        
-        # --- Add post-processing step to replace addChild --- 
-        self._post_process_component_methods(components, components) # Pass full list here too
-        # --- End post-processing step --- 
-
-    def _post_process_component_methods(self, components: List[Dict[str, Any]], all_components: List[Dict[str, Any]], parent_id_map: Optional[Dict[str, str]] = None) -> None:
-        """Recursively processes component methods, translating IR to JS."""
-        if not components:
-            return
-            
-        # Build parent map if not provided (for top level)
-        if parent_id_map is None:
-            parent_id_map = {}
-            queue = [(comp, None) for comp in components]
-            visited = set()
-            while queue:
-                 comp, p_id = queue.pop(0)
-                 if not isinstance(comp, dict) or comp.get('id') in visited:
-                     continue
-                 comp_id = comp.get('id')
-                 visited.add(comp_id)
-                 parent_id_map[comp_id] = p_id
-                 if isinstance(comp.get('children'), list):
-                     for child in comp['children']:
-                         if isinstance(child, dict) and child.get('id'):
-                             queue.append((child, comp_id))
-                             
-        for component in components:
-            if not isinstance(component, dict):
-                continue
-            
-            component_id = component.get("id")
-            parent_id = parent_id_map.get(component_id)
-
-            if "methods" in component and isinstance(component["methods"], dict):
-                processed_methods = {}
-                for method_name, method_ir in component["methods"].items():
-                    # Check if it looks like our IR (an array)
-                    if isinstance(method_ir, list):
-                        print(f"Translating IR for method: {component_id}.{method_name}")
-                        try:
-                            # Translate the IR array to a JS function body string
-                            js_code_body = self._translate_ir_to_js(method_ir, component_id, parent_id)
-                            # Wrap the body in a function signature
-                            js_function_string = f"function(event) {{\n{js_code_body}\n}}"
-                            processed_methods[method_name] = js_function_string
-                        except Exception as e:
-                            print(f"ERROR during IR translation for {component_id}.{method_name}: {e}")
-                            # Keep original IR or replace with error comment?
-                            processed_methods[method_name] = f"// Error translating IR: {e}"
-                    else:
-                         # If it's not a list, maybe it's old format or invalid - keep it for now?
-                         print(f"Warning: Method {component_id}.{method_name} is not in expected IR list format. Keeping original.")
-                         processed_methods[method_name] = method_ir 
-                         
-                # Replace original methods with processed ones
-                component["methods"] = processed_methods
-
-            # Process children recursively
-            if "children" in component and isinstance(component["children"], list):
-                 childComponents = [c for c in component["children"] if isinstance(c, dict)]
-                 if childComponents:
-                    self._post_process_component_methods(childComponents, all_components, parent_id_map) # Pass map down
-
-    # --- NEW: IR Translation --- 
-    def _translate_ir_to_js(self, ir_actions: List[Dict[str, Any]], component_id: str, parent_id: Optional[str] = None) -> str:
-        """Translates an array of IR action objects into a JavaScript function body string."""
-        js_lines = []
-        declared_vars = set() # Keep track of variables declared with 'const'
-        temp_var_count = 0
-
-        def get_temp_var_name():
-            nonlocal temp_var_count
-            temp_var_count += 1
-            return f"__ir_temp_{temp_var_count}"
-
-        def translate_value(value_obj: Any) -> str:
-            """Translates an IR value object into a JS expression string."""
-            if not isinstance(value_obj, dict) or "type" not in value_obj:
-                # Assume literal if not a valid value object for simplicity, quote strings
-                return json.dumps(value_obj) 
-
-            val_type = value_obj.get("type")
-            if val_type == "LITERAL":
-                return json.dumps(value_obj.get("value"))
-            elif val_type == "VARIABLE":
-                var_name = value_obj.get("name")
-                if var_name in declared_vars:
-                    return var_name
-                else:
-                    print(f"Warning: IR referenced undeclared variable '{var_name}'. Treating as null.")
-                    return "null"
-            elif val_type == "CONTEXT":
-                path = value_obj.get("path")
-                if path == "selfId":
-                    return json.dumps(component_id)
-                elif path == "parentId":
-                    return json.dumps(parent_id) if parent_id else "null"
-                elif path == "event":
-                    return "event" # Pass the event object directly
-                else:
-                    print(f"Warning: Unknown IR context path '{path}'. Treating as null.")
-                    return "null"
-            elif val_type == "PROPERTY_REF":
-                 # Directly translate to getComponentProperty for simplicity
-                 target_id_val = json.dumps(value_obj.get("targetId", component_id))
-                 prop_name_val = json.dumps(value_obj.get("propertyName"))
-                 return f"getComponentProperty({target_id_val}, {prop_name_val})"
-            elif val_type == "EXPRESSION":
-                 # WARNING: Executing arbitrary code from AI is risky.
-                 # For now, only allow very simple, safe expressions or specific cases.
-                 # Example: ID generation (handle within GENERATE_ID action instead)
-                 print(f"Warning: Direct IR EXPRESSION translation is limited/unsafe: {value_obj.get('code')}")
-                 # return value_obj.get("code", "null") # Avoid for now
-                 return "null" # Safer default
-            else:
-                print(f"Warning: Unknown IR value type '{val_type}'. Treating as null.")
-                return "null"
-        
-        # Function to translate condition objects recursively
-        def translate_condition(cond_obj: Dict[str, Any]) -> str:
-            cond_type = cond_obj.get("type")
-            if not cond_type:
-                print("Warning: Condition object missing type. Returning false.")
-                return "false"
-
-            if cond_type in ["EQUALS", "NOT_EQUALS", "GREATER_THAN", "GREATER_THAN_EQUALS", "LESS_THAN", "LESS_THAN_EQUALS"]:
-                left_js = translate_value(cond_obj.get("left"))
-                right_js = translate_value(cond_obj.get("right"))
-                op_map = {
-                    "EQUALS": "===",
-                    "NOT_EQUALS": "!==",
-                    "GREATER_THAN": ">",
-                    "GREATER_THAN_EQUALS": ">=",
-                    "LESS_THAN": "<",
-                    "LESS_THAN_EQUALS": "<="
-                }
-                op = op_map.get(cond_type, "===") # Default to equals
-                return f"({left_js} {op} {right_js})"
-            
-            elif cond_type == "TRUTHY":
-                value_js = translate_value(cond_obj.get("value"))
-                return f"(!!{value_js})" # Explicit boolean conversion
-            elif cond_type == "FALSY":
-                value_js = translate_value(cond_obj.get("value"))
-                return f"(!{value_js})"
-            
-            elif cond_type == "AND":
-                conditions_js = [translate_condition(c) for c in cond_obj.get("conditions", [])]
-                return f"({' && '.join(conditions_js) if conditions_js else 'true'})" # Default to true if empty
-            elif cond_type == "OR":
-                conditions_js = [translate_condition(c) for c in cond_obj.get("conditions", [])]
-                return f"({' || '.join(conditions_js) if conditions_js else 'false'})" # Default to false if empty
-            elif cond_type == "NOT":
-                condition_js = translate_condition(cond_obj.get("condition", {}))
-                return f"(!{condition_js})"
-            
-            else:
-                print(f"Warning: Unknown condition type '{cond_type}'. Returning false.")
-                return "false"
-        
-        # Helper function to translate a Python config dict to a JS object literal string
-        # This needs to handle nested IR methods recursively
-        def translate_config_to_js_object(config_dict: Dict[str, Any], current_comp_id: str, current_parent_id: Optional[str]) -> str:
-            js_pairs = []
-            if not isinstance(config_dict, dict):
-                return json.dumps(config_dict) # Return primitive as JSON
-
-            nested_methods = config_dict.get("methods")
-            nested_children = config_dict.get("children")
-            nested_component_id = config_dict.get("id") # Get ID for nested context
-
-            for key, value in config_dict.items():
-                key_js = json.dumps(key)
-                value_js = "null" # Default
-                
-                if key == "methods" and isinstance(value, dict):
-                    # Recursively translate nested methods
-                    method_pairs = []
-                    for method_name, method_ir in value.items():
-                         # Nested methods need their own context - ID might be dynamic
-                         # For now, pass the parent's context. Need better way if ID is generated.
-                         nested_comp_id_for_method = translate_value(nested_component_id) if nested_component_id else "'unknown_nested_id'"
-                         parent_id_for_method = json.dumps(current_comp_id) # The component being added TO is the parent here
-
-                         if isinstance(method_ir, list):
-                             # Translate the IR list to JS function body
-                             js_body = self._translate_ir_to_js(method_ir, nested_comp_id_for_method, parent_id_for_method)
-                             # Wrap in function signature
-                             js_func = f"function(event) {{\n{js_body}\n}}"
-                             method_pairs.append(f"{json.dumps(method_name)}: {js_func}")
-                         else:
-                             # Handle non-IR methods? Or log error?
-                             print(f"Warning: Nested method '{method_name}' in ADD_COMPONENT config is not IR list. Skipping.")
-                             method_pairs.append(f"{json.dumps(method_name)}: null") 
-                             
-                    value_js = f"{{{', '.join(method_pairs)}}}"
-                    
-                elif key == "children" and isinstance(value, list):
-                     # Recursively translate children configs
-                     children_js = []
-                     for child_config in value:
-                         children_js.append(translate_config_to_js_object(child_config, nested_component_id or current_comp_id, nested_component_id or current_comp_id)) 
-                     value_js = f"[{', '.join(children_js)}]"
-                     
-                elif key == "id" and isinstance(value, dict) and value.get("type") == "EXPRESSION":
-                     # Handle simple ID expressions carefully
-                     # Ideally, use GENERATE_ID action before ADD_COMPONENT
-                     id_code = value.get("code", "'error-generating-id'")
-                     # Basic check for safety - only allow specific patterns if needed
-                     if "Date.now()" in id_code or "Math.random()" in id_code: # Allow simple dynamic IDs
-                         value_js = id_code
-                     else:
-                         print(f"Warning: Potentially unsafe EXPRESSION in nested ID: {id_code}. Using literal.")
-                         value_js = json.dumps(id_code) # Treat as string literal if unsure
-                         
-                else:
-                    # Handle other properties using translate_value (handles LITERAL, VARIABLE etc.)
-                    value_js = translate_value(value)
-                    
-                js_pairs.append(f"{key_js}: {value_js}")
-                
-            return f"{{{', '.join(js_pairs)}}}"
-
-        # --- Main Action Loop --- 
-        for action in ir_actions:
-            action_type = action.get("type")
-            line = "" # Reset line for each action
-            assign_to_var = action.get("assignTo")
-            
-            # Determine variable assignment prefix (const or just assignment)
-            var_assignment = ""
-            if assign_to_var:
-                 if assign_to_var not in declared_vars:
-                      var_assignment = f"const {assign_to_var} = "
-                      declared_vars.add(assign_to_var)
-                 else:
-                      # Variable already declared, just assign
-                      var_assignment = f"{assign_to_var} = "
-                      
-            try:
-                # --- Handle IF action --- 
-                if action_type == "IF":
-                    condition_obj = action.get("condition")
-                    then_actions = action.get("then")
-                    else_actions = action.get("else") # Optional
-
-                    if not condition_obj or not isinstance(then_actions, list):
-                         print("Warning: Skipping invalid IF action (missing condition or then block).")
-                         js_lines.append("// Skipped invalid IF action")
-                         continue # Skip this action
-                         
-                    condition_js = translate_condition(condition_obj)
-                    
-                    # Recursively translate the 'then' block
-                    # Pass current declared_vars to maintain scope, but changes won't propagate back easily yet
-                    # Need a more robust scope handling mechanism for nested blocks later
-                    then_js_body = self._translate_ir_to_js(then_actions, component_id, parent_id) # Simplified call for now
-                    then_block = "\n".join([f"  {l}" for l in then_js_body.splitlines()]) # Indent
-                    
-                    if_statement = f"if ({condition_js}) {{\n{then_block}\n}}"
-                    
-                    # Handle optional 'else' block
-                    if isinstance(else_actions, list):
-                         else_js_body = self._translate_ir_to_js(else_actions, component_id, parent_id) # Simplified call
-                         else_block = "\n".join([f"  {l}" for l in else_js_body.splitlines()]) # Indent
-                         if_statement += f" else {{\n{else_block}\n}}"
-                         
-                    # Add the whole multi-line statement
-                    js_lines.append(if_statement)
-                    assign_to_var = None # IF doesn't assign directly
-                    line = None # We added directly to js_lines
-                    
-                elif action_type == "GET_PROPERTY":
-                    target_id_js = json.dumps(action.get("targetId"))
-                    prop_name_js = json.dumps(action.get("propertyName"))
-                    line = f"getComponentProperty({target_id_js}, {prop_name_js})"
-                
-                elif action_type == "SET_PROPERTY":
-                    target_id_js = json.dumps(action.get("targetId"))
-                    prop_name_js = json.dumps(action.get("propertyName"))
-                    value_js = translate_value(action.get("value"))
-                    line = f"setComponentProperty({target_id_js}, {prop_name_js}, {value_js})"
-                
-                elif action_type == "LOG":
-                    message_js = translate_value(action.get("message"))
-                    line = f"console.log({message_js})"
-
-                               # --- ADD MISSING GET_EVENT_DATA HANDLER --- 
-                elif action_type == "GET_EVENT_DATA":
-                    path = payload.get("path") # e.g., "target.value"
-                    result_var = payload.get("resultVariable")
-                    if path and result_var:
-                        call_object["payload"] = {
-                            "path": path,
-                            "resultVariable": result_var
-                        }
-                        # Simulate variable declaration
-                        local_vars_context[result_var] = None 
-                        call_actions.append(call_object)
-                        print(f"[DEBUG _translate_ir_to_frontend_call] Appended GET_EVENT_DATA action.") # Log success
-                    else:
-                        print(f"Warning: Skipping invalid GET_EVENT_DATA: {action}")
-               # --- END GET_EVENT_DATA HANDLER --- 
-                         
-                elif action_type == "SET_VARIABLE":
-                     var_name = action.get("variableName")
-                     value_js = translate_value(action.get("value"))
-                     if var_name:
-                         if var_name not in declared_vars:
-                             js_lines.append(f"let {var_name};") # Declare with let if not declared
-                             declared_vars.add(var_name)
-                         line = f"{var_name} = {value_js}" # Assignment only, no semicolon needed here
-                         assign_to_var = None # Handled variable assignment directly
-                     else:
-                         print("Warning: SET_VARIABLE missing variableName.")
-                         line = "null" 
-                         
-                elif action_type == "GENERATE_ID":
-                     line = f"\'morpheo-id-\' + Date.now() + \'-\' + Math.random().toString(36).substring(2, 7)" 
-                     
-                # --- Placeholder Actions --- 
-                    
-                elif action_type == "ADD_COMPONENT":
-                    parent_id_js = json.dumps(action.get("parentId"))
-                    config_dict = action.get("config")
-                    
-                    if not parent_id_js or not isinstance(config_dict, dict):
-                        print("Warning: Skipping invalid ADD_COMPONENT action (missing parentId or config).")
-                        js_lines.append("// Skipped invalid ADD_COMPONENT action")
-                        continue
-                        
-                    # Translate the config object (recursively handles nested methods/children)
-                    config_js_string = translate_config_to_js_object(config_dict, component_id, parent_id)
-                    
-                    line = f"addComponent({parent_id_js}, {config_js_string})"
-                    
-                    assign_id_to = action.get("assignIdTo")
-                    if assign_id_to:
-                        # NOTE: addComponent on the frontend doesn't return the ID.
-                        # The AI should ideally use GENERATE_ID action first and assign the result
-                        # to a variable, then use that variable in the config's 'id' field.
-                        # We won't try to assign result here.
-                        print(f"Warning: 'assignIdTo' used with ADD_COMPONENT. Frontend function does not return ID. Use GENERATE_ID action first.")
-                    assign_to_var = None # ADD_COMPONENT itself doesn't return a value to assign
-
-                elif action_type == "REMOVE_COMPONENT":
-                    target_id_js = translate_value(action.get("targetId")) # targetId can be a value object
-                    line = f"removeComponent({target_id_js})"
-                    assign_to_var = None # removeComponent doesn't assign
-                    
-                elif action_type == "CALL_METHOD":
-                    target_id_js = json.dumps(action.get("targetId"))
-                    method_name_js = json.dumps(action.get("methodName"))
-                    args_list = action.get("args", [])
-                    
-                    # Translate each argument in the args list
-                    translated_args = []
-                    if isinstance(args_list, list):
-                        for arg_value in args_list:
-                            translated_args.append(translate_value(arg_value))
-                    else:
-                        print(f"Warning: 'args' for CALL_METHOD is not a list: {args_list}. Using empty args.")
-                        
-                    # Join translated args with commas
-                    args_js_string = ", ".join(translated_args)
-                    
-                    # Construct the call
-                    line = f"callComponentMethod({target_id_js}, {method_name_js}{(', ' + args_js_string) if args_js_string else ''})"
-                    
-                    # Handle assignment if the called method is intended to return a value
-                    # Note: The current frontend setup for callComponentMethod might not directly 
-                    # support synchronous returns easily. This assumes the function call itself 
-                    # is what's needed, potentially triggering async updates elsewhere.
-                    # If synchronous returns are needed, the frontend implementation and maybe 
-                    # the IR spec would need changes (e.g., using async/await and Promises).
-                    if not assign_to_var:
-                        pass # No assignment needed
-                    else:
-                        # If assignment is requested, proceed, but acknowledge limitations.
-                        method_name_for_log = action.get("methodName", "unknown")
-                        print(f"Warning: Assigning result from CALL_METHOD ('{method_name_for_log}'). Ensure frontend supports return values if needed.")
-                    
-                elif action_type == "UPDATE_COMPONENT":
-                     target_id_js = json.dumps(action.get("targetId"))
-                     updates_dict = action.get("updates", {})
-                     js_update_pairs = []
-                     
-                     # Translate properties if they exist
-                     properties_dict = updates_dict.get("properties")
-                     if isinstance(properties_dict, dict):
-                         prop_pairs = []
-                         for key, value_obj in properties_dict.items():
-                             prop_pairs.append(f"{json.dumps(key)}: {translate_value(value_obj)}")
-                         if prop_pairs:
-                             js_update_pairs.append(f"properties: {{ {', '.join(prop_pairs)} }}")
-                     
-                     # Translate styles if they exist
-                     styles_dict = updates_dict.get("styles")
-                     if isinstance(styles_dict, dict):
-                         style_pairs = []
-                         for key, value_obj in styles_dict.items():
-                             style_pairs.append(f"{json.dumps(key)}: {translate_value(value_obj)}")
-                         if style_pairs:
-                              js_update_pairs.append(f"styles: {{ {', '.join(style_pairs)} }}")
-                              
-                     # Construct the updates object string
-                     updates_js_string = f"{{ {', '.join(js_update_pairs)} }}"
-                     
-                     line = f"updateComponent({target_id_js}, {updates_js_string})"
-                     assign_to_var = None # updateComponent doesn't assign
-                     
-                else:
-                    print(f"Warning: Unknown IR action type: {action_type}")
-                    line = f"// Unknown IR action: {action_type}"
-                    assign_to_var = None
-
-                # Append the generated line with assignment if needed
-                if line is not None:
-                     if assign_to_var:
-                         js_lines.append(f"{var_assignment}{line};")
-                     elif line: # Only append if line is not empty
-                         js_lines.append(f"{line};")
-                    
-            except Exception as e:
-                 print(f"ERROR translating IR action: {action}. Error: {e}")
-                 traceback.print_exc() # Print full traceback for debugging
-                 js_lines.append(f"// Error translating action: {action_type}: {e}")
-        
-        return "\n".join(js_lines)
-        
-    def generate_search_response(self, query: str) -> str:
-        """
-        Generate a response using Gemini with Google search capability.
-        NOTE: Uses standard text generation, not structured output.
-        
-        Args:
-            query: The search query
-            
-        Returns:
-            Response text from Gemini with search results incorporated
-        """
-        if not self.client: # Check if module is configured
-            return "Error: Gemini API is not configured."
-            
-        try:
-            print(f"Generating search response for query: {query}")
-            
-            # Configure tools for search
-            search_tool = None
-            try:
-                 # Assuming client.protos is correct - needs verification if errors persist
-                 google_search_retrieval = self.client.protos.GoogleSearchRetrieval()
-                 search_tool = [self.client.protos.Tool(google_search_retrieval=google_search_retrieval)]
-                 print("Google Search tool configured.")
-            except AttributeError as e:
-                 logger.warning(f"Could not construct GoogleSearchRetrieval tool (AttributeError: {e}). Search disabled.")
-            except Exception as e:
-                 logger.warning(f"Error constructing GoogleSearchRetrieval tool: {e}. Search disabled.")
-
-            # Generate content directly - remove tool_config parameter for now
-            response = self.client.models.generate_content(
-                model="gemini-2.0-flash", 
-                contents=query
-            )
-            return response.text
-            
-        except Exception as e:
-            error_message = f"Error generating search response: {str(e)}"
-            print(error_message)
-            traceback.print_exc()
-            return error_message
-
-    def _get_ui_components_list(self) -> List[Dict[str, Any]]:
-        """
-        Get the list of UI components from the registry.
-        
-        Returns:
-            A list of component definitions
-        """
-        components_list = []
-        
-        try:
-            # Ensure component_registry is properly initialized
-            if self.component_registry is None:
-                from .registry import component_registry as default_registry
-                self.component_registry = default_registry
-                if self.component_registry is None:
-                    print("Warning: Could not initialize component registry. Using empty components list.")
-                    return self._get_fallback_components()
-
-            # Get all registered components from the component registry
-            # The ComponentRegistry class has a get_all_components method
-            if hasattr(self.component_registry, 'get_all_components'):
-                registry_components = self.component_registry.get_all_components()
-            elif hasattr(self.component_registry, 'components'):
-                registry_components = self.component_registry.components
-            else:
-                print("Warning: Could not access components from registry. Using fallback components list.")
-                return self._get_fallback_components()
-            
-            # Process the components
-            for component_name, component_info in registry_components.items():
-                if not component_info:
-                    continue
-                    
-                # Extract the basic component information
-                # Handle variability in property naming
-                properties = component_info.get("properties", component_info.get("defaultProps", {}))
-                
-                component_def = {
-                    "type": component_name,
-                    "description": component_info.get("description", ""),
-                    "properties": properties,
-                    "category": component_info.get("category", "basic")
-                }
-                
-                components_list.append(component_def)
-            
-            # If no components were found, use fallback
-            if not components_list:
-                print("Warning: No components found in registry. Using fallback components list.")
-                return self._get_fallback_components()
-        
-        except Exception as e:
-            print(f"Error getting component list: {str(e)}")
-            # Return fallback components on error
-            return self._get_fallback_components()
-            
-        return components_list
-        
-    def _get_fallback_components(self) -> List[Dict[str, Any]]:
-        """
-        Create a fallback list of basic components when the registry is unavailable.
-        
-        Returns:
-            A list of basic component definitions
-        """
-        return [
-            {
-                "type": "text",
-                "description": "Displays text content in various styles and formats.",
-                "properties": {
-                    "content": {"type": "string", "description": "The text content to display"},
-                    "variant": {"type": "string", "description": "The HTML element variant to use"}
-                },
-                "category": "basic"
-            },
-            {
-                "type": "container",
-                "description": "A flexible container that can hold other components.",
-                "properties": {},
-                "category": "basic"
-            },
-            {
-                "type": "button",
-                "description": "An interactive button that triggers actions.",
-                "properties": {
-                    "text": {"type": "string", "description": "The button text"},
-                    "variant": {"type": "string", "description": "Button style variant"}
-                },
-                "category": "basic"
-            },
-            {
-                "type": "input",
-                "description": "A text input field for user data entry.",
-                "properties": {
-                    "placeholder": {"type": "string", "description": "Placeholder text"},
-                    "label": {"type": "string", "description": "Label for the input"},
-                    "value": {"type": "string", "description": "Current input value"},
-                    "type": {"type": "string", "description": "Input type"}
-                },
-                "category": "basic"
-            }
-        ]
-        
     def _process_app_config(self, app_config: Dict[str, Any], user_request: str) -> Dict[str, Any]:
         """
         Process the app configuration after it's been generated by the AI.
@@ -1517,183 +1011,119 @@ class ComponentService:
         Returns:
             Processed app configuration
         """
-        # Ensure app section exists
+        # Ensure app section exists with initialState
         if "app" not in app_config:
             app_config["app"] = {
                 "name": "Generated Application",
                 "description": user_request,
-                "theme": "light"
+                "initialState": {}
             }
-        
-        # Add user request as the description if not present
-        if "description" not in app_config["app"]:
-            app_config["app"]["description"] = user_request
+        elif "initialState" not in app_config["app"]:
+            app_config["app"]["initialState"] = {}
             
-        # Ensure layout section exists
+        # Ensure layout section exists with proper structure
         if "layout" not in app_config:
             app_config["layout"] = {
-                "type": "singlepage",
-                "regions": ["main"]
+                "type": "VStack",
+                "props": {
+                    "align": "center",
+                    "justify": "center",
+                    "spacing": 4,
+                    "minH": "100vh"
+                }
             }
             
-        # Ensure the components list exists
+        # Process components
         if "components" not in app_config:
             app_config["components"] = []
             
-        # Clean up any formatting issues in components
-        self._sanitize_components(app_config.get("components", []))
+        # Convert dictionary components to list if needed
+        if isinstance(app_config["components"], dict):
+            components_list = []
+            for comp_id, comp_data in app_config["components"].items():
+                if isinstance(comp_data, dict):
+                    comp_data["id"] = comp_id
+                    components_list.append(comp_data)
+            app_config["components"] = components_list
             
-        # Step 10: Final component sanitization (check for disallowed content like function strings)
-        self._sanitize_components(app_config.get("components", []))
-
-        # --- ADD DEBUG LOGGING BEFORE RETURN ---
-        try:
-            components = app_config.get("components", [])
-            for comp in components:
-                 # Find the input component (adjust ID if needed)
-                if isinstance(comp, dict) and comp.get("id") == "new-todo-input": # Check specific ID
-                     print(f"[DEBUG FINAL CHECK] Methods for {comp.get('id')}: {json.dumps(comp.get('methods'), indent=2)}")
-                     break # Found it, no need to check others
-                # Check children recursively (simple depth 1 for now)
-                if isinstance(comp, dict) and "children" in comp and isinstance(comp["children"], list):
-                     for child_comp in comp["children"]:
-                         if isinstance(child_comp, dict) and child_comp.get("id") == "new-todo-input":
-                             print(f"[DEBUG FINAL CHECK] Methods for {child_comp.get('id')}: {json.dumps(child_comp.get('methods'), indent=2)}")
-                             break
-                     else:
-                         continue # Continue outer loop if not found in children
-                     break # Break outer loop if found in children
-        except Exception as e:
-             print(f"[DEBUG FINAL CHECK] Error logging component methods: {e}")
-        # --- END DEBUG LOGGING --- 
+        # Process each component
+        for component in app_config["components"]:
+            # Ensure basic props
+            if "props" not in component:
+                component["props"] = {}
+                
+            # Convert any $morpheo.expression to $js
+            if "props" in component:
+                for key, value in component["props"].items():
+                    if isinstance(value, dict) and "$morpheo.expression" in value:
+                        component["props"][key] = {
+                            "$js": value["$morpheo.expression"]
+                        }
+                        
+            # Handle parentId by nesting in parent's children
+            if "parentId" in component:
+                parent_id = component["parentId"]
+                for potential_parent in app_config["components"]:
+                    if potential_parent.get("id") == parent_id:
+                        if "children" not in potential_parent["props"]:
+                            potential_parent["props"]["children"] = []
+                        if isinstance(potential_parent["props"]["children"], list):
+                            potential_parent["props"]["children"].append(component)
+                del component["parentId"]
+                
+        # Clean up any remaining formatting issues
+        self._sanitize_components(app_config["components"])
             
         return app_config
         
-    def _process_app_config_imports(self, app_config: Dict[str, Any]) -> None:
+    def _sanitize_components(self, components: Union[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]) -> None:
         """
-        Process any imports or external dependencies in the app configuration.
+        Sanitize a list or dictionary of components recursively.
+        Ensures basic structure like type and id.
         
         Args:
-            app_config: The app configuration to process
-        """
-        # Check if app_config has imports section
-        if "imports" not in app_config:
-            return
-            
-        # Process the imports (libraries, external resources, etc.)
-        # This is a placeholder - implement based on your actual import requirements
-        # For example, you might need to add script tags, stylesheets, etc.
-        pass
-        
-    def _normalize_component_ids(self, app_config: Dict[str, Any]) -> None:
-        """
-        Ensure all components have unique IDs.
-        
-        Args:
-            app_config: The app configuration to process
-        """
-        # Get the components list
-        components = app_config.get("components", [])
-        
-        # Track used IDs to avoid duplicates
-        used_ids = set()
-        
-        # Recursively assign unique IDs to all components
-        def ensure_unique_ids(components_list):
-            for component in components_list:
-                if not isinstance(component, dict):
-                    continue
-                    
-                # If component has no ID or ID is already used, generate a new one
-                if "id" not in component or not component["id"] or component["id"] in used_ids:
-                    # Generate a unique ID based on component type
-                    component_type = component.get("type", "component")
-                    new_id = f"{component_type}-{str(uuid4())[:8]}"
-                    component["id"] = new_id
-                    
-                # Add ID to used IDs set
-                used_ids.add(component["id"])
-                
-                # Process children recursively
-                if "children" in component and isinstance(component["children"], list):
-                    ensure_unique_ids(component["children"])
-                    
-        # Start the recursive ID normalization
-        ensure_unique_ids(components)
-        
-    def _normalize_component_properties(self, components: List[Dict[str, Any]]) -> None:
-        """
-        Normalize component properties to ensure compatibility.
-        
-        Args:
-            components: List of components to process
+            components: List or dictionary of components to sanitize
         """
         if not components:
             return
-            
-        for component in components:
+        
+        component_items = []
+        if isinstance(components, dict):
+            # If it's a dict, iterate over its values
+            component_items = components.values()
+        elif isinstance(components, list):
+            # If it's a list, iterate over its items directly
+            component_items = components
+        else:
+            # If it's neither a list nor a dict, log an error or handle appropriately
+            # For now, just return to avoid errors
+            print(f"Warning: _sanitize_components received unexpected type: {type(components)}")
+            return
+
+        for component in component_items:
+            # Skip if not a dict (e.g., if a list contains non-dict items)
             if not isinstance(component, dict):
                 continue
-                
-            # Ensure component has basic required properties
-            if "type" not in component:
-                component["type"] = "container"
-                
-            if "properties" not in component and "props" in component:
-                # Rename props to properties for consistency
-                component["properties"] = component.pop("props")
-                
-            if "properties" not in component:
-                component["properties"] = {}
-                
-            if "styles" not in component:
-                component["styles"] = {}
-                
-            # Convert any string values that should be objects to actual objects
-            for prop_name, prop_value in component.get("properties", {}).items():
-                if prop_name in ["style", "options"] and isinstance(prop_value, str):
-                    try:
-                        # Try to parse JSON string as object
-                        component["properties"][prop_name] = json.loads(prop_value)
-                    except json.JSONDecodeError:
-                        # If parsing fails, keep as string
-                        pass
-                        
-            # Process children recursively
-            if "children" in component and isinstance(component["children"], list):
-                self._normalize_component_properties(component["children"])
-                
-    def _sanitize_components(self, components: List[Dict[str, Any]]) -> None:
-        """
-        Clean up component definitions to ensure they're valid.
-        
-        Args:
-            components: List of components to sanitize
-        """
-        if not components:
-            return
-            
-        for i in range(len(components)):
-            # Skip if not a dict
-            if not isinstance(components[i], dict):
-                continue
-                
-            component = components[i]
             
             # Fix component type if it's invalid
             if "type" not in component or not component["type"]:
-                component["type"] = "container"
+                component["type"] = "container" # Use a sensible default like 'container'
                 
             # Ensure component has an ID
             if "id" not in component or not component["id"]:
                 component["id"] = f"{component.get('type', 'component')}-{str(uuid4())[:8]}"
-                
-            # Process children recursively
-            if "children" in component and isinstance(component["children"], list):
-                self._sanitize_components(component["children"])
-            elif "children" in component and not isinstance(component["children"], list):
-                # Fix invalid children field
-                component["children"] = []
+            
+            # Process children recursively if they exist and are a list or dict
+            if "children" in component:
+                children_data = component["children"]
+                if isinstance(children_data, (list, dict)):
+                     self._sanitize_components(children_data)
+                # Optionally handle non-list/dict children (e.g., convert strings to text components, etc.)
+                # elif isinstance(children_data, str):
+                #     # Example: convert string child to a Text component
+                #     component["children"] = [{"type": "text", "id": f"text-{str(uuid4())[:8]}", "props": {"children": children_data}}]
+                # else: # Clear invalid children
+                #     component["children"] = [] # or None, depending on desired behavior
 
     def _is_camera_based_request(self, user_request: str) -> bool:
         """
@@ -1870,402 +1300,151 @@ class ComponentService:
             }
         
         return app_config
-
-    def _add_missing_component_methods(self, app_config: Dict[str, Any]) -> Dict[str, Any]:
+        
+    def generate_search_response(self, query: str) -> str:
         """
-        Add missing methods (as IR arrays) to interactive components.
-        Does NOT translate to JS here anymore.
+        Generate a response using Gemini with Google search capability.
+        NOTE: Uses standard text generation, not structured output.
         
         Args:
-            app_config: The original app configuration
+            query: The search query
+            
+        Returns:
+            Response text from Gemini with search results incorporated
+        """
+        if not self.client: # Check if module is configured
+            return "Error: Gemini API is not configured."
+            
+        try:
+            print(f"Generating search response for query: {query}")
+            
+            # Configure tools for search
+            search_tool = None
+            try:
+                 # Assuming client.protos is correct - needs verification if errors persist
+                 google_search_retrieval = self.client.protos.GoogleSearchRetrieval()
+                 search_tool = [self.client.protos.Tool(google_search_retrieval=google_search_retrieval)]
+                 print("Google Search tool configured.")
+            except AttributeError as e:
+                 logger.warning(f"Could not construct GoogleSearchRetrieval tool (AttributeError: {e}). Search disabled.")
+            except Exception as e:
+                 logger.warning(f"Error constructing GoogleSearchRetrieval tool: {e}. Search disabled.")
+
+            # Generate content directly - remove tool_config parameter for now
+            response = self.client.models.generate_content(
+                model="gemini-2.0-flash", 
+                contents=query
+            )
+            return response.text
+            
+        except Exception as e:
+            error_message = f"Error generating search response: {str(e)}"
+            print(error_message)
+            traceback.print_exc()
+            return error_message
+
+    def _get_ui_components_list(self) -> List[Dict[str, Any]]:
+        """
+        Get the list of UI components from the registry.
         
         Returns:
-            The updated app configuration with IR methods added where missing
+            A list of component definitions
         """
-        components = app_config.get("components", [])
-        if not isinstance(components, list):
-             print("Warning: 'components' field is not a list. Skipping method addition.")
-             return app_config # Return original if components isn't a list
-             
-        input_field = None
-        todo_list = None
+        components_list = []
         
-        # Helper function to recursively find components
-        def find_component(comps: List[Dict[str, Any]], target_type: str) -> Optional[Dict[str, Any]]:
-            for comp in comps:
-                if not isinstance(comp, dict): continue
-                comp_type = str(comp.get("type", "")).lower()
-                if comp_type == target_type:
-                    return comp
-                if isinstance(comp.get("children"), list):
-                    found = find_component(comp["children"], target_type)
-                    if found: return found
-            return None
+        try:
+            # Ensure component_registry is properly initialized
+            if self.component_registry is None:
+                from .registry import component_registry as default_registry
+                self.component_registry = default_registry
+                if self.component_registry is None:
+                    print("Warning: Could not initialize component registry. Using empty components list.")
+                    return self._get_fallback_components()
+
+            # Get all registered components from the component registry
+            # The ComponentRegistry class has a get_all_components method
+            if hasattr(self.component_registry, 'get_all_components'):
+                registry_components = self.component_registry.get_all_components()
+            elif hasattr(self.component_registry, 'components'):
+                registry_components = self.component_registry.components
+            else:
+                print("Warning: Could not access components from registry. Using fallback components list.")
+                return self._get_fallback_components()
             
-        # Find input and list components
-        input_field = find_component(components, "input") or find_component(components, "textinput")
-        todo_list = find_component(components, "list") or find_component(components, "ul")
-        
-        print(f"DEBUG: Found input field: {'Yes' if input_field else 'No'} (ID: {input_field.get('id') if input_field else 'N/A'})" )
-        print(f"DEBUG: Found todo list: {'Yes' if todo_list else 'No'} (ID: {todo_list.get('id') if todo_list else 'N/A'})" )
-
-        # Use a recursive function to add methods to components
-        def process_component_for_methods(component: Dict[str, Any]):
-            comp_type = str(component.get("type", "")).lower()
-            comp_id = str(component.get("id", "")).lower()
-            
-            # Process children first
-            if isinstance(component.get("children"), list):
-                for child in component["children"]:
-                     if isinstance(child, dict):
-                         process_component_for_methods(child)
-            
-            # Add click methods to buttons without methods
-            if comp_type == "button":
-                # Specifically target the 'add' button
-                if "add" in comp_id:
-                    # It's an add button
-                    if not component.get("methods") or not component["methods"].get("click"):
-                        print(f"Adding IR click method to add button: {component.get('id')}")
-                        
-                        # Create the methods object if it doesn't exist
-                        if "methods" not in component:
-                            component["methods"] = {}
-                        
-                        # Define the IR click method for the add button
-                        click_method_ir = []
-                        
-                        # Get the input value if we found an input
-                        if input_field:
-                            click_method_ir.append({
-                                "type": "GET_PROPERTY",
-                                "targetId": input_field.get("id"),
-                                "propertyName": "value",
-                                "resultVariable": "inputValue"
-                            })
-                        else:
-                            print("Warning: Could not find input field for add button method.")
-                        
-                        # Add the value to the list if we found a list
-                        if todo_list:
-                            click_method_ir.append({
-                                "type": "ADD_ITEM",
-                                "targetId": todo_list.get("id"),
-                                "itemValue": "$inputValue" # Assumes inputValue exists
-                            })
-                        else:
-                             print("Warning: Could not find todo list for add button method.")
-                        
-                        # Clear the input if we found an input
-                        if input_field:
-                            click_method_ir.append({
-                                "type": "SET_PROPERTY",
-                                "targetId": input_field.get("id"),
-                                "propertyName": "value",
-                                "newValue": ""
-                            })
-                        
-                        # Set the IR click method
-                        component["methods"]["click"] = click_method_ir
-                        
-        # Process all top-level components recursively
-        for comp in components:
-             if isinstance(comp, dict):
-                 process_component_for_methods(comp)
-
-        # NOTE: No translation happens here anymore
-        # self._translate_ir_methods_to_js(components) # Removed call from here
-        
-        # Return the modified app_config (which contains the modified components list)
-        app_config["components"] = components
-        return app_config
-        
-    def _translate_ir_to_frontend_call(self, ir_actions: List[Dict[str, Any]], component_id: str) -> Dict[str, Any]:
-        """Translate IR actions into a structure representing the sequence of frontend API calls.
-           Instead of generating a complex JS string, this produces a structure
-           that the frontend can interpret more easily.
-        """
-        if not ir_actions:
-            return { "actions": [{ "type": "LOG", "payload": "No actions defined" }] }
-
-        # --- DEBUG: Log received IR and final actions ---
-        print(f"[DEBUG _translate_ir_to_frontend_call] Received IR for {component_id}: {json.dumps(ir_actions, indent=2)}")
-
-        call_actions = []
-        # Simple variable handling (more robust state might be needed for complex flows)
-        # This dictionary simulates the temporary variables declared by GET_PROPERTY
-        local_vars_context = {}
-
-        for action in ir_actions:
-            action_type = action.get("type")
-            payload = action.get("payload", {}) # Extract payload, default to empty dict
-            # --- DEBUG: Log each action being processed ---
-            print(f"[DEBUG _translate_ir_to_frontend_call] Processing action: {json.dumps(action, indent=2)}")
-            # --- END DEBUG --- 
-            call_object = { "type": action_type } # Start with the basic type
-
-            try:
-                if action_type == "GET_PROPERTY":
-                    # Get parameters from payload
-                    target_id = payload.get("targetId")
-                    prop_name = payload.get("propertyName")
-                    result_var = payload.get("resultVariable")
-                    if target_id and prop_name and result_var:
-                        call_object["payload"] = {
-                            "targetId": target_id,
-                            "propertyName": prop_name,
-                            "resultVariable": result_var
-                        }
-                        # Simulate variable declaration for subsequent steps
-                        local_vars_context[result_var] = None # Mark as declared
-                        call_actions.append(call_object)
-                        print(f"[DEBUG _translate_ir_to_frontend_call] Appended GET_PROPERTY action.") # Log success
-                    else:
-                        print(f"Warning: Skipping invalid GET_PROPERTY: {action}")
-
-                # --- ADD MISSING GET_EVENT_DATA HANDLER --- 
-                elif action_type == "GET_EVENT_DATA":
-                    path = payload.get("path") # e.g., "target.value"
-                    result_var = payload.get("resultVariable")
-                    if path and result_var:
-                        call_object["payload"] = {
-                            "path": path,
-                            "resultVariable": result_var
-                        }
-                        # Simulate variable declaration
-                        local_vars_context[result_var] = None 
-                        call_actions.append(call_object)
-                        print(f"[DEBUG _translate_ir_to_frontend_call] Appended GET_EVENT_DATA action.") # Log success
-                    else:
-                        print(f"Warning: Skipping invalid GET_EVENT_DATA: {action}")
-                # --- END GET_EVENT_DATA HANDLER --- 
-
-                elif action_type == "SET_PROPERTY":
-                    # Get parameters from payload
-                    target_id = payload.get("targetId")
-                    prop_name = payload.get("propertyName")
-                    new_value = payload.get("newValue") # Keep value as is (literal or $variable)
-                    if target_id and prop_name:
-                         call_object["payload"] = {
-                            "targetId": target_id,
-                            "propertyName": prop_name,
-                            # Pass the value directly - frontend will resolve $vars
-                            "value": new_value
-                         }
-                         call_actions.append(call_object)
-                         print(f"[DEBUG _translate_ir_to_frontend_call] Appended SET_PROPERTY action.") # Log success
-                    else:
-                        print(f"Warning: Skipping invalid SET_PROPERTY: {action}")
-                
-                # --- NEW HANDLER for TOGGLE_PROPERTY --- 
-                elif action_type == "TOGGLE_PROPERTY":
-                    # Get parameters from payload
-                    target_id = payload.get("targetId")
-                    prop_name = payload.get("propertyName")
-                    values = payload.get("values")
-                    if target_id and prop_name and isinstance(values, list) and len(values) == 2:
-                        # Set the ACTION type to SET_PROPERTY
-                        call_object["type"] = "SET_PROPERTY" 
-                        # Create the special PAYLOAD for the SET_PROPERTY action
-                        call_object["payload"] = {
-                            "targetId": target_id,
-                            "propertyName": prop_name,
-                            "value": { 
-                                "type": "_TOGGLE_INTERNAL_", # Internal type for frontend handler
-                                "values": values 
-                            }
-                        }
-                        call_actions.append(call_object)
-                        print(f"[DEBUG _translate_ir_to_frontend_call] Appended TOGGLE_PROPERTY (as SET_PROPERTY) action.") # Log success
-                    else:
-                        print(f"Warning: Skipping invalid TOGGLE_PROPERTY: {action}. Ensure 'values' is a list of 2 items.")
-                # --- END NEW HANDLER --- 
-
-                elif action_type == "LOG_MESSAGE":
-                    # Get parameters from payload
-                    message = payload.get("message")
-                    if message is not None:
-                        call_object["payload"] = { 
-                            "message": message # Pass message string directly (with $vars)
-                        }
-                        call_actions.append(call_object)
-                        print(f"[DEBUG _translate_ir_to_frontend_call] Appended LOG_MESSAGE action.") # Log success
-                    else:
-                        print(f"Warning: Skipping invalid LOG_MESSAGE: {action}")
-
-                # --- Add handling for ADD_COMPONENT --- 
-                elif action_type == "ADD_COMPONENT":
-                    # Get parameters from payload
-                    parent_id = payload.get("parentId")
-                    config_data = payload.get("config")
-                    if parent_id and isinstance(config_data, dict):
-                        call_object["payload"] = {
-                            "parentId": parent_id,
-                            "config": config_data # Pass the config object directly
-                        }
-                        call_actions.append(call_object)
-                        print(f"[DEBUG _translate_ir_to_frontend_call] Appended ADD_COMPONENT action.") # Log success
-                    else:
-                        print(f"Warning: Skipping invalid ADD_COMPONENT: {action}")
-                # --- End ADD_COMPONENT handler --- 
-
-                # --- Add handler for ADD_ITEM --- 
-                elif action_type == "ADD_ITEM":
-                    # Get parameters from payload
-                    target_id = payload.get("targetId")
-                    item_value = payload.get("itemValue") # Keep value as is (literal or $variable)
-                    if target_id and item_value is not None:
-                         call_object["payload"] = {
-                            "targetId": target_id,
-                            "itemValue": item_value # Pass value directly, frontend resolves $vars
-                         }
-                         call_actions.append(call_object)
-                         print(f"[DEBUG _translate_ir_to_frontend_call] Appended ADD_ITEM action.") # Log success
-                    else:
-                        print(f"Warning: Skipping invalid ADD_ITEM: {action}")
-                # --- End ADD_ITEM handler --- 
-
-                # --- Add handler for REMOVE_ITEM --- 
-                elif action_type == "REMOVE_ITEM":
-                    # Get parameters from payload
-                    target_id = payload.get("targetId")
-                    # IMPORTANT: REMOVE_ITEM might use itemIndex OR itemValue
-                    item_value = payload.get("itemValue") 
-                    item_index = payload.get("itemIndex")
+            # Process the components
+            for component_name, component_info in registry_components.items():
+                if not component_info:
+                    continue
                     
-                    # Check if we have at least one valid identifier
-                    if target_id and (item_value is not None or item_index is not None):
-                        call_object["payload"] = { "targetId": target_id }
-                        # Pass whichever identifier is present (or both if applicable)
-                        if item_value is not None:
-                            call_object["payload"]["itemValue"] = item_value
-                        if item_index is not None:
-                            call_object["payload"]["itemIndex"] = item_index
-                        call_actions.append(call_object)
-                        print(f"[DEBUG _translate_ir_to_frontend_call] Appended REMOVE_ITEM action.") # Log success
-                    else:
-                        print(f"Warning: Skipping invalid REMOVE_ITEM (missing targetId or itemValue/itemIndex): {action}")
-                # --- End REMOVE_ITEM handler (Replaces previous block) ---
-
-                else:
-                    print(f"Warning: Unsupported IR action type in _translate_ir_to_frontend_call: {action_type}")
-                    # Optionally add a generic action representation or skip
-                    # call_object["payload"] = action # Pass full action if unknown?
-                    # call_actions.append(call_object)
-            
-            except Exception as e:
-                 print(f"ERROR translating IR action to call object: {action}. Error: {e}")
-                 traceback.print_exc()
-                 call_actions.append({ "type": "ERROR", "payload": f"Error translating action: {action_type}: {e}" })
-        
-        # --- DEBUG: Log received IR and final actions ---
-        print(f"[DEBUG _translate_ir_to_frontend_call] Returning actions for {component_id}: {json.dumps(call_actions, indent=2)}")
-        # Return the list of action objects for the method
-        return { "actions": call_actions }
-
-    # --- UPDATE _translate_all_ir_methods to use the new translator --- 
-    def _translate_all_ir_methods(self, components: List[Dict[str, Any]]) -> None:
-        """Recursively find and translate all IR method arrays to structured call objects."""
-        if not components:
-            return
-        for component in components:
-            if not isinstance(component, dict):
-                continue
-
-            # Process children first
-            if "children" in component and isinstance(component["children"], list):
-                self._translate_all_ir_methods(component["children"])
-
-            if "methods" in component and isinstance(component["methods"], dict):
-                component_id = component.get("id", "unknown")
-                for method_name, method_value in list(component["methods"].items()):
-                    # Check if it's an IR array
-                    if isinstance(method_value, list):
-                        try:
-                            # Use the new translator function
-                            call_object = self._translate_ir_to_frontend_call(method_value, component_id)
-                            # Replace IR array with the structured call object
-                            component["methods"][method_name] = call_object 
-                            print(f"Translated IR for {component_id}.{method_name} to structured call object")
-                        except Exception as e:
-                             print(f"ERROR translating IR for {component_id}.{method_name}: {e}")
-                             # Store error object instead of original method value
-                             component["methods"][method_name] = { "actions": [{ "type": "ERROR", "payload": f"Error translating IR: {e}" }] }
-
-    def _ensure_input_onchange_handlers(self, components: List[Dict[str, Any]]) -> None:
-        """
-        Ensure that input fields have onChange handlers.
-        
-        Args:
-            components: List of components to process
-        """
-        if not components:
-            return
-        
-        for component in components:
-            if not isinstance(component, dict):
-                continue
-            
-            # Process children first
-            if "children" in component and isinstance(component["children"], list):
-                self._ensure_input_onchange_handlers(component["children"])
-            
-            # Check if it's an input type that needs an onChange handler
-            comp_type = str(component.get("type", "")).lower()
-            input_types = ["input", "text-input", "textarea", "select"]
-            
-            if comp_type in input_types:
-                component_id = component.get("id")
-                if not component_id:
-                     print(f"Warning: Skipping input component of type {comp_type} because it has no ID.")
-                     continue
-                     
-                # Ensure methods object exists
-                if "methods" not in component or not isinstance(component["methods"], dict):
-                    component["methods"] = {}
+                # Extract the basic component information
+                # Handle variability in property naming
+                properties = component_info.get("properties", component_info.get("defaultProps", {}))
                 
-                # Check if a valid 'change' or 'onChange' method already exists
-                # A valid method should be a list (IR) or a dict (translated structure)
-                has_valid_handler = False
-                method_key_to_use = None
+                component_def = {
+                    "type": component_name,
+                    "description": component_info.get("description", ""),
+                    "properties": properties,
+                    "category": component_info.get("category", "basic")
+                }
                 
-                for handler_name in ["change", "onChange"]:
-                    if handler_name in component["methods"]:
-                        method_data = component["methods"][handler_name]
-                        # Check if it's a non-empty list (IR) or a translated dict with non-empty actions
-                        actions = None
-                        if isinstance(method_data, list):
-                            actions = method_data
-                        elif isinstance(method_data, dict) and isinstance(method_data.get("actions"), list):
-                            actions = method_data["actions"]
-                        
-                        if actions and len(actions) > 0:
-                             # --- ADDED: Check for correct pattern --- 
-                            if (
-                                len(actions) >= 2 and 
-                                actions[0].get("type") == "GET_EVENT_DATA" and 
-                                actions[0].get("payload", {}).get("path") == "target.value" and
-                                actions[1].get("type") == "SET_PROPERTY" and
-                                actions[1].get("payload", {}).get("propertyName") == "value"
-                            ):
-                                 has_valid_handler = True
-                                 method_key_to_use = handler_name
-                                 print(f"Found existing valid handler: {component_id}.{handler_name}")
-                                 break # Found a valid one, stop checking
-                            else:
-                                 print(f"Warning: Found existing handler {component_id}.{handler_name}, but it has incorrect action pattern. Will overwrite.")
-                                 # Don't set has_valid_handler = True, let it be overwritten below
-                                 method_key_to_use = handler_name # Remember which key to overwrite
-                                 break # Stop checking, we need to overwrite this one
-                                 
-                        # If actions exist but are empty, it's invalid, let loop continue or fall through
-                        
-                # If no valid handler was found OR an invalid one needs overwriting
-                if not has_valid_handler:
-                    # Determine which key to add/overwrite ('change' preferred)
-                    key_to_modify = method_key_to_use if method_key_to_use else "change"
-                    
-                    print(f"Ensuring default IR onChange handler for component: {component_id} ({comp_type}) on method key '{key_to_modify}'")
+                components_list.append(component_def)
+            
+            # If no components were found, use fallback
+            if not components_list:
+                print("Warning: No components found in registry. Using fallback components list.")
+                return self._get_fallback_components()
+        
+        except Exception as e:
+            print(f"Error getting component list: {str(e)}")
+            # Return fallback components on error
+            return self._get_fallback_components()
+            
+        return components_list
+        
+    def _get_fallback_components(self) -> List[Dict[str, Any]]:
+        """
+        Create a fallback list of basic components when the registry is unavailable.
+        
+        Returns:
+            A list of basic component definitions
+        """
+        return [
+            {
+                "type": "text",
+                "description": "Displays text content in various styles and formats.",
+                "properties": {
+                    "content": {"type": "string", "description": "The text content to display"},
+                    "variant": {"type": "string", "description": "The HTML element variant to use"}
+                },
+                "category": "basic"
+            },
+            {
+                "type": "container",
+                "description": "A flexible container that can hold other components.",
+                "properties": {},
+                "category": "basic"
+            },
+            {
+                "type": "button",
+                "description": "An interactive button that triggers actions.",
+                "properties": {
+                    "text": {"type": "string", "description": "The button text"},
+                    "variant": {"type": "string", "description": "Button style variant"}
+                },
+                "category": "basic"
+            },
+            {
+                "type": "input",
+                "description": "A text input field for user data entry.",
+                "properties": {
+                    "placeholder": {"type": "string", "description": "Placeholder text"},
+                    "label": {"type": "string", "description": "Label for the input"},
+                    "value": {"type": "string", "description": "Current input value"},
+                    "type": {"type": "string", "description": "Input type"}
+                },
+                "category": "basic"
+            }
+        ]
 
 # Create a singleton instance of the component service
 component_service = ComponentService()

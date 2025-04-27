@@ -1,9 +1,5 @@
 import React from 'react';
 import { registerComponent } from './ComponentFactory';
-// Import DynamicComponent to allow ListComponent to render item templates
-import { DynamicComponent } from './DynamicComponent'; 
-// Import ComponentChild type for ListComponent template handling
-import type { ComponentChild } from './DynamicComponent';
 
 // Import chart components - use correct paths
 import LineChart from './charts/LineChart';
@@ -14,32 +10,32 @@ import AdvancedChart from './charts/AdvancedChart';
 import DataSeriesChart from './charts/DataSeriesChart';
 
 // Import basic components
-import { Container, Text, Button } from './BasicComponents';
+import { /* Container, */ Text, Button } from './BasicComponents';
 // Import layout components
-import Grid from './components/layout/Grid';
-import Card from './components/layout/Card';
+// import Grid from './components/layout/Grid';
+// import Card from './components/layout/Card';
 
 // Add the import for Video component
 import Video from './components/basic/Video';
 
 // Define types for component props and return types
-interface FallbackComponentProps {
-  [key: string]: any;
-}
-
-type ComponentType = React.ComponentType<any>;
-
-// Function to safely wrap method code to prevent syntax errors
-const wrapMethodCode = (code: string): string => {
-  // Check if the code already has a function declaration
-  if (code.trim().startsWith('function')) {
-    // Wrap in a return statement to ensure it returns a function
-    return `return ${code}`;
-  } else {
-    // Wrap in a return and a function to ensure it's proper function syntax
-    return `return function(event, $m) { ${code} }`;
-  }
-};
+// interface FallbackComponentProps {
+//   [key: string]: any;
+// }
+//
+// type ComponentType = React.ComponentType<any>;
+//
+// // Function to safely wrap method code to prevent syntax errors
+// const wrapMethodCode = (code: string): string => {
+//   // Check if the code already has a function declaration
+//   if (code.trim().startsWith('function')) {
+//     // Wrap in a return statement to ensure it returns a function
+//     return `return ${code}`;
+//   } else {
+//     // Wrap in a return and a function to ensure it's proper function syntax
+//     return `return function(event, $m) { ${code} }`;
+//   }
+// };
 
 /**
  * Register all available components with the ComponentFactory
@@ -578,14 +574,10 @@ export function registerAllComponents() {
         const { 
           items = [], // Get items directly, default to empty array
           itemTemplate, // Get itemTemplate directly
-          children, 
           style = {}, 
           id, // Capture ID for logging
           ...rest 
         } = props || {};
-        
-        // Template comes directly from props now
-        const template = itemTemplate;
 
         // --- DEBUG LOG --- 
         console.log(`ListComponent ${id}: Received props.items:`, props?.items); // Log the received prop directly
@@ -616,20 +608,15 @@ export function registerAllComponents() {
             // If item is an object (generated from template by addItem),
             // render it using DynamicComponent
             return React.createElement('li', { key: itemKey }, 
-              React.createElement(DynamicComponent, {
-                component: item, // Pass the actual item object directly
-                // Pass necessary state/handlers if ListComponent itself becomes stateful later
-                appState: props.appState, // Pass down state if available
-                handleStateUpdateAction: props.handleStateUpdateAction, // Pass down handler if available
-                updateAppState: props.updateAppState // Pass down the central state updater
-              })
+              // TODO: Fix ListComponent item rendering - DynamicComponent was removed
+              `Item Placeholder: ${JSON.stringify(item)}` // Placeholder
             );
           } else {
             // Handle unexpected item types (null, undefined, etc.)
             console.warn(`ListComponent ${id}: Skipping invalid item at index ${index}:`, item);
             return null;
           }
-        }) : children // Fallback to original children if items is not an array
+        }) : null // Don't fallback to children, rely on items prop
         );
       }
     ),

@@ -41,4 +41,7 @@ coverage/
 # Misc
 README.md
 LICENSE
-*.log 
+*.log
+
+# Morpheo Plan File
+implementation_plan.md 

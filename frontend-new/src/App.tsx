@@ -1,12 +1,10 @@
 import React, { useEffect, Suspense, lazy } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { RootState } from './store';
 import { setupAuthListener } from './store/slices/authSlice';
 import axios from 'axios';
 import './App.css';
-import { createBrowserRouter } from 'react-router-dom';
-import Layout from './components/layout/Layout';
 import ChartGeneratorPage from './pages/ChartGeneratorPage';
 import DataSeriesPage from './pages/DataSeriesPage';
 
@@ -21,11 +19,9 @@ import UIPreview from './components/preview/UIPreview';
 import SavedUIs from './components/saved/SavedUIs';
 import NotFound from './components/common/NotFound';
 import ErrorBoundary from './components/ErrorBoundary';
-import { AppProvider } from './components/ui/state/Store';
 import TestPage from './pages/TestPage';
 
 // Import Morpheo component system
-import { DynamicComponent, ProcessAppConfig } from './components/ui/DynamicComponent';
 import { registerAllComponents } from './components/ui/ComponentRegistry';
 
 // Lazy load components to reduce initial bundle size
@@ -53,66 +49,6 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
-// Initialize Morpheo API
-function initializeMorpheoAPI() {
-  // Register all components
-  registerAllComponents();
-  
-  // Create global Morpheo API
-  window.$morpheo = {
-    renderApp: (config: any, target: string) => {
-      const targetElement = document.querySelector(target);
-      if (!targetElement) {
-        console.error(`Target element not found: ${target}`);
-        return;
-      }
-      
-      // Create React root and render the app
-      const ReactDOM = require('react-dom/client');
-      const root = ReactDOM.createRoot(targetElement);
-      root.render(
-        <React.StrictMode>
-          <ProcessAppConfig config={config} />
-        </React.StrictMode>
-      );
-    },
-    
-    DynamicComponent,
-    ProcessAppConfig
-  };
-  
-  // Add a shorthand for DOM operations
-  window.$m = (selector: string) => {
-    return {
-      element: () => document.querySelector(selector),
-      value: (newValue?: any) => {
-        const el = document.querySelector(selector) as HTMLInputElement;
-        if (!el) return null;
-        
-        if (newValue !== undefined) {
-          el.value = newValue;
-          return newValue;
-        }
-        
-        return el.value;
-      },
-      text: (newText?: string) => {
-        const el = document.querySelector(selector);
-        if (!el) return null;
-        
-        if (newText !== undefined) {
-          el.textContent = newText;
-          return newText;
-        }
-        
-        return el.textContent;
-      }
-    };
-  };
-  
-  console.log('Morpheo API initialized');
-}
-
 function App() {
   const dispatch = useDispatch();
   const { mode } = useSelector((state: RootState) => state.theme);
@@ -121,8 +57,8 @@ function App() {
     // Set up Firebase auth listener
     const unsubscribe = setupAuthListener(dispatch);
     
-    // Initialize Morpheo API
-    initializeMorpheoAPI();
+    // Register Morpheo components (needed for ComponentFactory)
+    registerAllComponents();
     
     // Clean up listener on unmount
     return () => {

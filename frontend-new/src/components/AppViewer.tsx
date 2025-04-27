@@ -1,11 +1,33 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ProcessAppConfig } from './ui/DynamicComponent';
-import { useParams } from 'react-router-dom';
-import * as apiService from '../services/api';
+import React, { /* useEffect, useRef, useState */ } from 'react';
 import {
-  animateElement
-} from '../utils/domUtils';
-import { withMethodsAdapter } from '../core/DynamicComponentAdapter';
+  // V3 Imports - Add more as needed based on AI generation & errors
+  // Layout
+  Box, Center, Flex, Grid, GridItem, Spacer, Stack, HStack, VStack, Wrap, WrapItem,
+  // Forms (using Field component where applicable)
+  Button, IconButton, Checkbox, CheckboxGroup, Editable, Field, Input, InputGroup, InputAddon, InputElement,
+  NumberInput, PinInput, RadioGroup, Select, Slider, SliderTrack, SliderThumb, SliderMarker,
+  Switch, Textarea,
+  // Data Display
+  Badge, Code, Kbd, List, ListItem, Stat, StatLabel, StatHelpText, StatGroup, Table, Tag, TagLabel,
+  // Feedback
+  Alert, Progress, Skeleton, SkeletonCircle, SkeletonText, Spinner,
+  // Typography
+  Text, Heading,
+  // Overlay
+  Dialog, Drawer, Menu, Popover, Tooltip,
+  // Disclosure
+  Accordion, Collapsible, Tabs, useDisclosure,
+  // Media & Icons
+  Avatar, AvatarGroup, Icon, Image,
+  // Other
+  AspectRatio, Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbSeparator,
+  CloseButton, Portal, VisuallyHidden,
+  // Hooks (Only Chakra-specific ones)
+  useCallbackRef, useControllableState, useMediaQuery, // Keep useDisclosure listed above
+} from '@chakra-ui/react';
+import { LiveProvider, LiveEditor, LiveError, LivePreview } from 'react-live'; // Import react-live
+import { useAppSelector } from '../store/hooks';
+import { RootState } from '../store';
 
 // Global DOM manipulation registry
 declare global {
@@ -21,186 +43,99 @@ declare global {
  * AppViewer component for viewing and interacting with Morpheo applications.
  */
 interface AppViewerProps {
-  appConfig?: any; // Allow passing app config directly
-  height?: string;
-  width?: string;
-  onEvent?: (eventName: string, data: any) => void;
+  appId?: string; // Keep if still relevant for triggering fetches etc.
 }
 
-// Create an enhanced ProcessAppConfig with method adapter
-const EnhancedProcessAppConfig = withMethodsAdapter(ProcessAppConfig);
+// Define the scope for react-live - V3 COMPONENTS
+const liveScope = {
+  React: React,                         // Provide React
+  useState: React.useState,
+  useEffect: React.useEffect,
+  useCallback: React.useCallback,
+  useRef: React.useRef,
+  useMemo: React.useMemo,
+  // Chakra UI V3 Components & Hooks (Explicit Mapping)
+  // Layout
+  Box: Box, Center: Center, Flex: Flex, Grid: Grid, GridItem: GridItem, Spacer: Spacer, Stack: Stack, HStack: HStack, VStack: VStack, Wrap: Wrap, WrapItem: WrapItem,
+  // Forms
+  Button: Button, IconButton: IconButton, Checkbox: Checkbox, CheckboxGroup: CheckboxGroup, Editable: Editable, Field: Field, Input: Input, InputGroup: InputGroup, InputAddon: InputAddon, InputElement: InputElement,
+  NumberInput: NumberInput, PinInput: PinInput, RadioGroup: RadioGroup, Select: Select, Slider: Slider, SliderTrack: SliderTrack, SliderThumb: SliderThumb, SliderMarker: SliderMarker,
+  Switch: Switch, Textarea: Textarea,
+  // Data Display
+  Badge: Badge, Code: Code, Kbd: Kbd, List: List, ListItem: ListItem, Stat: Stat, StatLabel: StatLabel, StatHelpText: StatHelpText, StatGroup: StatGroup, Table: Table, Tag: Tag, TagLabel: TagLabel,
+  // Feedback
+  Alert: Alert, Progress: Progress, Skeleton: Skeleton, SkeletonCircle: SkeletonCircle, SkeletonText: SkeletonText, Spinner: Spinner,
+  // Typography
+  Text: Text, Heading: Heading,
+  // Overlay
+  Dialog: Dialog, Drawer: Drawer, Menu: Menu, Popover: Popover, Tooltip: Tooltip,
+  // Disclosure
+  Accordion: Accordion, Collapsible: Collapsible, Tabs: Tabs, useDisclosure: useDisclosure,
+  // Media & Icons
+  Avatar: Avatar, AvatarGroup: AvatarGroup, Icon: Icon, Image: Image,
+  // Other
+  AspectRatio: AspectRatio, Breadcrumb: Breadcrumb, BreadcrumbItem: BreadcrumbItem, BreadcrumbLink: BreadcrumbLink, BreadcrumbSeparator: BreadcrumbSeparator,
+  CloseButton: CloseButton, Portal: Portal, VisuallyHidden: VisuallyHidden,
+  // Hooks
+  useCallbackRef: useCallbackRef, useControllableState: useControllableState, useMediaQuery: useMediaQuery,
+  // Any custom components or utility functions the AI should access
+};
 
-const AppViewer: React.FC<AppViewerProps> = ({ appConfig: propAppConfig, height, width, onEvent }) => {
-  const [appConfig, setAppConfig] = useState<any>(propAppConfig || null);
-  const [isLoading, setIsLoading] = useState<boolean>(!propAppConfig);
-  const [error, setError] = useState<string | null>(null);
-  const { appId } = useParams<{ appId: string }>();
-  const appContainerRef = useRef<HTMLDivElement>(null);
-  const [componentUsageStats, setComponentUsageStats] = useState<Record<string, number>>({});
+const AppViewer: React.FC<AppViewerProps> = ({ appId }) => {
+    // const toast = useToast(); // Instantiate toast here if needed for scope
 
-  // Log component usage statistics
-  const logComponentUsage = (config: any) => {
-    if (!config || !config.components) return;
-    const stats: Record<string, number> = {};
-    const countComponentTypes = (component: any) => {
-      if (!component) return;
-      const type = component.type?.toLowerCase() || 'unknown';
-      stats[type] = (stats[type] || 0) + 1;
-      if (Array.isArray(component.children)) {
-        component.children.forEach((child: any) => {
-          if (typeof child === 'object') {
-            countComponentTypes(child);
-          }
-        });
-      }
-    };
-    config.components.forEach((component: any) => {
-      countComponentTypes(component);
-    });
-    setComponentUsageStats(stats);
-    console.log('Component Usage Statistics:');
-    console.table(stats);
-    console.log('Component Hierarchy:');
-    config.components.forEach((component: any, index: number) => {
-      console.group(`Root Component ${index + 1}: ${component.type} (${component.id || 'no-id'})`);
-      if (component.children && component.children.length > 0) {
-        console.log(`Contains ${component.children.length} children`);
-      }
-      if (component.methods && Object.keys(component.methods).length > 0) {
-        console.log(`Has ${Object.keys(component.methods).length} methods:`, Object.keys(component.methods).join(', '));
-      }
-      console.groupEnd();
-    });
-    if (stats['map']) {
-      console.log(`%cMap component detected! (${stats['map']} instances)`, 'background: #4CAF50; color: white; padding: 2px 5px; border-radius: 3px;');
+    // Get state from Redux store using inline selectors
+    const componentCode = useAppSelector((state: RootState) => state.ui.componentCode);
+    const isLoading = useAppSelector((state: RootState) => state.ui.loading || state.ui.generatingUI ); // Combine loading states
+    const error = useAppSelector((state: RootState) => state.ui.error);
+    // const iframeRef = useRef<HTMLIFrameElement>(null); // REMOVED iframe ref
+
+    // REMOVED useEffect for postMessage
+
+    if (isLoading) {
+        return (
+            <Center height="100%">
+                <Spinner size="xl" />
+            </Center>
+        );
     }
-  };
 
-  // Initialize the global DOM manipulation object
-  useEffect(() => {
-    window.$morpheo = window.$morpheo || {};
-    window.$m = (selector: string) => {
-      const element = document.querySelector(selector);
-      if (!element) {
-        console.warn(`Element not found: ${selector}`);
-        return {
-          element: null, getValue: () => '', setValue: () => null,
-          getProperty: () => null, setProperty: () => null,
-          getStyle: () => null, setStyle: () => null,
-          addClass: () => null, removeClass: () => null, toggleClass: () => null,
-          on: () => null, off: () => null,
-          show: () => null, hide: () => null, animate: () => null,
-        };
-      }
-      return {
-        element,
-        getValue: () => {
-          if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) return element.value;
-            return element.textContent || '';
-        },
-        setValue: (value: string) => {
-          if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) element.value = value;
-          else element.textContent = value;
-          return element;
-        },
-        getProperty: (prop: string) => (element as any)[prop],
-        setProperty: (prop: string, value: any) => { (element as any)[prop] = value; return element; },
-        getStyle: (prop: string) => window.getComputedStyle(element).getPropertyValue(prop),
-        setStyle: (prop: string, value: string) => {
-          if (element instanceof HTMLElement) {
-            if (prop === 'transform') {
-              element.style.transform = value;
-              if (!element.style.transition) element.style.transition = 'transform 0.3s ease';
-            } else {
-              element.style[prop as any] = value;
-            }
-          }
-          return element;
-        },
-        addClass: (className: string) => { element.classList.add(className); return element; },
-        removeClass: (className: string) => { element.classList.remove(className); return element; },
-        toggleClass: (className: string) => { element.classList.toggle(className); return element; },
-        on: (eventName: string, handler: EventListener) => { element.addEventListener(eventName, handler); return element; },
-        off: (eventName: string, handler: EventListener) => { element.removeEventListener(eventName, handler); return element; },
-        show: () => { (element as HTMLElement).style.display = ''; return element; },
-        hide: () => { (element as HTMLElement).style.display = 'none'; return element; },
-        animate: (animation: string, options: Record<string, any> = {}) => { animateElement(element as HTMLElement, animation, options); return element; }
-      };
-    };
-    window._methodExecutionTimestamps = window._methodExecutionTimestamps || {};
-    window._isProcessingEvent = false;
-  }, []);
-
-  // Load the app configuration if not provided as a prop
-  useEffect(() => {
-    if (propAppConfig) {
-      setAppConfig(propAppConfig);
-      setIsLoading(false);
-      logComponentUsage(propAppConfig);
-      console.log('App configuration loaded from props');
-    } else if (appId) {
-      setIsLoading(true);
-      apiService.getConfigById(appId)
-        .then(data => {
-          setAppConfig(data);
-          setIsLoading(false);
-          setError(null);
-          logComponentUsage(data);
-          console.log('App configuration loaded from API');
-        })
-        .catch(err => {
-          console.error('Failed to load app configuration:', err);
-          setError('Failed to load app configuration. Please try again later.');
-      setIsLoading(false);
-        });
+    // Handle errors from Redux state
+    if (error) { // Only showing Redux errors
+        return (
+            <Center height="100%" p={4}>
+                <Alert.Root status="error">
+                    <Box fontWeight="bold">Error loading application!</Box>
+                    <Box>{typeof error === 'string' ? error : JSON.stringify(error)}</Box>
+                </Alert.Root>
+            </Center>
+        );
     }
-  }, [propAppConfig, appId]);
 
-  // Add these handler functions back as they might be used by EnhancedProcessAppConfig
-  const handleRegionComponentsUpdated = (regionName: string, components: any[]) => {
-    console.log(`Region ${regionName} updated with ${components.length} components`);
-  };
+    // If no code and no error/loading state
+    if (!componentCode) {
+         return (
+            <Center height="100%">
+                <Box>No application code generated yet.</Box>
+            </Center>
+        );
+    }
 
-  const handleRegionsUpdated = (regions: string[]) => {
-    console.log(`App regions updated: ${regions.join(', ')}`);
-  };
+    // Wrap the code into a functional component for react-live
+    const wrappedCode = componentCode ? `() => { ${componentCode} }` : '<></>'; // Default to fragment if no code
 
-  if (isLoading) {
-    return <div className="loading">Loading app...</div>;
-  }
-
-  if (error) {
-    return <div className="error">{error}</div>;
-  }
-
-  if (!appConfig) {
-    return <div className="error">No app configuration available</div>;
-  }
-
+    // Use React Live for rendering
   return (
-    <div className="app-viewer" ref={appContainerRef} style={{ height, width }}>
-      <div className="app-container" style={{ 
-        margin: '0 auto', 
-        maxWidth: width || 'initial',
-        width: '100%',
-        position: 'relative',
-        padding: '20px',
-        backgroundColor: '#fff',
-        color: '#333'
-      }}>
-        {/* Ensure we are using the enhanced component that handles methods */}
-        <EnhancedProcessAppConfig 
-        config={appConfig} 
-          onRegionComponentsUpdated={handleRegionComponentsUpdated}
-          onRegionsUpdated={handleRegionsUpdated}
-          onComponentEventOccurred={(eventName: string, data: any) => {
-            if (onEvent) {
-              onEvent(eventName, data);
-            }
-          }}
-        />
-      </div>
-    </div>
+        <LiveProvider code={wrappedCode} scope={liveScope} noInline={false}>
+          <Box p={4} height="100%" display="flex" flexDirection="column" borderWidth="1px" borderRadius="md" overflow="hidden">
+            {/* Optional: LiveEditor for debugging */}
+            {/* <Box as={LiveEditor} p={2} bg="gray.800" color="gray.100" fontFamily="monospace" fontSize="sm" /> */}
+            <Box flex="1" p={4} borderWidth="1px" borderColor="gray.200" borderRadius="md" overflow="auto" position="relative">
+              <LivePreview /> {/* Render the component here */}
+            </Box>
+            <Box as={LiveError} bg="red.100" color="red.700" p={3} mt={2} borderRadius="md" fontFamily="monospace" fontSize="sm" whiteSpace="pre-wrap" /> {/* Show errors */}
+          </Box>
+        </LiveProvider>
   );
 };
 

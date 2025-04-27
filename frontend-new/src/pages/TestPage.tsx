@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import AppViewer from '../components/AppViewer';
-import barcelonaMap from '../barcelona-map.json';
 
 const TestPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
@@ -29,7 +28,7 @@ const TestPage: React.FC = () => {
         overflow: 'hidden',
         minHeight: '600px'
       }}>
-        <AppViewer appConfig={barcelonaMap} />
+        <AppViewer />
       </div>
     </div>
   );

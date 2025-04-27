@@ -1,30 +1,30 @@
-import { UIConfig } from '../store/slices/uiSlice';
-import { AppRequirements } from '../components/generator/AppRequirementsForm';
 import axios from 'axios';
+import { AppRequirements } from '../components/generator/AppRequirementsForm';
+
+// Define the expected response structure from the backend
+interface GeneratedCodeResponse {
+  component_code: string | null;
+  error: string | null;
+}
 
 /**
- * Generate a UI configuration based on user requirements
- * This is the main entry point for app generation
+ * Generate React component code based on user requirements
+ * Calls the new /api/generate endpoint.
  */
 export const generateUIFromRequirements = async (
   requirements: AppRequirements,
-  useSmartGeneration: boolean = false
-): Promise<UIConfig> => {
+  useSmartGeneration: boolean = false // This flag might be irrelevant now
+): Promise<string> => { // Changed return type
   try {
-    console.log('Starting app generation from requirements:', JSON.stringify(requirements, null, 2));
-    console.log('useSmartGeneration flag:', useSmartGeneration);
+    console.log('Starting component code generation from requirements:', JSON.stringify(requirements, null, 2));
+    // console.log('useSmartGeneration flag:', useSmartGeneration); // Keep or remove based on relevance
     
-    // Determine if we should use OpenAI or Smart Generation
-    // --- ALWAYS use the Morpheo component generation endpoint --- 
-    console.log('Calling Morpheo backend endpoint /generate-component-ui');
-    
-    // Prepare payload for our backend
+    // Prepare payload for our backend - uses "request" key
     const payload = {
-      prompt: requirements.purpose // Use the main purpose/prompt text
-      // Add other fields from requirements if needed by the backend later
+      request: requirements.purpose // Use the main purpose/prompt text
     };
 
-    // --- Add Authentication Flow --- 
+    // --- Authentication Flow (Keep as is) --- 
     const testUsername = process.env.REACT_APP_TEST_USERNAME || 'testuser';
     const testPassword = process.env.REACT_APP_TEST_PASSWORD || 'defaulttestpass';
     let accessToken = null;
@@ -55,27 +55,42 @@ export const generateUIFromRequirements = async (
     }
     // --- End Authentication Flow ---
 
-    // API URL
-    const apiUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/generate-component-ui`;
+    // API URL - Updated to the correct endpoint
+    const apiUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/generate`;
 
     // Send request to our backend API with Authorization header
-    const response = await axios.post(apiUrl, payload, {
+    const response = await axios.post<GeneratedCodeResponse>(apiUrl, payload, {
         headers: {
             'Authorization': `Bearer ${accessToken}`
         }
     });
     
-    console.log('Backend API response received:', response.data);
+    console.log('Backend API response received (/api/generate):', response.data);
     
-    // The backend returns { id: ..., config: ... }, we need the config part
-    if (response.data && response.data.config) {
-        return response.data.config;
-    } else {
-        throw new Error('Invalid response structure received from backend');
+    // --- Updated Response Handling --- 
+    if (response.data) {
+        if (response.data.error) {
+            console.error('Backend returned an error:', response.data.error);
+            throw new Error(response.data.error);
+        }
+        if (response.data.component_code && typeof response.data.component_code === 'string') {
+            console.log('Successfully received component code.');
+            return response.data.component_code; // Return the code string
+        }
     }
-    // --- END Morpheo endpoint call --- 
-  } catch (error) {
+    
+    // If we reach here, the response structure was unexpected
+    throw new Error('Invalid or unexpected response structure received from backend');
+    // --- End Updated Response Handling --- 
+
+  } catch (error: any) {
     console.error('Error in generateUIFromRequirements:', error);
+    // Re-throw the error so the thunk can catch it
+    if (error instanceof Error) {
     throw error;
+    } else { 
+         // Handle cases where error might not be an Error instance
+         throw new Error('An unknown error occurred during UI generation');
+    }
   }
 }; 
