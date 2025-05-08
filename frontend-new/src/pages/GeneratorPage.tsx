@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { RootState } from '../store';
-import { clearGeneratedCode, clearError, saveGeneration, clearLoadedGenerationFlags, undoModification, redoModification, fetchSuggestions, generateCodeWithFiles, modifyCodeWithFiles, setLiveUpdateCommand, clearLiveUpdateCommand, PropertySchema } from '../store/slices/uiSlice';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
+import { AppDispatch, RootState } from '../store';
+import { generateFullCode, modifyGeneratedCode, clearGeneratedCode, clearError, saveGeneration, clearLoadedGenerationFlags, undoModification, redoModification, fetchSuggestions, generateCodeWithFiles, modifyCodeWithFiles, setLiveUpdateCommand, clearLiveUpdateCommand, extractComponentProperties, PropertySchema } from '../store/slices/uiSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { auth } from '../config/firebase';
 import InlinePreview from '../components/preview/InlinePreview';
 import toast from 'react-hot-toast';
-import ManualEditPanel from '../components/common/ManualEditPanel';
+import ManualEditPanel from '../components/ui/components/basic/ManualEditPanel';
 
 import {
   Box,
@@ -14,6 +15,9 @@ import {
   Button,   
   Spinner, 
   Alert,
+  AlertTitle,
+  AlertDescription,
+  AlertIndicator, 
   CloseButton,
   VStack, 
   Heading,
@@ -64,12 +68,6 @@ function instrumentHtmlWithMorpheoIds(html: string): string {
   });
 }
 
-// Define the structure for component property data
-interface ComponentPropertyData {
-  schema: PropertySchema[];
-  values: Record<string, any>;
-}
-
 const GeneratorPage: React.FC = () => {
   const [prompt, setPrompt] = useState<string>('');
   const [modificationPrompt, setModificationPrompt] = useState<string>('');
@@ -115,8 +113,8 @@ const GeneratorPage: React.FC = () => {
   // --- Mock selection state for demonstration ---
   const [selectedComponent, setSelectedComponent] = useState<string | null>(null);
 
-  // Wrap componentProperties definition in useMemo and provide explicit type
-  const componentProperties = useMemo<Record<string, ComponentPropertyData>>(() => ({
+  // Local property schema/values map for manual editing
+  const componentProperties: Record<string, { schema: PropertySchema[]; values: Record<string, any> }> = {
     sphere: {
       schema: [
         { name: 'color', label: 'Sphere Color', type: 'color', liveUpdateSnippet: "(val) => { if(window.sphere) window.sphere.material.color.set(val); }" },
@@ -127,8 +125,7 @@ const GeneratorPage: React.FC = () => {
       values: { color: '#29abe2', radius: 2, metalness: 0.3, roughness: 0.5 },
     },
     // Add more components as needed
-  }), []); // Empty dependency array means it's created only once
-
+  };
   // State for current editable values
   const [propertySchema, setPropertySchema] = useState<PropertySchema[]>([]);
   const [propertyValues, setPropertyValues] = useState<Record<string, any>>({});
@@ -156,12 +153,10 @@ const GeneratorPage: React.FC = () => {
   // When a component is selected, set schema/values from local map
   useEffect(() => {
     if (selectedComponent && componentProperties[selectedComponent]) {
-      // Access is now type-safe due to the Record<string, ComponentPropertyData> type
-      const props = componentProperties[selectedComponent];
-      setPropertySchema(props.schema);
-      setPropertyValues(props.values);
+      setPropertySchema(componentProperties[selectedComponent].schema);
+      setPropertyValues(componentProperties[selectedComponent].values);
     }
-  }, [selectedComponent, componentProperties]); // Correct dependency array
+  }, [selectedComponent]);
 
   // Handler for live update (onChange)
   const handlePropertyChange = (property: PropertySchema, value: any) => {
@@ -250,54 +245,29 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // --- Selection logic: listen for MORPHEO_COMPONENT_SELECT from iframe ---
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-
   useEffect(() => {
     const handleComponentSelect = (event: MessageEvent) => {
       console.log('[GeneratorPage] Received message:', event.data);
-      // Ensure the message is from our iframe
-      if (event.source !== iframeRef.current?.contentWindow) {
-        // console.warn("[GeneratorPage] Message from unexpected source ignored.", event.source);
-        return;
-      }
-
-      const { type, morpheoId, morpheoType, schema, values } = event.data || {};
-      
-      // Line ~488: Ensure mixed operators are clarified with parentheses
-      if ((type === 'MORPHEO_COMPONENT_SELECT' && morpheoId && manualEditMode) || (type === 'MORPHEO_PROPERTIES' && morpheoId)) {
-        console.log(`[GeneratorPage] Processing ${type} for morpheoId: ${morpheoId}`);
-        if (type === 'MORPHEO_COMPONENT_SELECT') {
-          setSelectedComponent(morpheoId);
-          // Optionally, you might want to dispatch extractComponentProperties here if that's the intended flow
-          // For example: dispatch(extractComponentProperties(morpheoId));
-          // However, ensure 'extractComponentProperties' is re-added to imports if used.
-          // Current logic relies on local componentProperties map based on selectedComponent change.
-          console.log('[GeneratorPage] Selected component ID for manual edit:', morpheoId, 'Type:', morpheoType);
-        } else if (type === 'MORPHEO_PROPERTIES') {
-          // This case assumes properties are sent from iframe after extraction
-          // Update your local state for schema and values if needed, or dispatch to Redux
-          console.log('[GeneratorPage] Received properties from iframe for:', morpheoId, { schema, values });
-          // Example: setPropertySchema(schema);
-          // Example: setPropertyValues(values);
-          // If these properties are directly used to update the ManualEditPanel, ensure it re-renders.
+      if (manualEditMode && !isMobile && event.data && event.data.type === 'MORPHEO_COMPONENT_SELECT') {
+        const { morpheoId } = event.data;
+        setSelectedComponent(morpheoId);
+        // Request property extraction from iframe
+        const iframe = document.querySelector('iframe');
+        if (iframe && iframe.contentWindow) {
+          console.log('[GeneratorPage] Sending MORPHEO_EXTRACT_PROPERTIES to iframe for', morpheoId);
+          iframe.contentWindow.postMessage({ type: 'MORPHEO_EXTRACT_PROPERTIES', morpheoId }, '*');
         }
-      } else {
-        // console.log('[GeneratorPage] Ignored message type or condition not met:', type, 'manualEditMode:', manualEditMode);
+      }
+      // Listen for extracted properties from iframe
+      if (event.data && event.data.type === 'MORPHEO_PROPERTIES') {
+        console.log('[GeneratorPage] Received MORPHEO_PROPERTIES:', event.data);
+        setPropertySchema(event.data.schema || []);
+        setPropertyValues(event.data.values || {});
       }
     };
-
     window.addEventListener('message', handleComponentSelect);
-    // const iframe = iframeRef.current; // Removed unused variable assignment
-
-    return () => {
-      window.removeEventListener('message', handleComponentSelect);
-      // Optional: If iframe is sending MORPHEO_COMPONENT_SELECT messages to parent for other purposes,
-      // you might need a more specific listener removal or flag.
-    };
-    // Dependencies: manualEditMode is important here. iframeRef.current itself shouldn't be a dep typically,
-    // but the message handler logic relies on it. If iframeRef changes and the old listener isn't removed,
-    // you could have multiple listeners.
-  }, [manualEditMode, iframeRef]);
+    return () => window.removeEventListener('message', handleComponentSelect);
+  }, [manualEditMode, isMobile]);
 
   // Instrument HTML only if manual edit mode is active
   let previewHtml = localHtmlContent || generatedHtmlContent || '';
