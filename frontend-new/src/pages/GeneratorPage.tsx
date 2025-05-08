@@ -5,7 +5,7 @@ import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { auth } from '../config/firebase';
 import InlinePreview from '../components/preview/InlinePreview';
 import toast from 'react-hot-toast';
-import ManualEditPanel from '../components/ui/components/basic/ManualEditPanel';
+import ManualEditPanel from '../components/common/ManualEditPanel';
 
 import {
   Box,
