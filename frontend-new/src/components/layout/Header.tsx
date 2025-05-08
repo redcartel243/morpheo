@@ -41,25 +41,16 @@ const Header: React.FC = () => {
           {isAuthenticated ? (
             <>
               <nav className="hidden md:flex space-x-4">
-                <Link to="/" className="text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
-                  Dashboard
+                <Link to="/generate" className={`px-4 py-2 rounded transition-colors ${
+                    location.pathname === '/generate' || location.pathname === '/' ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 font-medium' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}>
+                  Generator
                 </Link>
-                <Link to="/generate" className="text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
-                  Generate UI
+                <Link to="/saved" className={`px-4 py-2 rounded transition-colors ${
+                    location.pathname === '/saved' ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 font-medium' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}>
+                  Saved
                 </Link>
-                <Link to="/saved" className="text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
-                  Saved UIs
-                </Link>
-                <li>
-                  <Link 
-                    to="/face-detection" 
-                    className={`px-4 py-2 rounded transition-colors ${
-                      location.pathname === '/face-detection' ? 'bg-blue-500 text-white' : 'hover:bg-gray-100'
-                    }`}
-                  >
-                    Face Detection
-                  </Link>
-                </li>
               </nav>
               
               <button

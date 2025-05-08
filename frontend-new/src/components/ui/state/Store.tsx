@@ -1,6 +1,5 @@
 import React, { ReactNode } from 'react';
 import { createStateManager, createAction, createLoggerMiddleware, StateAction } from './StateManager';
-import { componentReducer, IntelligentComponentState } from '../intelligent/ComponentReducer';
 import {
   createDerivedState
 } from './StateManager';
@@ -21,7 +20,6 @@ export interface AppState {
   metrics: {
     counts: Record<string, number>;
   };
-  components: IntelligentComponentState;
 }
 
 // UI State Module
@@ -141,12 +139,6 @@ const initialState: AppState = {
   metrics: {
     counts: {}
   },
-  components: {
-    instances: {},
-    connections: {},
-    events: [],
-    lastEventTimestamp: null
-  }
 };
 
 // Define reducers
@@ -691,28 +683,14 @@ const metricsReducer = (state: AppState, action: StateAction): AppState => {
 
 // Main store reducer
 export const mainReducer = (state: AppState = initialState, action: any): AppState => {
-  let nextState = state;
-
-  // Apply specific reducers
-  nextState = uiReducer(nextState, action);
-  nextState = formsReducer(nextState, action);
-  nextState = dataReducer(nextState, action);
-  nextState = authReducer(nextState, action);
-  nextState = notificationsReducer(nextState, action);
-  nextState = metricsReducer(nextState, action);
-  
-  // Add the component reducer
-  const componentsState = componentReducer(nextState.components, action);
-  if (componentsState !== nextState.components) {
-    nextState = {
-      ...nextState,
-      components: componentsState
-    };
-  }
-
-  // Additional cross-cutting logic can be added here
-
-  return nextState;
+  // Apply each reducer sequentially
+  state = uiReducer(state, action);
+  state = formsReducer(state, action);
+  state = dataReducer(state, action);
+  state = authReducer(state, action);
+  state = notificationsReducer(state, action);
+  state = metricsReducer(state, action);
+  return state;
 };
 
 // Create the state manager

@@ -1,51 +1,89 @@
-const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+const [newWorkout, setNewWorkout] = useState({
+  name: '',
+  sets: '',
+  reps: '',
+  weight: '',
+});
+const handleInputChange = (e) => {
+  const { name, value } = e.target;
+  setNewWorkout(prevState => ({
+    ...prevState,
+    [name]: value,
+  }));
+};
 
-useEffect(() => {
-  const handleResize = () => {
-    setIsMobile(window.innerWidth <= 768);
-  };
+const handleAddWorkout = () => {
+  if (newWorkout.name && newWorkout.sets && newWorkout.reps && newWorkout.weight) {
+    onAddWorkout(newWorkout); // Call the function passed via props
+    setNewWorkout({ name: '', sets: '', reps: '', weight: '' }); // Reset the form
+  }
+};
 
-  window.addEventListener('resize', handleResize);
-
-  return () => {
-    window.removeEventListener('resize', handleResize);
-  };
-}, []);
+const handleDeleteWorkout = (index) => {
+  onDeleteWorkout(index); // Call the function passed via props
+};
 
 return (
-  <Box bg="gray.50" minH="100vh">
-    <Container maxW="container.lg" py={10}>
-      <Flex direction={isMobile ? "column" : "row"} align="center">
-        <Avatar size="2xl" name="David Bukedi" src="https://media.licdn.com/dms/image/D4E03AQGgM4wz-rN1CQ/profile-displayphoto-shrink_400_400/0/1668773352430?e=1720156800&v=beta&t=yT3a5QnE8V9X-g2X8-TjQGvG-2cEaW3i24yF_i_R_0" mr={isMobile ? 0 : 8} mb={isMobile ? 4 : 0} />
-        <Box>
-          <Heading as="h1" size="2xl" mb={2}>David Bukedi</Heading>
-          <Text fontSize="lg" color="gray.700" mb={4}>Software Engineer</Text>
-          <HStack spacing={4}>
-            <Link href="https://www.linkedin.com/in/david-bukedi-38a5b1197/" isExternal color="blue.500">LinkedIn</Link>
-            <Link href="#" isExternal color="blue.500">GitHub</Link>
-            <Link href="#" isExternal color="blue.500">Portfolio</Link>
-          </HStack>
-        </Box>
-      </Flex>
+  <VStack spacing={4} align="stretch" p={5} borderWidth={1} borderRadius="md" boxShadow="md" bg="bg.surface">
+    <Heading size="lg" textAlign="center">Workout Tracker</Heading>
 
-      <Box mt={12}>
-        <Heading as="h2" size="xl" mb={4}>About Me</Heading>
-        <Text fontSize="md" color="gray.700">
-          Passionate software engineer with experience in developing and maintaining web applications. 
-          Proficient in JavaScript, React, and Node.js. 
-          Dedicated to creating high-quality, scalable, and user-friendly solutions.
-        </Text>
-      </Box>
+    {/* Input Form */}
+    <VStack spacing={2} align="stretch">
+      <Field Field.Label="Workout Name">
+        <Input
+          type="text"
+          name="name"
+          value={newWorkout.name}
+          onChange={handleInputChange}
+          placeholder="e.g., Bench Press"
+        />
+      </Field>
+      <Field Field.Label="Sets">
+        <Input
+          type="number"
+          name="sets"
+          value={newWorkout.sets}
+          onChange={handleInputChange}
+          placeholder="e.g., 3"
+        />
+      </Field>
+      <Field Field.Label="Reps">
+        <Input
+          type="number"
+          name="reps"
+          value={newWorkout.reps}
+          onChange={handleInputChange}
+          placeholder="e.g., 10"
+        />
+      </Field>
+      <Field Field.Label="Weight (lbs)">
+        <Input
+          type="number"
+          name="weight"
+          value={newWorkout.weight}
+          onChange={handleInputChange}
+          placeholder="e.g., 135"
+        />
+      </Field>
+      <Button colorPalette="blue" onClick={handleAddWorkout}>Add Workout</Button>
+    </VStack>
 
-      <Box mt={12}>
-        <Heading as="h2" size="xl" mb={4}>Contact</Heading>
-        <Text fontSize="md" color="gray.700" mb={2}>
-          Email: david.bukedi@example.com
-        </Text>
-        <Text fontSize="md" color="gray.700">
-          Phone: +1 555-123-4567
-        </Text>
-      </Box>
-    </Container>
-  </Box>
+    <Separator />
+
+    {/* Workout List */}
+    <VStack spacing={3} align="stretch">
+      {workoutData && workoutData.map((workout, index) => (
+        <HStack key={index} justify="space-between" p={3} borderWidth={1} borderRadius="md">
+          <VStack align="start">
+            <Text fontWeight="bold">{workout.name}</Text>
+            <Text fontSize="sm">Sets: {workout.sets}, Reps: {workout.reps}, Weight: {workout.weight} lbs</Text>
+          </VStack>
+          <Button size="sm" colorPalette="red" onClick={() => handleDeleteWorkout(index)}>Delete</Button>
+        </HStack>
+      ))}
+      {workoutData.length === 0 && (
+        <Text textAlign="center" color="gray.500">No workouts added yet.</Text>
+      )}
+    </VStack>
+  </VStack>
 );

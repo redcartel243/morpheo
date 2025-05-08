@@ -1,4 +1,4 @@
-import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import axios from 'axios';
 import { User as FirebaseUser } from 'firebase/auth';
 import { loginUser, registerUser, logoutUser, auth } from '../../config/firebase';
@@ -16,14 +16,16 @@ export interface AuthState {
   isAuthenticated: boolean;
   loading: boolean;
   error: string | null;
+  token: string | null;
 }
 
 // Initial state
 const initialState: AuthState = {
   user: null,
   isAuthenticated: false,
-  loading: false,
+  loading: true,
   error: null,
+  token: null,
 };
 
 // Helper function to convert Firebase user to our User type
@@ -45,9 +47,10 @@ export const login = createAsyncThunk(
       const firebaseUser = await loginUser(email, password);
       
       // Then get a token from Firebase
-      const token = await firebaseUser.getIdToken();
+      // const token = await firebaseUser.getIdToken(); // Token handled by listener
       
-      // Authenticate with the backend
+      // REMOVE Authenticate with the backend logic
+      /*
       try {
         const response = await axios.post(`${process.env.REACT_APP_API_URL}/token`, {
           username: email,
@@ -56,17 +59,29 @@ export const login = createAsyncThunk(
         
         console.log('Backend authentication successful:', response.data);
         
-        // Set the token in axios headers
-        axios.defaults.headers.common['Authorization'] = `Bearer ${response.data.access_token}`;
+        // --- REMOVE STORE TOKEN IN LOCALSTORAGE --- 
+        // if (response.data.access_token) {
+        //   localStorage.setItem('token', response.data.access_token);
+        //   console.log('[authSlice] Stored backend token in localStorage');
+        // } else {
+        //   console.error('[authSlice] Backend token endpoint did not return an access_token!');
+        // }
+        // --- END REMOVE STORE TOKEN --- 
+        
+        // Remove setting the token in axios headers here
+        // axios.defaults.headers.common['Authorization'] = `Bearer ${response.data.access_token}`;
         
         return firebaseUser;
       } catch (backendError: any) {
         console.warn('Backend authentication failed, using Firebase only:', backendError);
-        // If backend auth fails, we still return the Firebase user
-        // but set the Firebase token in the headers
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        // Remove setting the token in axios headers here
+        // axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         return firebaseUser;
       }
+      */
+      // Simply return the Firebase user, listener will handle token state
+      return firebaseUser;
+
     } catch (error: any) {
       return rejectWithValue(error.message || 'Login failed');
     }
@@ -81,10 +96,10 @@ export const register = createAsyncThunk(
       const firebaseUser = await registerUser(email, password);
       
       // Then get a token from Firebase
-      const token = await firebaseUser.getIdToken();
+      // const token = await firebaseUser.getIdToken(); // Token handled by listener
       
-      // Set the token in axios headers
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      // Remove setting the token in axios headers here
+      // axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       
       return firebaseUser;
     } catch (error: any) {
@@ -113,14 +128,26 @@ const authSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
-    setUser: (state, action) => {
-      if (action.payload) {
-        state.user = mapFirebaseUserToUser(action.payload);
-        state.isAuthenticated = true;
-      } else {
-        state.user = null;
-        state.isAuthenticated = false;
+    setUser: (state, action: PayloadAction<User | null>) => {
+      state.user = action.payload;
+      state.isAuthenticated = !!action.payload;
+      state.loading = false;
+      state.error = null;
+      if (!action.payload) {
+        state.token = null;
       }
+    },
+    setAuthLoading: (state, action: PayloadAction<boolean>) => {
+      state.loading = action.payload;
+    },
+    setAuthError: (state, action: PayloadAction<string>) => {
+      state.error = action.payload;
+      state.loading = false;
+      state.user = null;
+      state.token = null;
+    },
+    setToken: (state, action: PayloadAction<string | null>) => {
+      state.token = action.payload;
     },
   },
   extraReducers: (builder) => {
@@ -135,12 +162,14 @@ const authSlice = createSlice({
         state.user = mapFirebaseUserToUser(action.payload);
         state.isAuthenticated = true;
         
-        // Set default Authorization header for axios if needed
+        // Remove setting axios header here - listener handles token state
+        /*
         if (action.payload) {
           action.payload.getIdToken().then((token: string) => {
             axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
           });
         }
+        */
       })
       .addCase(login.rejected, (state, action) => {
         state.loading = false;
@@ -157,12 +186,14 @@ const authSlice = createSlice({
         state.user = mapFirebaseUserToUser(action.payload);
         state.isAuthenticated = true;
         
-        // Set default Authorization header for axios if needed
+        // Remove setting axios header here - listener handles token state
+        /*
         if (action.payload) {
           action.payload.getIdToken().then((token: string) => {
             axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
           });
         }
+        */
       })
       .addCase(register.rejected, (state, action) => {
         state.loading = false;
@@ -178,8 +209,13 @@ const authSlice = createSlice({
         state.isAuthenticated = false;
         state.loading = false;
         
-        // Reset axios default headers
-        delete axios.defaults.headers.common['Authorization'];
+        // --- Remove backend token removal --- 
+        // localStorage.removeItem('token');
+        // console.log('[authSlice] Removed backend token from localStorage');
+        // --- END REMOVE TOKEN --- 
+        
+        // Remove resetting axios default headers
+        // delete axios.defaults.headers.common['Authorization'];
       })
       .addCase(logoutAsync.rejected, (state, action) => {
         state.loading = false;
@@ -188,35 +224,51 @@ const authSlice = createSlice({
   },
 });
 
-export const { clearError, setUser } = authSlice.actions;
+export const { clearError, setUser, setAuthLoading, setAuthError, setToken } = authSlice.actions;
 
 // Setup Firebase auth state listener
 export const setupAuthListener = (dispatch: any) => {
-  return auth.onAuthStateChanged((user: any) => {
-    // Map Firebase user object to a plain serializable object
+  dispatch(setAuthLoading(true)); // Signal that we are checking auth state
+  return auth.onAuthStateChanged(async (user: FirebaseUser | null) => {
     if (user) {
-      // Create a serializable user object
-      const serializableUser = {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName,
-        photoURL: user.photoURL,
-        emailVerified: user.emailVerified,
-        isAnonymous: user.isAnonymous,
-        createdAt: user.metadata?.creationTime,
-        lastLoginAt: user.metadata?.lastSignInTime
-      };
-      
-      dispatch(setUser(serializableUser));
-      
-      // Set axios headers if user is logged in
-      user.getIdToken().then((token: string) => {
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      });
+        console.log('Listener: User logged in', user.uid);
+        try {
+          // Get ID token
+          const token = await user.getIdToken(true);
+          console.log('Listener: Token obtained');
+          
+          // Dispatch token to Redux state
+          dispatch(setToken(token));
+          
+          // Dispatch user info to Redux state
+          const serializableUser = mapFirebaseUserToUser(user);
+          dispatch(setUser(serializableUser));
+          
+          // Remove setting axios defaults here
+          // axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+          
+        } catch (error: any) {
+            console.error("Listener: Error getting ID token:", error);
+            dispatch(setAuthError(error.message || 'Failed to get authentication token.'));
+            dispatch(setToken(null)); // Ensure token is null on error
+        }
     } else {
+      console.log('Listener: User logged out');
+      // Dispatch null user and token
       dispatch(setUser(null));
-      delete axios.defaults.headers.common['Authorization'];
+      dispatch(setToken(null)); // Ensure token is cleared
+      
+      // Remove resetting axios defaults here
+      // delete axios.defaults.headers.common['Authorization'];
+      
+      dispatch(setAuthLoading(false)); // Ensure loading is set to false even on logout
     }
+  }, (error) => {
+      // Handle listener errors
+      console.error("Firebase Auth Listener Error:", error);
+      dispatch(setAuthError(error.message || 'Authentication listener failed.'));
+      dispatch(setUser(null));
+      dispatch(setToken(null));
   });
 };
 

@@ -1,14 +1,36 @@
-fastapi==0.104.1
-uvicorn==0.24.0
-python-dotenv==1.0.0
-openai==1.3.0
-langchain==0.0.335
-pydantic==2.4.2
-sqlalchemy==2.0.23
-psycopg2-binary==2.9.9
-firebase-admin==6.2.0
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-python-multipart==0.0.6
-websockets==12.0
-google-generativeai==2.0.0 
+fastapi
+uvicorn[standard]
+python-dotenv
+openai>=1.0.0 # Allow newer versions
+passlib[bcrypt]
+bcrypt==3.2.0 # Pinned to older version
+python-jose[cryptography]
+email_validator
+requests
+aiofiles
+requests_toolbelt
+# google-cloud-firestore # Commented out if not used directly
+firebase-admin
+
+# New Gemini SDK and dependencies
+google-genai # New main package
+google-ai-generativelanguage # Provides google.ai.generativelanguage (glm)
+
+# Optional: Langchain (ensure compatibility if used)
+# langchain>=0.1.0
+# langchain-core>=0.1.0
+# langchain-community
+# langchain-google-genai
+
+# Testing
+pytest
+
+# Linter/Formatter (Optional but recommended)
+# flake8
+# black
+# isort
+
+# Deprecated
+# google-generativeai
+# python-multipart==0.0.6
+# websockets 

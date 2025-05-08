@@ -1,553 +1,925 @@
-import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import axios from 'axios';
-import { AppRequirements } from '../../components/generator/AppRequirementsForm';
-import { generateUIFromRequirements } from '../../services/appGenerationService';
+import { createSlice, createAsyncThunk, PayloadAction, Dispatch } from '@reduxjs/toolkit';
+import { auth } from '../../config/firebase';
+import { GenerationDetail, GenerationInfo } from '../../types';
 
-// Define types
-export interface Component {
-  type: string;
-  id: string;
-  props: Record<string, any>;
-  children: Component[];
-  methods?: Record<string, any>;
+// --- Interfaces ---
+
+// Backend response type for suggestions
+interface SuggestModificationsResponse {
+    suggestions: string[];
 }
 
-export interface Layout {
-  type: string;
-  config: Record<string, any>;
+// --- Type for the new thunk argument ---
+interface GenerateWithFilesPayload {
+  prompt: string;
+  files: FileList | null; // Allow null if no files selected
 }
 
-export interface Theme {
-  colors: Record<string, string>;
-  typography: Record<string, any>;
-  spacing: Record<string, any>;
-}
-
-export interface Functionality {
-  type: string;
-  config: Record<string, any>;
-}
-
-export interface UIConfig {
-  id?: string;
-  name?: string;
-  userId?: string;
-  createdAt?: number;
-  app?: {
-    name?: string;
-    description?: string;
-    theme?: string;
-  };
-  layout?: {
-    type?: string;
-    regions?: string[];
-  };
-  components?: Component[];
+interface ModifyWithFilesPayload {
+  modificationPrompt: string;
+  currentHtml: string;
+  files: FileList | null; // Allow null if no files selected
 }
 
 export interface UIState {
-  componentCode: string | null;
+  generatedHtmlContent: string | null;
   lastPrompt: string | null;
-  savedConfigs: UIConfig[];
-  loading: boolean;
   error: string | null;
-  generatingUI: boolean;
+  generatingFullCode: boolean;
+  modifyingCode: boolean;
+  modificationError: string | null;
+  streamCompletedSuccessfully: boolean;
+  loadedGenerationHtml: string | null;
+  loadedGenerationPrompt: string | null;
+  htmlHistory: string[];
+  historyIndex: number;
+  savedGenerations: GenerationInfo[];
+  loadingGenerations: boolean;
+  loadingGenerationsError: string | null;
+  currentGenerationDetail: GenerationDetail | null;
+  loadingGenerationDetail: boolean;
+  loadingGenerationDetailError: string | null;
+  suggestions: string[];
+  loadingSuggestions: boolean;
+  suggestionsError: string | null;
 }
 
-// Initial state
 const initialState: UIState = {
-  componentCode: null,
+  generatedHtmlContent: null,
   lastPrompt: null,
-  savedConfigs: [],
-  loading: false,
   error: null,
-  generatingUI: false,
+  generatingFullCode: false,
+  modifyingCode: false,
+  modificationError: null,
+  streamCompletedSuccessfully: false,
+  loadedGenerationHtml: null,
+  loadedGenerationPrompt: null,
+  htmlHistory: [],
+  historyIndex: -1,
+  savedGenerations: [],
+  loadingGenerations: false,
+  loadingGenerationsError: null,
+  currentGenerationDetail: null,
+  loadingGenerationDetail: false,
+  loadingGenerationDetailError: null,
+  suggestions: [],
+  loadingSuggestions: false,
+  suggestionsError: null,
 };
 
-// Async thunks
-export const generateUI = createAsyncThunk(
-  'ui/generateUI',
-  async ({ 
-    prompt, 
-    useSmartGeneration = false,
-    stylePreferences = {}
-  }: { 
-    prompt: string, 
-    useSmartGeneration?: boolean, 
-    stylePreferences?: Record<string, any> 
-  }, { rejectWithValue }) => {
-    try {
-      console.log('Generating UI from prompt:', prompt);
-      console.log('Using Smart Generation:', useSmartGeneration);
-      
-      // Add authorization headers
-      let headers = {};
-      
-      const testUsername = process.env.REACT_APP_TEST_USERNAME || 'testuser';
-      const testPassword = process.env.REACT_APP_TEST_PASSWORD || 'defaulttestpass';
-      let accessToken = null;
-
-      try {
-        const tokenResponse = await axios.post(
-          `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/token`,
-          new URLSearchParams({
-            'username': testUsername,
-            'password': testPassword
-          }),
-          {
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-          }
-        );
-        accessToken = tokenResponse.data.access_token;
-        headers = { 'Authorization': `Bearer ${accessToken}` };
-        console.log('Auth token obtained for generateUI');
-      } catch (tokenError: any) {
-        console.error('Failed to obtain auth token for generateUI:', tokenError);
-        return rejectWithValue('Authentication failed: ' + (tokenError.response?.data?.detail || tokenError.message));
-      }
-      
-      // Prepare payload
-      const payload = {
-        prompt,
-        style_preferences: stylePreferences
-      };
-      
-      // Always use the component generation endpoint now
-      const endpoint = 'generate-component-ui'; 
-      console.log(`Using endpoint: ${process.env.REACT_APP_API_URL}/${endpoint}`);
-      
-      // Send request to API
-      const response = await axios.post(
-        `${process.env.REACT_APP_API_URL}/${endpoint}`,
-        payload,
-        { headers }
-      );
-      
-      console.log('API response received:', response.data);
-      
-      if (response.data && response.data.error) {
-        console.error('Backend returned an error:', response.data.error);
-        throw new Error(response.data.error);
-      }
-      if (response.data && response.data.component_code) {
-        return response.data.component_code;
-      } else {
-        throw new Error('Invalid response structure received from backend');
-      }
-    } catch (error: any) {
-      console.error('Error generating UI:', error);
-      return rejectWithValue(error.message || 'Failed to generate UI');
-    }
+// Helper function to clean markdown fences
+const cleanHtmlContent = (html: string | null): string | null => {
+  if (!html) return null;
+  let cleaned = html.trim(); // Trim whitespace first
+  if (cleaned.startsWith('```html')) {
+    cleaned = cleaned.substring(7); // Remove ```html
   }
-);
-
-export const generateAppFromRequirementsThunk = createAsyncThunk(
-  'ui/generateAppFromRequirements',
-  async (requirements: AppRequirements, { rejectWithValue }) => {
-    try {
-      console.log('generateAppFromRequirementsThunk called with requirements:', requirements);
-      const uiConfig = await generateUIFromRequirements(requirements);
-      console.log('Generated UI config:', uiConfig);
-      return uiConfig;
-    } catch (error: any) {
-      console.error('Error in generateAppFromRequirementsThunk:', error);
-      return rejectWithValue(error.message || 'Failed to generate app');
-    }
+  if (cleaned.startsWith('```')) { // Also handle just ```
+    cleaned = cleaned.substring(3);
   }
-);
+  if (cleaned.endsWith('```')) {
+    cleaned = cleaned.substring(0, cleaned.length - 3);
+  }
+  return cleaned.trim(); // Trim again after removal
+};
 
-export const fetchSavedConfigs = createAsyncThunk(
-  'ui/fetchSavedConfigs',
-  async (_, { rejectWithValue }) => {
+// --- Helper Function for Streaming API Calls ---
+const streamApiCall = async (url: string, body: any, thunkAPI: any): Promise<string> => {
+    const state = thunkAPI.getState() as { auth: { token: string | null } };
+    const token = state.auth.token;
+
+    if (!token) {
+      return thunkAPI.rejectWithValue('No authentication token found.');
+    }
+
+    // --- Construct full API URL --- 
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000'; // Fallback for safety
+    const fullUrl = `${apiUrl}${url}`; // Prepend base URL
+    console.log(`[streamApiCall] Making request to: ${fullUrl}`); // Log the full URL
+    // --- End URL construction ---
+
     try {
-      console.log('fetchSavedConfigs thunk called');
-      
-      // Get test credentials from environment variables
-      const testUsername = process.env.REACT_APP_TEST_USERNAME || 'testuser';
-      const testPassword = process.env.REACT_APP_TEST_PASSWORD || 'defaulttestpass';
-      
-      // First, get a token from the backend
-      console.log('Getting backend authentication token...');
-      try {
-        const tokenResponse = await axios.post(
-          `${process.env.REACT_APP_API_URL}/token`,
-          new URLSearchParams({
-            'username': testUsername,
-            'password': testPassword
-          }),
-          {
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded'
-            }
-          }
-        );
-        
-        const { access_token } = tokenResponse.data;
-        console.log('Got backend authentication token');
-        
-        // Get user's saved configurations from backend
-        try {
-          const response = await axios.get(
-            `${process.env.REACT_APP_API_URL}/ui-configs`,
-            {
-              headers: {
-                'Authorization': `Bearer ${access_token}`
-              }
-            }
-          );
-          
-          const configs = response.data;
-          console.log('Fetched saved configs:', configs);
-          return configs;
-        } catch (apiError: any) {
-          console.error('Error fetching UI configurations:', apiError);
-          return rejectWithValue(
-            apiError.response?.data?.detail || 
-            apiError.message || 
-            'Failed to fetch saved configurations'
-          );
+        // --- Use fullUrl --- 
+        const response = await fetch(fullUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+          throw new Error(errorData.detail || `Request failed with status ${response.status}`);
         }
-      } catch (tokenError: any) {
-        console.error('Error getting backend authentication token:', tokenError);
-        return rejectWithValue(
-          'Authentication failed: ' + 
-          (tokenError.response?.data?.detail || tokenError.message)
-        );
+
+        // Handle Streaming Response
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('Failed to get response reader.');
+        }
+
+        let accumulatedContent = '';
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          // Check for backend error signals within the stream
+          if (chunk.includes("<!-- ERROR:")) {
+             const errorMatch = chunk.match(/<!-- ERROR: (.*) -->/);
+             const errorMessage = errorMatch ? errorMatch[1] : "Unknown error signaled from backend stream.";
+             console.error("Backend stream signaled error:", errorMessage);
+             // Dispatch error action BEFORE throwing
+             thunkAPI.dispatch(uiSlice.actions.streamError({ message: errorMessage }));
+             throw new Error(errorMessage); // Still throw to reject the thunk
+          }
+          // --- Dispatch chunk --- 
+          thunkAPI.dispatch(uiSlice.actions.streamChunkReceived({ chunk }));
+          // --- End dispatch chunk --- 
+          accumulatedContent += chunk;
+        }
+
+        return accumulatedContent; // Return the full content on success
+
+      } catch (error: any) {
+        console.error("Streaming API Error:", error);
+        return thunkAPI.rejectWithValue(error.message || 'An unknown error occurred during the streaming request.');
       }
-    } catch (error: any) {
-      console.error('Error in fetchSavedConfigs thunk:', error);
-      return rejectWithValue(error.message || 'Failed to fetch saved configurations');
-    }
+};
+
+// --- Async Thunks ---
+
+// Generate Full Code Thunk using the helper
+export const generateFullCode = createAsyncThunk<string, string>(
+  'ui/generateFullCode',
+  async (prompt, thunkAPI) => {
+    return streamApiCall('/api/generate-full-code', { prompt }, thunkAPI);
   }
 );
 
-export const saveUIConfig = createAsyncThunk(
-  'ui/saveUIConfig',
-  async (config: UIConfig, { rejectWithValue }) => {
-    try {
-      console.log('saveUIConfig thunk called with config:', config);
-      
-      // Get test credentials from environment variables
-      const testUsername = process.env.REACT_APP_TEST_USERNAME || 'testuser';
-      const testPassword = process.env.REACT_APP_TEST_PASSWORD || 'defaulttestpass';
-      
-      // First, get a token from the backend
-      console.log('Getting backend authentication token...');
-      try {
-        // Use the test credentials from the backend
-        const tokenResponse = await axios.post(
-          `${process.env.REACT_APP_API_URL}/token`, 
-          new URLSearchParams({
-            'username': testUsername,
-            'password': testPassword
-          }),
-          {
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded'
-            }
-          }
-        );
-        
-        const { access_token } = tokenResponse.data;
-        console.log('Got backend authentication token');
-        
-        // Save to backend
-        const response = await axios.post(
-          `${process.env.REACT_APP_API_URL}/ui-configs`, 
-          config,
-          {
-            headers: {
-              'Authorization': `Bearer ${access_token}`
-            }
-          }
-        );
-        
-        console.log('Config saved successfully:', response.data);
-        
-        // Return the saved config with the new ID
-        return response.data;
-      } catch (tokenError: any) {
-        console.error('Error getting backend authentication token:', tokenError);
-        throw new Error('Failed to authenticate with backend: ' + 
-          (tokenError.response?.data?.detail || tokenError.message));
-      }
-    } catch (error: any) {
-      console.error('Error in saveUIConfig thunk:', error);
-      return rejectWithValue(error.message || 'Failed to save UI configuration');
-    }
+// Modify Generated Code Thunk using the helper
+export const modifyGeneratedCode = createAsyncThunk<string, { modificationPrompt: string; currentHtml: string }>(
+  'ui/modifyGeneratedCode',
+  async ({ modificationPrompt, currentHtml }, thunkAPI) => {
+    return streamApiCall('/api/modify-full-code', { modification_prompt: modificationPrompt, current_html: currentHtml }, thunkAPI);
   }
 );
 
-// Modify generateAppThunk
-export const generateAppThunk = createAsyncThunk<string, // Return type is now string
-  { requirements: AppRequirements; useSmartGeneration?: boolean }, // Args type
-  { rejectValue: string } // Type for rejectWithValue
+// --- NEW Thunk for Generating with Files (Non-Streaming FormData) ---
+export const generateCodeWithFiles = createAsyncThunk<
+  string, // Return type: the accumulated HTML string from the stream
+  GenerateWithFilesPayload, // Argument type: { prompt, files }
+  { dispatch: Dispatch, rejectValue: string } // Include Dispatch in thunkAPI types
 >(
-  'ui/generateApp',
-  async ({ 
-    requirements, 
-    useSmartGeneration = false 
-  }, { rejectWithValue }) => {
+  'ui/generateCodeWithFiles',
+  async ({ prompt, files }, thunkAPI) => {
+    console.log('[generateCodeWithFiles] Thunk started (streaming).');
+    const state = thunkAPI.getState() as { auth: { token: string | null } };
+    const token = state.auth.token;
+
+    if (!token) {
+      console.error('[generateCodeWithFiles] Authentication token not found.');
+      return thunkAPI.rejectWithValue('Authentication token not found.');
+    }
+
+    const formData = new FormData();
+    formData.append('prompt', prompt);
+    if (files) {
+      for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i], files[i].name);
+      }
+      console.log(`[generateCodeWithFiles] Appended ${files.length} files to FormData.`);
+    } else {
+      console.log('[generateCodeWithFiles] No files to append.');
+    }
+
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const fullUrl = `${apiUrl}/api/v2/generate-full-code-with-files`;
+    console.log(`[generateCodeWithFiles] Making streaming request to: ${fullUrl}`);
+
     try {
-      console.log('generateAppThunk called with requirements:', requirements);
-      // Use the updated service which returns a string
-      const generatedCode = await generateUIFromRequirements(requirements, useSmartGeneration);
-      return generatedCode; // Return the code string directly
+      const response = await fetch(fullUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          // No 'Content-Type' needed for FormData, browser sets it with boundary
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        let errorDetail = `HTTP error! Status: ${response.status}`;
+        try {
+          const errorJson = await response.json();
+          errorDetail = errorJson.detail || errorDetail;
+        } catch (e) {
+          try {
+            const errorText = await response.text();
+            errorDetail = errorText || errorDetail;
+          } catch (textErr) { /* Keep original HTTP error */ }
+        }
+        console.error('[generateCodeWithFiles] Request failed:', errorDetail);
+        thunkAPI.dispatch(uiSlice.actions.streamError({ message: errorDetail, isGenerating: true }));
+        return thunkAPI.rejectWithValue(errorDetail);
+      }
+
+      // Handle Streaming Response
+      const reader = response.body?.getReader();
+      if (!reader) {
+        const errorMsg = 'Failed to get response reader for streaming.';
+        thunkAPI.dispatch(uiSlice.actions.streamError({ message: errorMsg, isGenerating: true }));
+        throw new Error(errorMsg);
+      }
+
+      let accumulatedContent = '';
+      const decoder = new TextDecoder();
+      // Dispatch streamStart here, as the request is successful and streaming is about to begin
+      // Pass the original prompt to streamStart
+      thunkAPI.dispatch(uiSlice.actions.streamStart({ isGenerating: true, prompt: prompt }));
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        
+        if (chunk.includes("<!-- ERROR:")) {
+           const errorMatch = chunk.match(/<!-- ERROR: (.*) -->/);
+           const errorMessage = errorMatch ? errorMatch[1] : "Unknown error signaled from backend stream.";
+           console.error("[generateCodeWithFiles] Backend stream signaled error:", errorMessage);
+           thunkAPI.dispatch(uiSlice.actions.streamError({ message: errorMessage, isGenerating: true }));
+           throw new Error(errorMessage); 
+        }
+        thunkAPI.dispatch(uiSlice.actions.streamChunkReceived({ chunk }));
+        accumulatedContent += chunk;
+      }
+      // Do not dispatch streamComplete here, it's handled by the extraReducer's fulfilled case
+      console.log('[generateCodeWithFiles] Streaming successful, accumulated HTML.');
+      return accumulatedContent; // Return the full content on success
+
     } catch (error: any) {
-      console.error('Error in generateAppThunk:', error);
-      return rejectWithValue(error.message || 'Failed to generate UI code');
+      console.error('[generateCodeWithFiles] Fetch/Streaming error:', error);
+      // Ensure streamError is dispatched if not already by a backend signaled error
+      if (!error.message.includes("Unknown error signaled from backend stream")) {
+          thunkAPI.dispatch(uiSlice.actions.streamError({ message: error.message || 'An unknown network error occurred.', isGenerating: true }));
+      }
+      return thunkAPI.rejectWithValue(error.message || 'An unknown network error occurred.');
     }
   }
 );
+// --- End NEW Thunk ---
 
-// Add loadManualConfig Thunk (keep as is for now, might need removal later)
-export const loadManualConfig = createAsyncThunk(
-  'ui/loadManualConfig',
-  async (config: UIConfig, { rejectWithValue }) => {
-    // ... existing implementation ...
-    // THIS THUNK IS LIKELY OBSOLETE with the new code generation approach
-    // It loads old JSON format. Mark for potential removal.
-    console.warn("loadManualConfig is likely obsolete and loads the old config format.");
-    // ... rest of existing implementation ...
-    // Temporarily return something to satisfy TS, but expect backend to fail or logic to change
-    if (config) return { id: 'manual-load-placeholder', config }; 
-    throw new Error('Manual load failed or is incompatible');
-  }
-);
+// --- NEW Thunk for Modifying with Files (Streaming FormData) ---
+export const modifyCodeWithFiles = createAsyncThunk<
+  string, // Return type: accumulated HTML string
+  ModifyWithFilesPayload, // Argument type
+  { dispatch: Dispatch, rejectValue: string } // ThunkAPI config
+>(
+  'ui/modifyCodeWithFiles',
+  async ({ modificationPrompt, currentHtml, files }, thunkAPI) => {
+    console.log('[modifyCodeWithFiles] Thunk started (streaming).');
+    const state = thunkAPI.getState() as { auth: { token: string | null } };
+    const token = state.auth.token;
 
-// NEW Thunk for Modification
-export const modifyUI = createAsyncThunk(
-  'ui/modifyUI',
-  async ({ 
-    modificationPrompt, 
-    currentCode 
-  }: { 
-    modificationPrompt: string, 
-    currentCode: string | null 
-  }, { rejectWithValue }) => {
-    if (!currentCode) {
-      return rejectWithValue('No current code available to modify.');
+    if (!token) {
+      console.error('[modifyCodeWithFiles] Authentication token not found.');
+      return thunkAPI.rejectWithValue('Authentication token not found.');
     }
+
+    const formData = new FormData();
+    formData.append('modification_prompt', modificationPrompt);
+    formData.append('current_html', currentHtml);
+    if (files) {
+      for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i], files[i].name);
+      }
+      console.log(`[modifyCodeWithFiles] Appended ${files.length} files to FormData.`);
+    } else {
+      console.log('[modifyCodeWithFiles] No files to append for modification.');
+    }
+
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const fullUrl = `${apiUrl}/api/v2/modify-full-code-with-files`; // Use the new v2 endpoint
+    console.log(`[modifyCodeWithFiles] Making streaming request to: ${fullUrl}`);
+
     try {
-      console.log('Modifying UI with prompt:', modificationPrompt);
-      console.log('Current code length:', currentCode.length);
-      
-      // --- Authentication Flow (Copy from generateUI) --- 
-      let headers = {};
-      const testUsername = process.env.REACT_APP_TEST_USERNAME || 'testuser';
-      const testPassword = process.env.REACT_APP_TEST_PASSWORD || 'defaulttestpass';
-      let accessToken = null;
+      const response = await fetch(fullUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
 
-      try {
-        const tokenResponse = await axios.post(
-          `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/token`,
-          new URLSearchParams({
-            'username': testUsername,
-            'password': testPassword
-          }),
-          { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-        );
-        accessToken = tokenResponse.data.access_token;
-        headers = { 'Authorization': `Bearer ${accessToken}` };
-        console.log('Auth token obtained for modifyUI');
-      } catch (tokenError: any) {
-        console.error('Failed to obtain auth token for modifyUI:', tokenError);
-        return rejectWithValue('Authentication failed: ' + (tokenError.response?.data?.detail || tokenError.message));
+      if (!response.ok) {
+        let errorDetail = `HTTP error! Status: ${response.status}`;
+        try { const errorJson = await response.json(); errorDetail = errorJson.detail || errorDetail; }
+        catch (e) { try { const errorText = await response.text(); errorDetail = errorText || errorDetail; } catch (textErr) { /* Keep original */ } }
+        console.error('[modifyCodeWithFiles] Request failed:', errorDetail);
+        thunkAPI.dispatch(uiSlice.actions.streamError({ message: errorDetail, isModifying: true }));
+        return thunkAPI.rejectWithValue(errorDetail);
       }
-      // --- End Authentication Flow --- 
-      
-      // Prepare payload for the new endpoint
-      const payload = {
-        prompt: modificationPrompt,
-        current_code: currentCode
-      };
-      
-      // Define the NEW endpoint (needs backend implementation)
-      const endpoint = 'api/modify-component'; 
-      console.log(`Using modification endpoint: ${process.env.REACT_APP_API_URL}/${endpoint}`);
-      
-      // Send request to the NEW API endpoint
-      const response = await axios.post(
-        `${process.env.REACT_APP_API_URL}/${endpoint}`, 
-        payload,
-        { headers }
-      );
-      
-      console.log('Modification API response received:', response.data);
-      
-      // Assume response structure similar to generateUI
-      if (response.data && response.data.error) {
-        console.error('Backend returned an error during modification:', response.data.error);
-        throw new Error(response.data.error);
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        const errorMsg = 'Failed to get response reader for modification streaming.';
+        thunkAPI.dispatch(uiSlice.actions.streamError({ message: errorMsg, isModifying: true }));
+        throw new Error(errorMsg);
       }
-      if (response.data && response.data.component_code) {
-        return response.data.component_code; // Return the modified code
-      } else {
-        throw new Error('Invalid response structure received from modification endpoint');
+
+      let accumulatedContent = '';
+      const decoder = new TextDecoder();
+      // Dispatch streamStart for modification
+      thunkAPI.dispatch(uiSlice.actions.streamStart({ isModifying: true })); 
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        
+        if (chunk.includes("<!-- ERROR:")) {
+           const errorMatch = chunk.match(/<!-- ERROR: (.*) -->/);
+           const errorMessage = errorMatch ? errorMatch[1] : "Unknown error signaled from backend modification stream.";
+           console.error("[modifyCodeWithFiles] Backend stream signaled error:", errorMessage);
+           thunkAPI.dispatch(uiSlice.actions.streamError({ message: errorMessage, isModifying: true }));
+           throw new Error(errorMessage); 
+        }
+        thunkAPI.dispatch(uiSlice.actions.streamChunkReceived({ chunk }));
+        accumulatedContent += chunk;
       }
+      console.log('[modifyCodeWithFiles] Streaming successful, accumulated HTML.');
+      return accumulatedContent;
+
     } catch (error: any) {
-      console.error('Error modifying UI:', error);
-      return rejectWithValue(error.message || 'Failed to modify UI');
+      console.error('[modifyCodeWithFiles] Fetch/Streaming error:', error);
+      if (!error.message.includes("Unknown error signaled from backend")) {
+          thunkAPI.dispatch(uiSlice.actions.streamError({ message: error.message || 'An unknown network error occurred.', isModifying: true }));
+      }
+      return thunkAPI.rejectWithValue(error.message || 'An unknown network error occurred.');
+    }
+  }
+);
+// --- End NEW Thunk ---
+
+// --- Thunks for Save/Load/Delete --- 
+// Thunk to save generation
+export const saveGeneration = createAsyncThunk<
+  GenerationInfo, 
+  { prompt: string; htmlContent: string; name?: string }, 
+  { rejectValue: { message: string } } 
+>(
+  'ui/saveGeneration',
+  async (generationData, thunkAPI) => {
+    const state = thunkAPI.getState() as { auth: { token: string | null } };
+    const token = state.auth.token;
+    if (!token) {
+      return thunkAPI.rejectWithValue({ message: 'Authentication token not found.' });
+    }
+    // --- MODIFICATION START: Prepend API URL ---
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const fullUrl = `${apiUrl}/api/save-generation`;
+    try {
+      const response = await fetch(fullUrl, {
+    // --- MODIFICATION END ---
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(generationData),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to save generation' }));
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      }
+      const savedInfo: GenerationInfo = await response.json();
+      return savedInfo; 
+    } catch (error: any) {
+      console.error('Save Generation Error:', error);
+      return thunkAPI.rejectWithValue({ message: error.message || 'An unknown error occurred while saving.' });
     }
   }
 );
 
-// Create slice
+// Thunk to fetch all generations for the user
+export const fetchGenerations = createAsyncThunk<
+  GenerationInfo[], 
+  void, 
+  { rejectValue: { message: string } } 
+>(
+  'ui/fetchGenerations',
+  async (_, thunkAPI) => {
+    const state = thunkAPI.getState() as { auth: { token: string | null } };
+    const token = state.auth.token;
+    if (!token) {
+      return thunkAPI.rejectWithValue({ message: 'Authentication token not found.' });
+    }
+    // --- MODIFICATION START: Prepend API URL ---
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const fullUrl = `${apiUrl}/api/generations`;
+    try {
+      const response = await fetch(fullUrl, {
+    // --- MODIFICATION END ---
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to fetch generations' }));
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      }
+      const generations: GenerationInfo[] = await response.json();
+      return generations.map(gen => ({
+         ...gen,
+         createdAt: new Date(gen.createdAt) 
+        }));
+    } catch (error: any) {
+      console.error('Fetch Generations Error:', error);
+      return thunkAPI.rejectWithValue({ message: error.message || 'An unknown error occurred while fetching generations.' });
+    }
+  }
+);
+
+// Thunk to fetch details of a single generation
+export const fetchGenerationDetail = createAsyncThunk<
+  GenerationDetail, 
+  string, 
+  { rejectValue: { message: string } } 
+>(
+  'ui/fetchGenerationDetail',
+  async (generationId, thunkAPI) => {
+    const state = thunkAPI.getState() as { auth: { token: string | null } };
+    const token = state.auth.token;
+    if (!token) {
+      return thunkAPI.rejectWithValue({ message: 'Authentication token not found.' });
+    }
+    // --- MODIFICATION START: Prepend API URL ---
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const fullUrl = `${apiUrl}/api/generations/${generationId}`;
+    try {
+      const response = await fetch(fullUrl, {
+    // --- MODIFICATION END ---
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to fetch generation details' }));
+        if (response.status === 404) {
+             throw new Error('Generation not found.');
+        } else if (response.status === 403) {
+             throw new Error('Not authorized to access this generation.');
+        }
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      }
+      const generationDetail: GenerationDetail = await response.json();
+       return {
+          ...generationDetail,
+          createdAt: new Date(generationDetail.createdAt)
+       };
+    } catch (error: any) {
+      console.error('Fetch Generation Detail Error:', error);
+      return thunkAPI.rejectWithValue({ message: error.message || 'An unknown error occurred while fetching generation details.' });
+    }
+  }
+);
+
+// Thunk to delete a generation
+export const deleteGeneration = createAsyncThunk<
+  string, 
+  string, 
+  { rejectValue: { message: string } } 
+>(
+  'ui/deleteGeneration',
+  async (generationId, thunkAPI) => {
+    const state = thunkAPI.getState() as { auth: { token: string | null } };
+    const token = state.auth.token;
+    if (!token) {
+      return thunkAPI.rejectWithValue({ message: 'Authentication token not found.' });
+    }
+    // --- MODIFICATION START: Prepend API URL ---
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const fullUrl = `${apiUrl}/api/generations/${generationId}`;
+    try {
+      const response = await fetch(fullUrl, {
+    // --- MODIFICATION END ---
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (!response.ok && response.status !== 204) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to delete generation' }));
+         if (response.status === 404) {
+             throw new Error('Generation not found.');
+         } else if (response.status === 403) {
+             throw new Error('Not authorized to delete this generation.');
+         }
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      }
+      return generationId; 
+    } catch (error: any) {
+      console.error('Delete Generation Error:', error);
+      return thunkAPI.rejectWithValue({ message: error.message || 'An unknown error occurred while deleting the generation.' });
+    }
+  }
+);
+
+// --- NEW Thunk for Fetching Suggestions --- 
+export const fetchSuggestions = createAsyncThunk<
+  string[], // Return type: list of suggestions
+  string, // Argument type: currentHtml
+  { rejectValue: { message: string } } // Rejection type
+>(
+  'ui/fetchSuggestions',
+  async (currentHtml, thunkAPI) => {
+    const state = thunkAPI.getState() as { auth: { token: string | null } };
+    const token = state.auth.token;
+    if (!token) {
+      return thunkAPI.rejectWithValue({ message: 'Authentication token not found.' });
+    }
+
+    // --- Construct full API URL --- 
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const fullUrl = `${apiUrl}/api/suggest-modifications`;
+    console.log(`[fetchSuggestions] Making request to: ${fullUrl}`);
+    // --- End URL construction ---
+
+    try {
+      // --- Use fullUrl ---
+      const response = await fetch(fullUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ current_html: currentHtml }), // Match backend model
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to fetch suggestions' }));
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      }
+
+      const data: SuggestModificationsResponse = await response.json(); // Use backend response type
+      // Check if backend returned an error message within the suggestions list
+      if (data.suggestions && data.suggestions.length > 0 && data.suggestions[0].startsWith("Error:")) {
+          throw new Error(data.suggestions[0]);
+      }
+      return data.suggestions;
+    } catch (error: any) {
+      console.error('Fetch Suggestions Error:', error);
+      return thunkAPI.rejectWithValue({ message: error.message || 'An unknown error occurred while fetching suggestions.' });
+    }
+  }
+);
+// --- End NEW Thunk --- 
+
 const uiSlice = createSlice({
   name: 'ui',
   initialState,
   reducers: {
-    setComponentCode: (state, action: PayloadAction<string | null>) => {
-      console.log('setComponentCode reducer called with code:', action.payload ? action.payload.substring(0, 50) + '...' : null);
-      state.componentCode = action.payload;
-      state.error = null; // Clear error on new code
-      state.loading = false;
-      state.generatingUI = false;
-    },
     clearGeneratedCode: (state) => {
       console.log('clearGeneratedCode reducer called');
-      state.componentCode = null;
+      state.generatedHtmlContent = null;
       state.error = null;
+      state.modificationError = null;
+      state.streamCompletedSuccessfully = false;
+      state.htmlHistory = [];
+      state.historyIndex = -1;
     },
-    setUiLoading: (state, action: PayloadAction<boolean>) => {
-        state.loading = action.payload;
-        if(action.payload) state.error = null; // Clear error when starting load
+    setLastPrompt: (state, action: PayloadAction<string>) => {
+        state.lastPrompt = action.payload;
     },
-    setUiError: (state, action: PayloadAction<string | null>) => {
-        state.error = action.payload;
-        state.loading = false;
-        state.generatingUI = false;
-    }
+    clearError: (state) => {
+      state.error = null;
+        state.modificationError = null;
+    },
+    streamStart: (state, action: PayloadAction<{ isGenerating?: boolean; isModifying?: boolean; prompt?: string }>) => {
+        if (action.payload.isGenerating) {
+            state.generatingFullCode = true;
+            state.modifyingCode = false;
+            state.lastPrompt = action.payload.prompt || null;
+            state.htmlHistory = [];
+            state.historyIndex = -1;
+        } else if (action.payload.isModifying) {
+            state.generatingFullCode = false;
+            state.modifyingCode = true;
+        }
+        state.generatedHtmlContent = '';
+        state.error = null;
+        state.modificationError = null;
+        state.streamCompletedSuccessfully = false;
+    },
+    streamChunkReceived: (state, action: PayloadAction<{ chunk: string }>) => {
+        if (state.generatingFullCode || state.modifyingCode) { 
+           state.generatedHtmlContent = (state.generatedHtmlContent || '') + action.payload.chunk;
+        }
+    },
+    streamComplete: (state, action: PayloadAction<{ isGenerating?: boolean; isModifying?: boolean }>) => {
+        const cleanedHtml = cleanHtmlContent(state.generatedHtmlContent);
+        state.generatedHtmlContent = cleanedHtml;
+        
+        if (action.payload.isGenerating) {
+            state.generatingFullCode = false;
+            if (cleanedHtml) {
+              state.htmlHistory = [cleanedHtml];
+              state.historyIndex = 0;
+            } else {
+              state.htmlHistory = [];
+              state.historyIndex = -1;
+            }
+        } else if (action.payload.isModifying) {
+            state.modifyingCode = false;
+            if (cleanedHtml) {
+                if (state.historyIndex < 0) { state.historyIndex = 0; }
+                if (state.historyIndex < state.htmlHistory.length - 1) {
+                  state.htmlHistory = state.htmlHistory.slice(0, state.historyIndex + 1);
+                }
+                if (state.htmlHistory[state.historyIndex] !== cleanedHtml) {
+                    state.htmlHistory.push(cleanedHtml);
+                    state.historyIndex = state.htmlHistory.length - 1;
+                }
+            }
+        }
+        state.streamCompletedSuccessfully = !!cleanedHtml;
+    },
+    streamError: (state, action: PayloadAction<{ message: string; isGenerating?: boolean; isModifying?: boolean }>) => {
+       if (action.payload.isGenerating) {
+            state.generatingFullCode = false;
+            state.error = action.payload.message;
+            state.htmlHistory = [];
+            state.historyIndex = -1;
+        } else if (action.payload.isModifying) {
+            state.modifyingCode = false;
+            state.modificationError = action.payload.message;
+        }
+        state.streamCompletedSuccessfully = false;
+        state.generatedHtmlContent = null;
+    },
+    setLoadedGeneration: (state, action: PayloadAction<GenerationDetail>) => {
+        state.generatedHtmlContent = action.payload.htmlContent;
+        state.lastPrompt = action.payload.prompt; 
+        state.streamCompletedSuccessfully = true; 
+        state.error = null; 
+        state.modificationError = null;
+        state.generatingFullCode = false; 
+        state.modifyingCode = false;
+        state.htmlHistory = [action.payload.htmlContent]; 
+        state.historyIndex = 0;
+        state.loadedGenerationHtml = action.payload.htmlContent;
+        state.loadedGenerationPrompt = action.payload.prompt;
+    },
+    clearLoadedGenerationFlags: (state) => {
+        state.loadedGenerationHtml = null;
+        state.loadedGenerationPrompt = null;
+    },
+    undoModification: (state) => {
+      if (state.historyIndex > 0) {
+        state.historyIndex--;
+        state.generatedHtmlContent = state.htmlHistory[state.historyIndex];
+        state.streamCompletedSuccessfully = true; 
+        state.error = null; 
+        state.modificationError = null;
+      }
+    },
+    redoModification: (state) => {
+      if (state.historyIndex < state.htmlHistory.length - 1) {
+        state.historyIndex++;
+        state.generatedHtmlContent = state.htmlHistory[state.historyIndex];
+        state.streamCompletedSuccessfully = true;
+        state.error = null;
+        state.modificationError = null;
+      }
+    },
+    setFullGeneratedHtml: (state, action: PayloadAction<string | null>) => {
+        console.log('Reducer: setFullGeneratedHtml');
+        const cleanedHtml = cleanHtmlContent(action.payload);
+        state.generatedHtmlContent = cleanedHtml;
+        state.generatingFullCode = false; // Assume generation is complete
+        state.modifyingCode = false;
+        state.error = null;
+        state.modificationError = null;
+        state.streamCompletedSuccessfully = !!cleanedHtml; // True if content exists
+        // Reset history when setting full content 
+        if (cleanedHtml) {
+          state.htmlHistory = [cleanedHtml];
+          state.historyIndex = 0;
+        } else {
+          state.htmlHistory = [];
+          state.historyIndex = -1;
+        }
+        state.loadedGenerationHtml = null;
+        state.loadedGenerationPrompt = null;
+    },
   },
   extraReducers: (builder) => {
     builder
-      // Handle generateUI (The one used by UIGenerator)
-      .addCase(generateUI.pending, (state) => {
-          console.log('[generateUI.pending]');
-          state.generatingUI = true;
-          state.loading = true;
-          state.error = null;
-          state.componentCode = null; // Clear previous code
+      // Generate Full Code (Streaming - OLD THUNK) Reducers
+      .addCase(generateFullCode.pending, (state, action) => {
+        const prompt = action.meta.arg;
+        uiSlice.caseReducers.streamStart(state, { payload: { isGenerating: true, prompt: prompt }, type: 'ui/streamStart' });
       })
-      .addCase(generateUI.fulfilled, (state, action: PayloadAction<string, string, { arg: { prompt?: string } }>) => {
-          // Payload here should be the component code string
-          console.log('[generateUI.fulfilled] Received component code:', action.payload ? action.payload.substring(0, 50) + '...' : 'null');
-          
-          // Clean the received code: Remove potential BOM and trim whitespace
-          let cleanedCode = action.payload || '';
-          cleanedCode = cleanedCode.replace(/^\uFEFF?/, ''); // Remove potential BOM
-          cleanedCode = cleanedCode.trim();
-          console.log('[generateUI.fulfilled] Cleaned code for storage:', cleanedCode ? cleanedCode.substring(0, 50) + '...' : 'null');
-
-          state.generatingUI = false;
-          state.loading = false;
-          // Store the code directly as received from backend (should be clean JS now)
-          state.componentCode = cleanedCode || null;
-          state.error = null;
-          // Store the prompt used for this successful generation
-          if (action.meta && action.meta.arg && typeof action.meta.arg.prompt === 'string') {
-             state.lastPrompt = action.meta.arg.prompt;
-             console.log('[generateUI.fulfilled] Stored lastPrompt:', state.lastPrompt);
-          } else {
-             console.warn('[generateUI.fulfilled] Could not find prompt in action meta to store.');
-          }
+      .addCase(generateFullCode.fulfilled, (state, action: PayloadAction<string>) => {
+        uiSlice.caseReducers.streamComplete(state, { payload: { isGenerating: true }, type: 'ui/streamComplete' });
       })
-      .addCase(generateUI.rejected, (state, action) => {
-          console.error('[generateUI.rejected] Error:', action.payload || action.error.message);
-          state.generatingUI = false;
-          state.loading = false;
-          state.error = typeof action.payload === 'string' ? action.payload : (action.error.message || 'Unknown error during UI generation');
-          state.componentCode = null;
-      })
-      // Handle generateAppThunk (Keep existing, might be used elsewhere or deprecated)
-      .addCase(generateAppThunk.pending, (state) => {
-        console.log('[generateAppThunk.pending]');
-        state.generatingUI = true;
-        state.loading = true;
-        state.error = null;
-        state.componentCode = null; // Clear previous code
-      })
-      .addCase(generateAppThunk.fulfilled, (state, action: PayloadAction<string, string, { arg: { requirements?: { purpose?: string } } }>) => {
-        console.log('[generateAppThunk.fulfilled] Received component code:', action.payload.substring(0, 50) + '...');
-        state.generatingUI = false;
-        state.loading = false;
-        state.componentCode = action.payload; // Store the code string
-        state.error = null;
-        // Store the prompt used for this successful generation
-        if (action.meta && action.meta.arg && action.meta.arg.requirements && typeof action.meta.arg.requirements.purpose === 'string') {
-           state.lastPrompt = action.meta.arg.requirements.purpose;
-           console.log('[generateAppThunk.fulfilled] Stored lastPrompt:', state.lastPrompt);
-        } else {
-           console.warn('[generateAppThunk.fulfilled] Could not find prompt in action meta to store.');
+      .addCase(generateFullCode.rejected, (state, action) => {
+        // Error is dispatched within the thunk now via streamError for generateFullCode too
+        // This reducer primarily handles the state transition if the thunk itself is rejected
+        // before or after streaming starts but not due to a stream-signaled error.
+        if (state.generatingFullCode) { // If it was generating and got rejected outside streamError handling
+             state.generatingFullCode = false; 
+             state.error = action.payload as string || 'Failed pre-flight generation check';
+             state.htmlHistory = [];
+             state.historyIndex = -1;
+        } else if (!state.error) { // If not already set by streamError
+             state.generatingFullCode = false;
+             state.error = action.payload as string || 'Failed pre-flight generation check';
+             state.htmlHistory = [];
+             state.historyIndex = -1;
         }
       })
-      .addCase(generateAppThunk.rejected, (state, action) => {
-        console.error('[generateAppThunk.rejected] Error:', action.payload || action.error.message);
-        state.generatingUI = false;
-        state.loading = false;
-        state.error = action.payload || action.error.message || 'Unknown error during UI generation';
-        state.componentCode = null;
+      
+      // --- REVISED: Add cases for generateCodeWithFiles (Now Streaming) ---
+      .addCase(generateCodeWithFiles.pending, (state, action) => {
+          console.log('Reducer: generateCodeWithFiles.pending (streaming)');
+          // streamStart is now dispatched from within the thunk itself upon successful connection
+          // So, here we just set the initial loading state for the overall thunk
+          state.generatingFullCode = true; // Indicates the thunk is running
+          state.modifyingCode = false;
+          state.error = null;
+          state.modificationError = null;
+          state.streamCompletedSuccessfully = false;
+          state.generatedHtmlContent = null; // Clear previous content
+          state.lastPrompt = action.meta.arg.prompt; // Save the prompt
+          state.htmlHistory = []; // Reset history
+          state.historyIndex = -1;
+          state.loadedGenerationHtml = null;
+          state.loadedGenerationPrompt = null;
       })
-      // Handle loadManualConfig (Mark as potentially obsolete)
-      .addCase(loadManualConfig.pending, (state) => {
-        console.log('[loadManualConfig.pending] - OBSOLETE?');
-        state.loading = true;
-        state.error = null;
-        // state.currentConfig = null; // Removed
-        state.componentCode = null;
+      .addCase(generateCodeWithFiles.fulfilled, (state, action: PayloadAction<string>) => {
+          console.log('Reducer: generateCodeWithFiles.fulfilled (streaming)');
+          // The accumulated content is in action.payload, but streamComplete reducer handles cleaning & history
+          uiSlice.caseReducers.streamComplete(state, { payload: { isGenerating: true }, type: 'ui/streamComplete' });
+          // No need to set generatedHtmlContent here directly, streamComplete does it.
+          // generatingFullCode is set to false within streamComplete.
+          // streamCompletedSuccessfully is set within streamComplete.
       })
-      .addCase(loadManualConfig.fulfilled, (state, action) => {
-        console.warn('[loadManualConfig.fulfilled] - OBSOLETE? Loaded old format:', action.payload);
-        state.loading = false;
-        // state.currentConfig = action.payload.config; // Removed
-        // We can't easily display this old config now. Clear code or show error?
-        state.componentCode = null; 
-        state.error = "Loaded manual configuration (old format) - Cannot display as code.";
+      .addCase(generateCodeWithFiles.rejected, (state, action) => {
+          console.log('Reducer: generateCodeWithFiles.rejected (streaming)', action.payload);
+          // streamError is dispatched from within the thunk for stream-related errors or HTTP errors before stream.
+          // This reducer handles the state transition if the thunk itself is rejected for other reasons
+          // or if streamError didn't already set these states.
+          if (state.generatingFullCode) { // If it was generating
+            state.generatingFullCode = false;
+            if (!state.error) { // Only set error if streamError didn't already set it
+                state.error = action.payload ?? 'Failed to generate UI with files.';
+            }
+            state.streamCompletedSuccessfully = false;
+            // generatedHtmlContent might have partial data if stream broke; streamError should nullify it.
+            // If not nullified by streamError, ensure it's cleared here if an overall rejection occurs.
+            if (!state.error) state.generatedHtmlContent = null; 
+            state.htmlHistory = []; 
+            state.historyIndex = -1;
+          } else if (!state.error) { // If not generating but still rejected and no prior error
+            state.error = action.payload ?? 'Failed to generate UI with files.';
+          }
       })
-      .addCase(loadManualConfig.rejected, (state, action) => {
-        console.error('[loadManualConfig.rejected] - OBSOLETE? Error:', action.payload || action.error.message);
-        state.loading = false;
-        // Ensure error is always a string
-        state.error = typeof action.payload === 'string' 
-                        ? action.payload 
-                        : (action.error?.message || 'Failed to load manual configuration');
+      // Modify Generated Code Reducers
+      .addCase(modifyGeneratedCode.pending, (state) => {
+        uiSlice.caseReducers.streamStart(state, { payload: { isModifying: true }, type: 'ui/streamStart' });
       })
-      // --- Add cases for modifyUI --- 
-      .addCase(modifyUI.pending, (state) => {
-        console.log('[modifyUI.pending]');
-        state.generatingUI = true; // Reuse generatingUI flag for loading state
-        state.loading = true;
-        state.error = null;
-        // Keep existing code while modifying
+      .addCase(modifyGeneratedCode.fulfilled, (state, action: PayloadAction<string>) => {
+        uiSlice.caseReducers.streamComplete(state, { payload: { isModifying: true }, type: 'ui/streamComplete' });
       })
-      .addCase(modifyUI.fulfilled, (state, action: PayloadAction<string>) => {
-        console.log('[modifyUI.fulfilled] Received modified code:', action.payload ? action.payload.substring(0, 50) + '...' : 'null');
-        
-        let cleanedCode = action.payload || '';
-        cleanedCode = cleanedCode.replace(/^\uFEFF?/, ''); // Remove BOM
-        cleanedCode = cleanedCode.trim();
-        
-        state.generatingUI = false;
-        state.loading = false;
-        state.componentCode = cleanedCode || null; // Update with modified code
-        state.error = null;
+      .addCase(modifyGeneratedCode.rejected, (state, action) => {
+         // Similar to generateFullCode, streamError would be dispatched from thunk if applicable
+         if (state.modifyingCode) { 
+             state.modifyingCode = false;
+             state.modificationError = action.payload as string || 'Failed pre-flight modification check';
+         } else if (!state.modificationError) {
+             state.modifyingCode = false;
+             state.modificationError = action.payload as string || 'Failed pre-flight modification check';
+         }
       })
-      .addCase(modifyUI.rejected, (state, action) => {
-        console.error('[modifyUI.rejected] Error:', action.payload || action.error.message);
-        state.generatingUI = false;
-        state.loading = false;
-        state.error = typeof action.payload === 'string' ? action.payload : (action.error.message || 'Unknown error during UI modification');
-        // Keep existing code on modification failure? Or clear? Let's keep it for now.
-      });
+      // Save Generation Reducers
+      .addCase(saveGeneration.pending, (state) => {
+        // console.log('Saving generation...');
+      })
+      .addCase(saveGeneration.fulfilled, (state, action) => {
+        console.log("Generation saved:", action.payload.id);
+      })
+      .addCase(saveGeneration.rejected, (state, action) => {
+        console.error("Save failed:", action.payload?.message);
+      })
+      // Fetch Generations Reducers
+      .addCase(fetchGenerations.pending, (state) => {
+        state.loadingGenerations = true;
+        state.loadingGenerationsError = null;
+      })
+      .addCase(fetchGenerations.fulfilled, (state, action: PayloadAction<GenerationInfo[]>) => {
+        state.loadingGenerations = false;
+        state.savedGenerations = action.payload;
+      })
+      .addCase(fetchGenerations.rejected, (state, action) => {
+        state.loadingGenerations = false;
+        state.loadingGenerationsError = action.payload?.message ?? 'Failed to load generations.';
+      })
+      // Fetch Generation Detail Reducers
+      .addCase(fetchGenerationDetail.pending, (state) => {
+        state.loadingGenerationDetail = true;
+        state.loadingGenerationDetailError = null;
+        state.currentGenerationDetail = null; 
+        state.loadedGenerationHtml = null; 
+        state.loadedGenerationPrompt = null;
+      })
+      .addCase(fetchGenerationDetail.fulfilled, (state, action: PayloadAction<GenerationDetail>) => {
+        state.loadingGenerationDetail = false;
+        state.currentGenerationDetail = action.payload; 
+        uiSlice.caseReducers.setLoadedGeneration(state, action); 
+      })
+      .addCase(fetchGenerationDetail.rejected, (state, action) => {
+        state.loadingGenerationDetail = false;
+        state.loadingGenerationDetailError = action.payload?.message ?? 'Failed to load generation details.';
+        state.loadedGenerationHtml = null; 
+        state.loadedGenerationPrompt = null;
+      })
+      // Delete Generation Reducers
+      .addCase(deleteGeneration.pending, (state) => {
+        console.log('Deleting generation...');
+      })
+      .addCase(deleteGeneration.fulfilled, (state, action: PayloadAction<string>) => {
+        state.savedGenerations = state.savedGenerations.filter(gen => gen.id !== action.payload);
+        console.log(`Generation ${action.payload} deleted successfully.`);
+      })
+      .addCase(deleteGeneration.rejected, (state, action) => {
+        console.error('Delete Generation Rejected:', action.payload?.message);
+      })
+      // Suggestions Reducers
+      .addCase(fetchSuggestions.pending, (state) => {
+        state.loadingSuggestions = true;
+        state.suggestionsError = null;
+        state.suggestions = [];
+      })
+      .addCase(fetchSuggestions.fulfilled, (state, action: PayloadAction<string[]>) => {
+        state.loadingSuggestions = false;
+        state.suggestions = action.payload;
+      })
+      .addCase(fetchSuggestions.rejected, (state, action) => {
+        state.loadingSuggestions = false;
+        state.suggestionsError = action.payload?.message ?? 'Failed to load suggestions.';
+      })
+      // --- NEW: Add cases for modifyCodeWithFiles (Streaming FormData) ---
+      .addCase(modifyCodeWithFiles.pending, (state, action) => {
+          console.log('Reducer: modifyCodeWithFiles.pending (streaming)');
+          // streamStart is dispatched from within the thunk itself
+          state.modifyingCode = true; // Set overall thunk loading state
+          state.generatingFullCode = false;
+          state.modificationError = null; // Clear previous modification error
+          state.error = null;
+          state.streamCompletedSuccessfully = false;
+          // Do NOT clear generatedHtmlContent here, modification works on existing content
+          // Do NOT reset history here, streamComplete will handle adding the new state
+      })
+      .addCase(modifyCodeWithFiles.fulfilled, (state, action: PayloadAction<string>) => {
+          console.log('Reducer: modifyCodeWithFiles.fulfilled (streaming)');
+          // streamComplete handles cleaning, setting state.modifyingCode=false, and history
+          uiSlice.caseReducers.streamComplete(state, { payload: { isModifying: true }, type: 'ui/streamComplete' });
+      })
+      .addCase(modifyCodeWithFiles.rejected, (state, action) => {
+          console.log('Reducer: modifyCodeWithFiles.rejected (streaming)', action.payload);
+          // streamError dispatched in thunk handles stream/HTTP errors
+          if (state.modifyingCode) { // If it was modifying and got rejected outside streamError
+             state.modifyingCode = false; 
+             if (!state.modificationError) { // Only set if not already set by streamError
+                 state.modificationError = action.payload ?? 'Failed to modify UI with files.';
+             }
+             state.streamCompletedSuccessfully = false;
+             // Content reverts implicitly by not changing state.generatedHtmlContent here
+          } else if (!state.modificationError) { // If not modifying but still rejected & no prior error
+             state.modificationError = action.payload ?? 'Failed to modify UI with files.';
+          }
+      })
   },
 });
 
-// Export actions and reducer
 export const {
-  setComponentCode,
   clearGeneratedCode,
-  setUiLoading,
-  setUiError,
+  streamStart,
+  streamChunkReceived,
+  streamComplete,
+  streamError,
+  setLastPrompt,
+  clearError,
+  setLoadedGeneration,
+  clearLoadedGenerationFlags,
+  undoModification,
+  redoModification,
+  setFullGeneratedHtml,
 } = uiSlice.actions;
 
 export default uiSlice.reducer; 

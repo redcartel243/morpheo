@@ -72,6 +72,7 @@ dist/
 firebase-debug.log 
 
 example-of-system-prompts-and-models-of-ai-tools/
+serviceAccountKey.json
 
 # Morpheo Plan File
 implementation_plan.md

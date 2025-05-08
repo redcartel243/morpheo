@@ -1,41 +1,156 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Request, Query, Body
+# --- Add back FastAPI and related imports ---
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Query, Body, File, UploadFile, Header, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
 from typing import List, Dict, Any, Optional, Tuple
+# --- End added imports ---
+
 import openai
 import os
 from dotenv import load_dotenv
 import json
 import uuid
-from datetime import datetime, timedelta
-from jose import JWTError, jwt
 from passlib.context import CryptContext
 from openai import OpenAI
 import copy
 import sys
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from ui_validator import is_ui_config_complete, merge_template_with_ai_config, create_error_ui, attempt_json_repair, extract_partial_json
-from prompt_analyzer import PromptAnalyzer
-from components.service import component_service
-import traceback
+
+# --- Remove path forcing code --- 
+# import site
+# import platform
+# 
+# # Construct the expected path to site-packages within the venv
+# # Assumes standard venv layout
+# venv_path = os.path.dirname(sys.executable) # .../venv/Scripts
+# if platform.system() == "Windows":
+#     site_packages_path = os.path.join(venv_path, '../', 'Lib', 'site-packages')
+# else:
+#     # Linux/macOS might be lib/pythonX.Y/site-packages
+#     # This might need adjustment based on the exact Linux/macOS structure
+#     python_version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+#     site_packages_path = os.path.join(venv_path, '../', 'lib', python_version, 'site-packages')
+# 
+# # Normalize path for comparison
+# site_packages_path = os.path.normpath(site_packages_path)
+# 
+# # Check if it exists and insert it at the beginning if not already there
+# if os.path.exists(site_packages_path) and site_packages_path not in [os.path.normpath(p) for p in sys.path]:
+#     sys.path.insert(0, site_packages_path)
+#     print(f"DEBUG (main.py): Inserted venv site-packages at sys.path[0]: {site_packages_path}")
+#     print(f"DEBUG (main.py): Updated sys.path: {sys.path}")
+# else:
+#     print(f"DEBUG (main.py): Venv site-packages already in sys.path or not found: {site_packages_path}")
+# --- End removed path forcing ---
+
+# --- Standard Library Imports (Moved back to top) ---
+import traceback 
 import re
 import time
 import asyncio
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-import logging # Import the logging module
+import logging
+import requests
+import shutil
+import mimetypes
+import base64
+
+# --- Remove previous environment diagnostics ---
+# print(f"DEBUG (main.py): Running Python executable: {sys.executable}")
+# print(f"DEBUG (main.py): Python Path (sys.path) BEFORE google.genai import: {sys.path}")
+# --- End environment diagnostics ---
+
+# Import Firebase Admin SDK
+import firebase_admin
+from firebase_admin import credentials, auth
+# --- ADD Firestore Import ---
+from google.cloud import firestore
+# --- END Firestore Import ---
+
+# --- DEBUG: Print sys.path before google imports ---
+import sys
+print(f"DEBUG (main.py entry): sys.path = {sys.path}")
+# --- END DEBUG ---
+
+# Import Gemini library using the new SDK pattern
+# --- Use direct top-level imports --- 
+from google import genai
+from google.genai.types import Part, Blob, GenerationConfig
+# from google.generativeai import GenerativeModel # REMOVED - Not used directly here
+from google.ai import generativelanguage as glm
+# --- End direct imports ---
+
+# --- Configure GenAI globally here ---
+try:
+    if genai:
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if api_key:
+            genai.configure(api_key=api_key)
+            print("DEBUG (main.py): google.genai configured successfully.")
+        else:
+            print("Warning (main.py): GOOGLE_API_KEY not set, google.genai configuration skipped.")
+    else:
+        print("DEBUG (main.py): google.genai module not imported, configuration skipped.")
+except Exception as config_e:
+    print(f"ERROR (main.py): Failed to configure google.genai: {config_e}")
+# --- End GenAI Configuration ---
+
+# --- Component Service Class Import AFTER Google Imports ---
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from components.service import ComponentService # Import the CLASS
+
+# --- Simple Instantiation ---
+component_service_instance = ComponentService()
 
 # Set up logging (basic configuration)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__) # Get a logger instance for this module
 
-# Import Gemini library using the new SDK pattern
-from google import genai 
-from google.genai import types as genai_types # Import types as well
-
 # Load environment variables
 load_dotenv()
+
+# --- Firebase Admin SDK Initialization ---
+try:
+    # Use environment variable for credentials path (more flexible)
+    cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS") 
+    if not cred_path:
+        logger.warning("GOOGLE_APPLICATION_CREDENTIALS env var not set. Trying default path.")
+        # Default path relative to main.py (adjust if needed)
+        cred_path = os.path.join(os.path.dirname(__file__), "..", "serviceAccountKey.json") 
+
+    if not os.path.exists(cred_path):
+         raise FileNotFoundError(f"Firebase Admin credentials file not found at: {cred_path}")
+
+    cred = credentials.Certificate(cred_path)
+    firebase_admin.initialize_app(cred)
+    logger.info("Firebase Admin SDK initialized successfully.")
+except Exception as e:
+    logger.error(f"Failed to initialize Firebase Admin SDK: {e}", exc_info=True)
+    # Depending on requirements, you might want to exit or disable auth features
+    # sys.exit("Firebase Admin SDK initialization failed. Exiting.")
+# --- End Firebase Admin SDK Initialization ---
+
+# --- Initialize Firestore Client ---
+# Needs GOOGLE_APPLICATION_CREDENTIALS to be set
+db = None
+try:
+    db = firestore.Client()
+    logger.info("Firestore client initialized successfully.")
+except Exception as e:
+    logger.error(f"Failed to initialize Firestore client: {e}", exc_info=True)
+    # App might still run but saving/loading will fail
+# --- End Firestore Client Initialization ---
+
+# --- Add aiofiles, os, base64, tempfile if not already comprehensively imported at top ---
+import os # Often already there
+import base64 # Often already there
+import tempfile # For TemporaryDirectory
+import uuid # For unique IDs if needed beyond Gemini's
+# Ensure aiofiles is imported if not already:
+# import aiofiles # This might be better placed with other async libraries or system libs
 
 # Initialize FastAPI app
 app = FastAPI(title="Morpheo - AI-Powered Dynamic UI Generator")
@@ -59,39 +174,12 @@ if not SECRET_KEY:
     SECRET_KEY = secrets.token_hex(32)
 
 ALGORITHM = "HS256"
+print(f"Using SECRET_KEY: {SECRET_KEY}")
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-# OpenAI API configuration
-openai_api_key = os.getenv("OPENAI_API_KEY")
-openai_client = OpenAI(api_key=openai_api_key)
-
-# NEW Gemini Client Initialization
-client = None
-genai_types = None
-try:
-    # Re-import here just to be safe within the try block for initialization
-    from google import genai
-    from google.genai import types as genai_types_import
-    genai_types = genai_types_import # Assign to global scope if import succeeds
-    
-    if os.getenv("GOOGLE_API_KEY"):
-        client = genai.Client() # Uses GOOGLE_API_KEY env var
-        # Optional: Test client by listing models
-        # list(client.models.list())
-        print("NEW google.genai SDK Client initialized successfully.")
-    else:
-        print("Warning: GOOGLE_API_KEY not found. Gemini client not initialized.")
-except ImportError:
-    print("Warning: google.genai library not found. Install it with 'pip install google-genai'. Gemini features disabled.")
-except Exception as e:
-    print(f"Error initializing google.genai Client: {e}")
-
-# Initialize the prompt analyzer
-prompt_analyzer = PromptAnalyzer()
 
 # Models
 class Token(BaseModel):
@@ -106,29 +194,49 @@ class User(BaseModel):
     email: Optional[str] = None
     full_name: Optional[str] = None
     disabled: Optional[bool] = None
+    uid: Optional[str] = None
 
 class UserInDB(User):
-    hashed_password: str
+    hashed_password: Optional[str] = None
 
-class UIConfig(BaseModel):
-    id: Optional[str] = None
-    user_id: str
+class PromptRequest(BaseModel):
+    prompt: str
+
+class ModifyCodeRequest(BaseModel):
+    modification_prompt: str
+    current_html: str
+
+# --- NEW Model for Image Generation ---
+class ImageGenerationRequest(BaseModel):
+    prompt: str = Field(..., min_length=1)
+
+# --- NEW Models for Saving/Loading Generations ---
+class SaveGenerationRequest(BaseModel):
+    prompt: str
+    htmlContent: str
+    name: Optional[str] = None # Optional name from user
+
+class GenerationInfo(BaseModel): # For listing generations
+    id: str
     name: str
-    description: Optional[str] = None
-    config: Dict[str, Any]
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    prompt_preview: str # Just the first few characters
+    createdAt: datetime
 
-class UIRequest(BaseModel):
+class GenerationDetail(GenerationInfo): # For fetching a single generation
     prompt: str
-    style_preferences: Optional[Dict[str, Any]] = None
+    htmlContent: str
 
-class TemplateUIRequest(BaseModel):
-    """
-    Request model for template-based UI generation
-    """
-    prompt: str
-    style_preferences: Optional[Dict[str, Any]] = None
+# --- Models for Suggest Modifications --- 
+class SuggestModificationsRequest(BaseModel):
+    current_html: str = Field(..., min_length=10) # Require some HTML
+
+class SuggestModificationsResponse(BaseModel):
+    suggestions: List[str]
+# --- End Suggest Modifications Models --- 
+
+# Configuration constants for file handling (can be defined at the top or in a config module)
+MAX_FILE_SIZE_FOR_DATA_URL = 2 * 1024 * 1024  # 2MB for data URL embedding
+MAX_FILE_SIZE_FOR_TEXT_CONTENT = 100 * 1024 # 100KB for direct text content inclusion
 
 # Load test credentials from environment variables
 test_username = os.getenv("TEST_USERNAME", "testuser")
@@ -145,470 +253,127 @@ fake_users_db = {
     }
 }
 
-ui_configs_db = {}
-
-# Global variable to store the app configuration
-current_app_config = None
-
 # Security functions
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+# Remove verify_password and get_password_hash if /token endpoint is removed
+# def verify_password(plain_password, hashed_password):
+#     return pwd_context.verify(plain_password, hashed_password)
+# 
+# def get_password_hash(password):
+#     return pwd_context.hash(password)
 
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-def get_user(db, username: str):
-    if username in db:
-        user_dict = db[username]
-        return UserInDB(**user_dict)
-    return None
-
-def authenticate_user(fake_db, username: str, password: str):
-    user = get_user(fake_db, username)
-    if not user:
+# Adapt get_user to potentially fetch from Firebase or a local cache/DB
+def get_user(uid: str):
+    try:
+        firebase_user = auth.get_user(uid)
+        user_data = {
+            "uid": firebase_user.uid,
+            "email": firebase_user.email,
+            "full_name": firebase_user.display_name,
+            "disabled": firebase_user.disabled,
+            "username": firebase_user.email or firebase_user.uid
+        }
+        return UserInDB(**user_data)
+    except auth.UserNotFoundError:
+        logger.warning(f"User with UID {uid} not found in Firebase.")
         return None
-    if not verify_password(password, user.hashed_password):
+    except Exception as e:
+        logger.error(f"Error fetching user {uid} from Firebase: {e}")
         return None
-    return user
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+# Remove authenticate_user as it relies on username/password and the fake_db
+# def authenticate_user(fake_db, username: str, password: str):
+#     user = get_user(username) # This would fail as get_user now expects UID
+#     if not user:
+#         return None
+#     # Need to decide how password verification works if keeping this flow
+#     # if not verify_password(password, user.hashed_password):
+#     #     return None
+#     # return user 
+#     return None # Mark as removed/non-functional
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
+# Remove create_access_token if /token endpoint is removed
+# def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    # ... (implementation)
+
+# --- CORRECTED: get_current_user using Firebase Admin SDK --- 
+async def get_current_user(authorization: Optional[str] = Header(None)) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    if authorization is None:
+        logger.warning("Missing Authorization header")
+        raise credentials_exception
+
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
+        scheme, token = authorization.split()
+        if scheme.lower() != "bearer":
+            logger.warning(f"Invalid authorization scheme: {scheme}")
             raise credentials_exception
-        token_data = TokenData(username=username)
-    except JWTError:
+        
+        logger.info(f"Attempting to verify Firebase ID token...")
+        # Ensure firebase_admin is initialized and auth is available
+        if not firebase_admin._apps:
+             logger.error("Firebase Admin SDK not initialized. Cannot verify token.")
+             raise credentials_exception # Or a more specific 500 error
+             
+        decoded_token = auth.verify_id_token(token)
+        uid = decoded_token.get("uid")
+        logger.info(f"Firebase token verified successfully for UID: {uid}")
+
+    except ValueError:
+        logger.warning("Malformed Authorization header")
         raise credentials_exception
-    user = get_user(fake_users_db, username=token_data.username)
+    except auth.InvalidIdTokenError as e:
+        logger.error(f"Invalid Firebase ID Token: {e}")
+        raise credentials_exception
+    except Exception as e:
+        logger.error(f"Error verifying Firebase ID token: {e}", exc_info=True)
+        raise credentials_exception
+
+    if uid is None:
+        logger.error("UID not found in decoded Firebase token")
+        raise credentials_exception
+
+    # Assuming get_user function fetches user details based on UID
+    user = get_user(uid)
     if user is None:
+        logger.error(f"User corresponding to UID {uid} not found.")
+        # If user not found in our DB/cache even after valid token, 
+        # maybe create a user record here or handle appropriately.
+        # For now, treat as unauthorized access to the application layer.
         raise credentials_exception
+
+    if user.disabled:
+        logger.warning(f"User {uid} is disabled.")
+        raise HTTPException(status_code=400, detail="Inactive user")
+
+    logger.info(f"Authenticated user: {user.email or user.uid}")
     return user
 
-async def get_current_active_user(current_user: User = Depends(get_current_user)):
-    if current_user.disabled:
-        raise HTTPException(status_code=400, detail="Inactive user")
-    return current_user
-
-# Refactored generate_ui_config function
-async def generate_ui_config(prompt: str, style_preferences: Optional[Dict[str, Any]] = None):
-    """Generate UI config using NEW Gemini SDK pattern or fallback."""
-    # Load the new prompt template
-    try:
-        with open("backend/gemini_prompt_template.md", "r", encoding="utf-8") as f:
-            prompt_template = f.read()
-    except FileNotFoundError:
-        print("ERROR: backend/gemini_prompt_template.md not found.", file=sys.stderr)
-        # Fallback or raise error - for now, using a basic instruction
-        prompt_template = "Generate a React component using Chakra UI for the following request: {user_prompt}"
-
-    # Construct the final prompt for the AI
-    # Inject the user's actual prompt into the template
-    # NOTE: This is a basic placeholder for injection. A more robust method 
-    # might involve finding a specific marker like {{USER_REQUEST}} in the template.
-    # For now, we assume the template expects the user prompt to be appended or 
-    # described within its structure.
-    # Let's structure it assuming the template has an ## Input section
-    # A simple approach: append the user request under a clear heading
-    final_prompt_for_ai = prompt_template + "\n\n## User Request:\n\n" + prompt
-
-    # Log the final prompt being sent to the AI
-    # Consider logging to a file or system for better tracking
-    print(f"--- Sending Prompt to AI ---\n{final_prompt_for_ai}\n--------------------------")
-
-    # Create a log file (keeping logging for now)
-    with open("openai_request_log.txt", "w", encoding="utf-8") as log_file:
-        log_file.write(f"User Prompt: {prompt}\n")
-        log_file.write(f"Style preferences: {json.dumps(style_preferences or {}, indent=2)}\n")
-        log_file.write(f"\n--- Compiled Prompt for AI ---\n{final_prompt_for_ai}\n")
-
-    # Initialize response variables
-    raw_response_content = None
-    component_code = None
-    error_message = None
-
-    # --- AI CALL (Using Gemini Client - adapt as needed) ---
-    if client and genai_types:
-        try:
-            print("Attempting to generate UI config using Gemini Pro...", file=sys.stderr)
-            # Configure Gemini generation
-            # IMPORTANT: Ensure Gemini doesn't try to return structured JSON unless specifically asked
-            # Adjust temperature, safety settings as needed
-            generation_config = genai_types.GenerationConfig(
-                temperature=0.7, # Adjust as needed for creativity vs predictability
-                # top_p=1,
-                # top_k=1,
-                # max_output_tokens=8192, # Adjust based on expected component size
-            )
-            safety_settings = [
-                {
-                    "category": "HARM_CATEGORY_HARASSMENT",
-                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-                },
-                {
-                    "category": "HARM_CATEGORY_HATE_SPEECH",
-                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-                },
-                {
-                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-                },
-                {
-                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-                },
-            ]
-
-            # Create the Gemini request parts
-            # No specific system instruction needed if handled in the main prompt text
-            parts = [final_prompt_for_ai] 
-
-            # --- IMPORTANT: Use generate_content, NOT generate_response_from_text
-            # Ensure the model knows we expect text output
-            gemini_model = client.generative_model(
-                model_name="gemini-1.5-pro-latest", # Or your preferred model
-                generation_config=generation_config,
-                safety_settings=safety_settings
-            )
-            
-            response = await asyncio.to_thread(
-                 gemini_model.generate_content,
-                 parts,
-                 stream=False, # Get the full response at once
-                 # request_options={"timeout": 300} # Example timeout
-                )
-                
-            # Check if the response has content and parts
-            if response.parts:
-                 raw_response_content = response.text # Access text directly
-                 print("--- Raw AI Response ---", file=sys.stderr)
-                 print(raw_response_content, file=sys.stderr)
-                 print("-----------------------")
-            else:
-                # Handle cases where the response might be blocked or empty
-                error_message = "AI response was empty or blocked."
-                print(f"Warning: {error_message} Response: {response}", file=sys.stderr)
-                # You might want to inspect response.prompt_feedback for block reasons
-                if response.prompt_feedback:
-                    print(f"Prompt Feedback: {response.prompt_feedback}", file=sys.stderr)
-                    error_message += f" Reason: {response.prompt_feedback}"
-
-                else:
-                    error_message = "Gemini client not initialized."
-                    print(error_message, file=sys.stderr)
-
-        except Exception as e:
-            error_message = f"Error calling Gemini API: {e}"
-            print(error_message, file=sys.stderr)
-            traceback.print_exc()
-
-    
-
-    # --- New Response Handling: Extract React code --- 
-    if raw_response_content:
-        # Attempt to extract code block
-        match = re.search(r"```(?:typescript|javascript|jsx|tsx)?\n(.*?)```", raw_response_content, re.DOTALL | re.IGNORECASE)
-        if match:
-            component_code = match.group(1).strip()
-            print("--- Extracted Component Code ---")
-            print(component_code)
-            print("----------------------------")
-        else:
-            # Fallback: Assume the entire response might be code if no block found
-            print("Warning: Code block ```...``` not found in AI response. Assuming entire response is code.")
-            component_code = raw_response_content.strip()
-            # Very basic check if it looks like React code
-            if not ("import React" in component_code or "=> {" in component_code or "export const" in component_code):
-                 print("Warning: Fallback content doesn't strongly resemble React code.")
-                 error_message = "AI did not return a recognizable React code block."
-                 component_code = None # Don't return potentially wrong content
-
-    # Handle errors
-    if error_message and not component_code:
-        print(f"Final error before returning: {error_message}")
-        # Decide what to return on error. Maybe raise an exception or return an error structure?
-        # For now, returning a simple error dictionary, but endpoints need to handle this.
-        # Alternatively, return None or raise HTTPException
-        # return {"error": error_message, "details": "Failed to generate UI component code."} 
-        # Let's return None for now, the endpoint should handle this
-        return None 
-    
-    # Log the successful component code
-    with open("openai_response_debug.txt", "w", encoding="utf-8") as debug_file:
-        debug_file.write("--- Prompt Sent ---\n")
-        debug_file.write(final_prompt_for_ai + "\n")
-        debug_file.write("\n--- Raw Response ---\n")
-        debug_file.write(raw_response_content + "\n")
-        debug_file.write("\n--- Extracted Component Code ---\n")
-        debug_file.write(component_code if component_code else "None")
-
-    # Return the extracted code string
-    return component_code
-
-# Helper function to add default event handlers for interactive components
-def add_default_event_handlers(component, event_handlers):
-    """Add default event handlers to interactive components if missing"""
-    if not component or not isinstance(component, dict):
-        return
-    
-    component_type = component.get("type", "").lower()
-    
-    # Don't add events if they already exist
-    if component.get("events") and len(component.get("events")) > 0:
-        return
-        
-    # Add default event handlers based on component type
-    if component_type == "button" or component_type.startswith("button"):
-        component["events"] = {"onClick": "handleButtonClick"}
-        
-    elif component_type == "input" or component_type.startswith("input"):
-        input_type = component.get("props", {}).get("type", "text").lower()
-        
-        if input_type == "text" or input_type == "number" or input_type == "email" or input_type == "password":
-            component["events"] = {"onChange": "handleInputChange"}
-        elif input_type == "checkbox":
-            component["events"] = {"onChange": "handleCheckboxToggle"}
-        elif input_type == "radio":
-            component["events"] = {"onChange": "handleRadioChange"}
-        elif input_type == "color":
-            component["events"] = {"onChange": "handleColorChange"}
-        elif input_type == "range":
-            component["events"] = {"onChange": "handleRangeChange"}
-        elif input_type == "file":
-            component["events"] = {"onChange": "handleFileChange"}
-        else:
-            component["events"] = {"onChange": "handleInputChange"}
-        
-    elif component_type == "checkbox" or component_type.startswith("checkbox"):
-        component["events"] = {"onChange": "handleCheckboxToggle"}
-        
-    elif component_type == "select" or component_type.startswith("select"):
-        component["events"] = {"onChange": "handleSelectChange"}
-        
-    elif component_type == "textarea" or component_type.startswith("textarea"):
-        component["events"] = {"onChange": "handleTextareaChange"}
-        
-    elif component_type == "form" or component_type.startswith("form"):
-        component["events"] = {"onSubmit": "handleFormSubmit"}
-        
-    elif component_type == "a" or component_type.startswith("a") or component_type == "link":
-        component["events"] = {"onClick": "handleNavigation"}
-        
-    elif component_type == "canvas" or component_type.startswith("canvas"):
-        component["events"] = {
-            "onMouseDown": "handleStartDrawing",
-            "onMouseMove": "handleDraw",
-            "onMouseUp": "handleStopDrawing",
-            "onMouseLeave": "handleStopDrawing"
-        }
-    
-    # Special case for calculator buttons
-    if component_type == "button" and component.get("props", {}).get("value", "").isdigit():
-        component["events"] = {"onClick": "handleNumberInput"}
-    elif component_type == "button" and component.get("props", {}).get("value") in ["+", "-", "*", "/", "=", "C"]:
-        component["events"] = {"onClick": "handleNumberInput"}
-    
-    # Special case for todo list buttons
-    if component_type == "button" and "add" in str(component.get("props", {}).get("action", "")).lower():
-        component["events"] = {"onClick": "handleAddTodo"}
-    elif component_type == "button" and "delete" in str(component.get("props", {}).get("action", "")).lower():
-        component["events"] = {"onClick": "handleDeleteTodo"}
-    elif component_type == "button" and "toggle" in str(component.get("props", {}).get("action", "")).lower():
-        component["events"] = {"onClick": "handleToggleTodo"}
-    
-    # Special case for modal buttons
-    if component_type == "button" and "modal" in str(component.get("props", {}).get("action", "")).lower():
-        if "open" in str(component.get("props", {}).get("action", "")).lower():
-            component["events"] = {"onClick": "handleOpenModal"}
-        elif "close" in str(component.get("props", {}).get("action", "")).lower():
-            component["events"] = {"onClick": "handleCloseModal"}
-    
-    # Ensure all event handlers referenced in the component exist in the eventHandlers object
-    for event_name, handler_name in component.get("events", {}).items():
-        if handler_name not in event_handlers:
-            # If the handler doesn't exist, add a default implementation
-            event_handlers[handler_name] = f"""function(event, state, setState) {{ 
-                console.log('Default handler for {handler_name}', event); 
-            }}"""
-
 # Routes
-@app.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+# REMOVE /token endpoint entirely as auth is handled by Firebase
+# @app.post("/token", response_model=Token)
+# async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+#     user = authenticate_user(fake_users_db, form_data.username, form_data.password)
+#     if not user:
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED,
+#             detail="Incorrect username or password",
+#             headers={"WWW-Authenticate": "Bearer"},
+#         )
+#     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+#     access_token = create_access_token(
+#         data={"sub": user.username}, expires_delta=access_token_expires
+#     )
+#     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/users/me", response_model=User)
-async def read_users_me(current_user: User = Depends(get_current_active_user)):
+async def read_users_me(current_user: User = Depends(get_current_user)):
     return current_user
 
-@app.post("/generate-ui", response_model=Dict[str, Any])
-async def generate_ui(
-    request: UIRequest,
-    current_user: User = Depends(get_current_active_user)
-):
-    # This endpoint might be deprecated or should call component_service now, but kept for reference
-    print("Received request for /generate-ui endpoint")
-    ui_config = await generate_ui_config(request.prompt, request.style_preferences)
-    
-    # Save the configuration
-    config_id = str(uuid.uuid4())
-    now = datetime.utcnow()
-    
-    ui_config_record = UIConfig(
-        id=config_id,
-        user_id=current_user.username,
-        name=f"UI from {now.strftime('%Y-%m-%d %H:%M')}",
-        description=request.prompt,
-        config=ui_config,
-        created_at=now,
-        updated_at=now
-    )
-    
-    ui_configs_db[config_id] = ui_config_record.dict()
-    
-    return {
-        "id": config_id,
-        "config": ui_config
-    }
-
-@app.post("/generate-component-ui", response_model=Dict[str, Any])
-async def generate_component_ui(
-    request: UIRequest,
-    current_user: User = Depends(get_current_active_user)
-):
-    # This correctly calls component_service, which uses the new SDK pattern
-    print("Received request for /generate-component-ui endpoint")
-    # component_service.generate_app_config now returns the code string or None
-    component_code_string = component_service.generate_app_config(request.prompt)
-    
-    if component_code_string:
-        print(f"Successfully generated component code string starting with: {component_code_string[:100]}...")
-        # Return the code string in a structure consistent with /api/generate
-        return {
-            "component_code": component_code_string,
-            "error": None
-        }
-    else:
-        # If component_service returned None, raise an error
-        print("Error: Failed to generate component code string.")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate component code. Check backend logs."
-        )
-
-@app.get("/ui-configs", response_model=List[UIConfig])
-async def get_ui_configs(current_user: User = Depends(get_current_active_user)):
-    """
-    Get all UI configurations for the current user
-    """
-    user_configs = [
-        UIConfig(**config) 
-        for config in ui_configs_db.values() 
-        if config["user_id"] == current_user.username
-    ]
-    return user_configs
-
-@app.get("/ui-configs/{config_id}", response_model=UIConfig)
-async def get_ui_config(
-    config_id: str,
-    current_user: User = Depends(get_current_active_user)
-):
-    """
-    Get a specific UI configuration
-    """
-    if config_id not in ui_configs_db:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="UI configuration not found"
-        )
-    
-    config = ui_configs_db[config_id]
-    if config["user_id"] != current_user.username:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this configuration"
-        )
-    
-    return UIConfig(**config)
-
-@app.put("/ui-configs/{config_id}", response_model=UIConfig)
-async def update_ui_config(
-    config_id: str,
-    updated_config: Dict[str, Any],
-    current_user: User = Depends(get_current_active_user)
-):
-    """
-    Update a specific UI configuration
-    """
-    if config_id not in ui_configs_db:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="UI configuration not found"
-        )
-    
-    config = ui_configs_db[config_id]
-    if config["user_id"] != current_user.username:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to update this configuration"
-        )
-    
-    config["config"] = updated_config
-    config["updated_at"] = datetime.utcnow()
-    ui_configs_db[config_id] = config
-    
-    return UIConfig(**config)
-
-@app.delete("/ui-configs/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_ui_config(
-    config_id: str,
-    current_user: User = Depends(get_current_active_user)
-):
-    """
-    Delete a specific UI configuration
-    """
-    if config_id not in ui_configs_db:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="UI configuration not found"
-        )
-    
-    config = ui_configs_db[config_id]
-    if config["user_id"] != current_user.username:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to delete this configuration"
-        )
-    
-    del ui_configs_db[config_id]
-    return None
-
-# Root endpoint
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """
@@ -768,861 +533,876 @@ async def root():
     """
     return HTMLResponse(content=html_content)
 
-# If there is a frontend-new directory, mount it
-frontend_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend-new")
-if os.path.exists(frontend_dir):
-    app.mount("/frontend", StaticFiles(directory=frontend_dir, html=True), name="frontend-static")
+# --- Comment out the frontend static file mounting --- 
+# # If there is a frontend-new directory, mount it
+# frontend_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend-new")
+# if os.path.exists(frontend_dir):
+#     app.mount("/frontend", StaticFiles(directory=frontend_dir, html=True), name="frontend-static")
+# --- End Comment out ---
 
 # Run the application
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 
 
-# Add these utility functions for JSON handling
-def validate_ui_config(config: Dict[str, Any]) -> Optional[str]:
-    """
-    Validate that the UI configuration has the required structure.
-    
-    Args:
-        config: The UI configuration to validate
-        
-    Returns:
-        An error message if validation fails, None otherwise
-    """
-    if not isinstance(config, dict):
-        return "Configuration must be a dictionary"
-    
-    # Check for required top-level keys
-    required_keys = ["app", "layout", "components"]
-    missing_keys = [key for key in required_keys if key not in config]
-    if missing_keys:
-        return f"Missing required keys: {', '.join(missing_keys)}"
-    
-    # Check components structure
-    components = config.get("components", [])
-    if not isinstance(components, list):
-        return "Components must be a list"
-    
-    # Validate each component has required fields
-    for i, component in enumerate(components):
-        if not isinstance(component, dict):
-            return f"Component at index {i} must be a dictionary"
-        
-        # Check for required component fields
-        comp_required_keys = ["id", "type"]
-        comp_missing_keys = [key for key in comp_required_keys if key not in component]
-        if comp_missing_keys:
-            return f"Component at index {i} is missing required keys: {', '.join(comp_missing_keys)}"
-    
-    return None
+@app.post("/api/generate-full-code")
+async def generate_full_code_endpoint(request: PromptRequest, current_user: User = Depends(get_current_user)):
+    """Generates the full, self-contained HTML file using Web Components via streaming."""
+    logger.info(f"Received STREAMING request for /api/generate-full-code from user: {current_user.username}")
+    if not request.prompt:
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
 
-def fix_json(json_str: str) -> Optional[str]:
-    """
-    Attempt to fix invalid JSON.
-    
-    Args:
-        json_str: The JSON string to fix
-        
-    Returns:
-        Fixed JSON string if successful, None otherwise
-    """
-    # Remove any leading/trailing whitespace
-    json_str = json_str.strip()
-    
-    # Extract JSON if it's wrapped in markdown code blocks
-    if "```json" in json_str:
-        parts = json_str.split("```json")
-        if len(parts) > 1:
-            code_parts = parts[1].split("```")
-            if code_parts:
-                json_str = code_parts[0].strip()
-    elif "```" in json_str:
-        parts = json_str.split("```")
-        if len(parts) > 1:
-            json_str = parts[1].strip()
-    
-    # Try to find JSON object start and end
-    json_start = json_str.find('{')
-    json_end = json_str.rfind('}') + 1
-    
-    if json_start != -1 and json_end != -1 and json_end > json_start:
-        return json_str[json_start:json_end]
-    
-    return None 
-
-# --- Add Response Model for Generated Code ---
-class GeneratedCodeResponse(BaseModel):
-    component_code: Optional[str] = None
-    error: Optional[str] = None
-# --- End Response Model ---
-
-@app.post("/api/generate", response_model=GeneratedCodeResponse) # Updated response model
-async def generate_app(request: Dict[str, Any] = Body(...)):
-    """
-    Generate a React component code string based on a user request.
-    Calls the updated component_service and returns the code or an error.
-    """
-    user_request = request.get("request", "")
-    if not user_request:
-        # Return error using the response model
-        return GeneratedCodeResponse(error="Request text is required") 
-    
-    # Generate component code string (or None on error)
-    # component_service.generate_app_config now returns Optional[str]
-    component_code_string = component_service.generate_app_config(user_request)
-    
-    # Check the result and return appropriate response
-    if component_code_string:
-        return GeneratedCodeResponse(component_code=component_code_string)
-    else:
-        # If component_service returned None, it means an error occurred during generation/extraction
-        return GeneratedCodeResponse(error="Failed to generate component code. Check backend logs for details.")
-
-@app.get("/api/app/config") # This endpoint likely needs removal or complete rethink
-async def get_app_config():
-    """
-    Get the current app configuration.
-    NOTE: This is likely deprecated as we now generate code strings, not configs.
-    """
-    # global current_app_config
-    # if current_app_config is None:
-    #     raise HTTPException(status_code=404, detail="No app configuration available")
-    # return current_app_config
-    # Returning an error or empty state as the concept of a single global config is removed
-    raise HTTPException(status_code=404, detail="Endpoint /api/app/config is deprecated. Generate code via /api/generate.")
-
-@app.get("/reset-app")
-async def reset_app():
-    """
-    Reset the app and regenerate it with proper button handlers.
-    """
-    # Create a basic calculator app with working buttons
-    app_config = {
-        "app": {
-            "name": "Fixed Calculator",
-            "description": "A calculator with working buttons",
-            "theme": "light"
-        },
-        "layout": {
-            "type": "singlepage",
-            "regions": ["header", "main", "footer"]
-        },
-        "components": [
-            {
-                "id": "calculator-title",
-                "type": "text",
-                "region": "header",
-                "properties": {
-                    "content": "Calculator App"
-                },
-                "styles": {
-                    "fontSize": "24px",
-                    "fontWeight": "bold",
-                    "textAlign": "center",
-                    "padding": "20px",
-                    "color": "#333"
-                }
-            },
-            {
-                "id": "calculator-container",
-                "type": "container",
-                "region": "main",
-                "styles": {
-                    "maxWidth": "300px",
-                    "margin": "0 auto",
-                    "padding": "15px",
-                    "backgroundColor": "#f5f5f5",
-                    "borderRadius": "8px",
-                    "boxShadow": "0 2px 10px rgba(0,0,0,0.1)"
-                },
-                "children": [
-                    {
-                        "id": "display",
-                        "type": "text",
-                        "properties": {
-                            "content": "0"
-                        },
-                        "styles": {
-                            "width": "100%",
-                            "padding": "15px",
-                            "marginBottom": "15px",
-                            "backgroundColor": "#fff",
-                            "border": "1px solid #ddd",
-                            "borderRadius": "4px",
-                            "fontSize": "24px",
-                            "textAlign": "right",
-                            "fontFamily": "monospace"
-                        }
-                    },
-                    {
-                        "id": "keypad",
-                        "type": "container",
-                        "styles": {
-                            "display": "grid",
-                            "gridTemplateColumns": "repeat(4, 1fr)",
-                            "gap": "10px"
-                        },
-                        "children": [
-                            {
-                                "id": "btn-clear",
-                                "type": "button",
-                                "properties": {
-                                    "text": "C"
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#ff6347",
-                                    "color": "white",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { $m('#display').setText('0'); } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-divide",
-                                "type": "button",
-                                "properties": {
-                                    "text": "÷"
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#4CAF50",
-                                    "color": "white",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText !== '0') { display.setText(currentText + '/'); } } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-multiply",
-                                "type": "button",
-                                "properties": {
-                                    "text": "×"
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#4CAF50",
-                                    "color": "white",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText !== '0') { display.setText(currentText + '*'); } } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-subtract",
-                                "type": "button",
-                                "properties": {
-                                    "text": "-"
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#4CAF50",
-                                    "color": "white",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); display.setText(currentText + '-'); } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-7",
-                                "type": "button",
-                                "properties": {
-                                    "text": "7"
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#e0e0e0",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('7'); } else { display.setText(currentText + '7'); } } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-8",
-                                "type": "button",
-                                "properties": {
-                                    "text": "8"
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#e0e0e0",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('8'); } else { display.setText(currentText + '8'); } } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-9",
-                                "type": "button",
-                                "properties": {
-                                    "text": "9"
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#e0e0e0",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('9'); } else { display.setText(currentText + '9'); } } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-add",
-                                "type": "button",
-                                "properties": {
-                                    "text": "+"
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#4CAF50",
-                                    "color": "white",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); display.setText(currentText + '+'); } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-4",
-                                "type": "button",
-                                "properties": {
-                                    "text": "4"
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#e0e0e0",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('4'); } else { display.setText(currentText + '4'); } } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-5",
-                                "type": "button",
-                                "properties": {
-                                    "text": "5"
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#e0e0e0",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('5'); } else { display.setText(currentText + '5'); } } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-6",
-                                "type": "button",
-                                "properties": {
-                                    "text": "6"
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#e0e0e0",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('6'); } else { display.setText(currentText + '6'); } } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-equals",
-                                "type": "button",
-                                "properties": {
-                                    "text": "="
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#2196F3",
-                                    "color": "white",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer",
-                                    "gridRow": "span 2"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const expression = display.getText(); try { const result = Function('\"use strict\"; return (' + expression + ')')(); display.setText(String(result)); } catch(calcError) { display.setText('Error'); setTimeout(() => display.setText('0'), 1000); } } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-1",
-                                "type": "button",
-                                "properties": {
-                                    "text": "1"
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#e0e0e0",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('1'); } else { display.setText(currentText + '1'); } } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-2",
-                                "type": "button",
-                                "properties": {
-                                    "text": "2"
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#e0e0e0",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('2'); } else { display.setText(currentText + '2'); } } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-3",
-                                "type": "button",
-                                "properties": {
-                                    "text": "3"
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#e0e0e0",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('3'); } else { display.setText(currentText + '3'); } } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-0",
-                                "type": "button",
-                                "properties": {
-                                    "text": "0"
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#e0e0e0",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer",
-                                    "gridColumn": "span 2"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (currentText === '0') { display.setText('0'); } else { display.setText(currentText + '0'); } } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            },
-                            {
-                                "id": "btn-decimal",
-                                "type": "button",
-                                "properties": {
-                                    "text": "."
-                                },
-                                "styles": {
-                                    "padding": "15px",
-                                    "backgroundColor": "#e0e0e0",
-                                    "border": "none",
-                                    "borderRadius": "4px",
-                                    "fontSize": "18px",
-                                    "cursor": "pointer"
-                                },
-                                "events": {
-                                    "click": {
-                                        "code": "function(event, $m) { try { const display = $m('#display'); const currentText = display.getText(); if (!currentText.includes('.')) { display.setText(currentText + '.'); } } catch(error) { console.error('Error:', error); } }",
-                                        "affectedComponents": ["display"]
-                                    }
-                                }
-                            }
-                        ]
-                    }
-                ]
-            },
-            {
-                "id": "footer-text",
-                "type": "text",
-                "region": "footer",
-                "properties": {
-                    "content": "© 2023 Calculator App"
-                },
-                "styles": {
-                    "textAlign": "center",
-                    "padding": "20px",
-                    "color": "#777",
-                    "fontSize": "14px"
-                }
-            }
-        ]
-    }
-    
-    # Set as current app config
-    global current_app_config
-    current_app_config = app_config
-    
-    return {"status": "success", "message": "App reset with working calculator"} 
-
-# Add the GeminiStructuredRequest model
-class GeminiStructuredRequest(BaseModel):
-    prompt: str
-    schema: Dict[str, Any]
-
-@app.post("/gemini-structured-output", response_model=Dict[str, Any])
-async def gemini_structured_output(
-    request: GeminiStructuredRequest,
-    current_user: User = Depends(get_current_active_user)
-):
-    if not client or not genai_types:
-        raise HTTPException(status_code=503, detail="Gemini client not available")
     try:
-        print(f"Gemini structured output request: {request.prompt}")
-        print(f"Schema: {json.dumps(request.schema, indent=2)}")
-        
-        # Use the client with GenerateContentConfig
-        config = genai_types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=request.schema # Pass schema dict directly (still might have issues?)
-        )
-        response = client.models.generate_content(
-            model="models/gemini-2.0-flash", # Use appropriate model
-            contents=request.prompt,
-            generation_config=config
-        )
-        result = json.loads(response.text)
-        return {"result": result, "status": "success"}
-    except Exception as e:
-        # ... (error handling)
-        print(f"Error in gemini_structured_output: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-class GeminiDataRequest(BaseModel):
-    data_description: str
-    schema: Dict[str, Any]
-    temperature: float = 0.2
-
-@app.post("/gemini-grounded-data", response_model=Dict[str, Any])
-async def gemini_grounded_data(
-    request: GeminiDataRequest,
-    current_user: User = Depends(get_current_active_user)
-):
-    if not client or not genai_types:
-        raise HTTPException(status_code=503, detail="Gemini client not available")
-        
-    # ... (logic to determine use_search_grounding - this needs client methods)
-    # Let's simplify and assume search is available if client exists for now
-    use_search_grounding = bool(client)
-    
-    try:
-        if use_search_grounding:
-            print("Using Google Search grounding for data retrieval")
-            # ... (enhanced_search_prompt setup)
-            # Use client.models.generate_content without specific schema config for grounding
-            response = client.models.generate_content(
-                model="models/gemini-2.0-flash",
-                contents=enhanced_search_prompt
-                # Grounding might be implicit or need tool config - check SDK docs
-            )
-            # ... (Parse response text, handle potential errors)
-            raw_text = response.text.strip()
-            # ... (JSON extraction logic)
-            result = json.loads(raw_text)
-            # ... (Set grounding_metadata)
+        # --- Check for grounding keywords --- 
+        grounding_keywords = ["search", "current", "latest", "news", "real-time", "live data", "stock price", "weather"]
+        enable_grounding = any(keyword in request.prompt.lower() for keyword in grounding_keywords)
+        if enable_grounding:
+            logger.info("Grounding keyword detected in generation request. Enabling grounding.")
         else:
-            print("Using standard generation (no grounding)")
-            # ... (cleaned_schema setup - maybe remove if problematic)
-            config = genai_types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=request.schema # Pass provided schema
-            )
-            response = client.models.generate_content(
-                model="models/gemini-1.5-flash", # Use appropriate model
-                contents=enhanced_prompt,
-                generation_config=config
-            )
-            # ... (Parse response text)
-            raw_text = response.text.strip()
-            result = json.loads(raw_text)
-            # ... (Set grounding_metadata)
+             logger.info("No grounding keyword detected in generation request.")
 
-        return {"result": result, "grounding_metadata": grounding_metadata, "status": "success"}
-        
-    except Exception as e:
-        # ... (error handling)
-        print(f"Error in gemini_grounded_data: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Helper function to extract grounding metadata from a response
-def extract_grounding_metadata(response):
-    grounding_metadata = {
-        "sources": []
-    }
-    
-    try:
-        if hasattr(response, 'candidates') and response.candidates:
-            candidate = response.candidates[0]
-            if hasattr(candidate, 'grounding_metadata') and candidate.grounding_metadata:
-                sources = []
-                
-                # Try different API structures to find source information
-                # Structure 1: Web search results
-                if hasattr(candidate.grounding_metadata, 'web_search_results'):
-                    for result in candidate.grounding_metadata.web_search_results:
-                        sources.append({
-                            'uri': result.uri if hasattr(result, 'uri') else result.url if hasattr(result, 'url') else '',
-                            'title': result.title if hasattr(result, 'title') else ''
-                        })
-                
-                # Structure 2: Grounding chunks with web information
-                elif hasattr(candidate.grounding_metadata, 'grounding_chunks'):
-                    for chunk in candidate.grounding_metadata.grounding_chunks:
-                        if hasattr(chunk, 'web') and chunk.web:
-                            sources.append({
-                                'uri': chunk.web.uri if hasattr(chunk.web, 'uri') else '',
-                                'title': chunk.web.title if hasattr(chunk.web, 'title') else ''
-                            })
-                
-                # Structure 3: Search entry point
-                elif hasattr(candidate.grounding_metadata, 'search_entry_point'):
-                    entry_point = candidate.grounding_metadata.search_entry_point
-                    if hasattr(entry_point, 'rendered_content') and entry_point.rendered_content:
-                        # Just create a single source entry for the search entry point
-                        sources.append({
-                            'uri': 'Google Search',
-                            'title': 'Search Results'
-                        })
-                
-                if sources:
-                    grounding_metadata["sources"] = sources
-    except Exception as e:
-        print(f"Error extracting grounding metadata: {str(e)}")
-    
-    # If no sources were found, provide a default source
-    if not grounding_metadata["sources"]:
-        grounding_metadata["sources"] = [
-            {
-                'uri': 'https://ai.google.dev/gemini-api',
-                'title': 'Generated with Gemini API'
-            }
-        ]
-    
-    return grounding_metadata
-
-# Refactored /api/search
-@app.post("/api/search")
-async def search_endpoint(request_data: dict = Body(...)):
-    if not client:
-        raise HTTPException(status_code=503, detail="Gemini client not available")
-        
-    query = request_data.get("query")
-    if not query:
-        raise HTTPException(status_code=400, detail="No query provided.")
-        
-    try:
-        # component_service is already refactored to use the client
-        response_text = component_service.generate_search_response(query)
-        return JSONResponse(status_code=200, content={"result": response_text})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) 
-
-# --- Add ManualConfigRequest Model --- 
-class ManualConfigRequest(BaseModel):
-    config: Dict[str, Any]
-# --- End Model --- 
-
-# --- Add New Manual Load Endpoint --- 
-@app.post("/load-config-manual", response_model=Dict[str, Any])
-async def load_config_manual(
-    request: ManualConfigRequest, # Use the new model
-    current_user: User = Depends(get_current_active_user) # Authenticate
-):
-    """
-    Load and process a manually provided UI configuration JSON, skipping AI generation.
-    """
-    print("Received request for /load-config-manual endpoint")
-    raw_config = request.config
-
-    if not raw_config or not isinstance(raw_config, dict):
-        raise HTTPException(status_code=400, detail="Invalid or empty configuration provided in the request body.")
-
-    try:
-        # Use the component_service to process the raw config
-        # Provide a placeholder user request string as it's not available here
-        processed_config = component_service._process_app_config(raw_config, "Manually loaded configuration")
-
-        # Create a unique ID for this configuration instance
-        config_id = str(uuid.uuid4())
-        now = datetime.utcnow()
-
-        print(f"Successfully processed manually loaded config with {len(processed_config.get('components', []))} components")
-
-        # Return the processed configuration
-        return {
-            "id": config_id,
-            "config": processed_config
-        }
+        # Get the async generator from the service, passing the flag
+        content_stream = component_service_instance.generate_full_component_code(
+            request.prompt,
+            enable_grounding=enable_grounding # Pass the flag
+        )
+        # Return a StreamingResponse
+        return StreamingResponse(content_stream, media_type="text/event-stream")
 
     except Exception as e:
-        print(f"Error processing manual config: {e}")
-        traceback.print_exc() # Log the full error for debugging
-        raise HTTPException(
+        # Handle exceptions during the setup before streaming starts
+        logger.exception(f"An unexpected error occurred setting up streaming generation: {e}")
+        # Return an error response immediately if setup fails
+        return JSONResponse(
             status_code=500,
-            detail=f"Failed to process the provided configuration: {str(e)}"
+            content={"error": f"Internal server error during stream setup: {str(e)}"}
         )
-# --- End New Endpoint --- 
 
-# NEW: Request model for component modification
-class ModifyComponentRequest(BaseModel):
-    prompt: str # The modification instruction
-    current_code: str # The existing component code string
+@app.post("/api/modify-full-code")
+async def modify_full_code_endpoint(request: ModifyCodeRequest, current_user: User = Depends(get_current_user)):
+    """Modifies an existing HTML file string based on user instructions via streaming."""
+    logger.info(f"Received STREAMING request for /api/modify-full-code from user: {current_user.username}")
+    if not request.modification_prompt:
+        raise HTTPException(status_code=400, detail="Modification prompt cannot be empty.")
+    if not request.current_html:
+        raise HTTPException(status_code=400, detail="Current HTML code cannot be empty.")
 
-# NEW Endpoint for Modifying Component UI
-@app.post("/api/modify-component", response_model=Dict[str, Any])
-async def modify_component_ui(
-    request: ModifyComponentRequest,
-    current_user: User = Depends(get_current_active_user) # Reuse authentication
+    try:
+        # --- Check for grounding keywords --- 
+        grounding_keywords = ["search", "current", "latest", "news", "real-time", "live data", "stock price", "weather"]
+        # Check in the modification request itself
+        enable_grounding = any(keyword in request.modification_prompt.lower() for keyword in grounding_keywords)
+        if enable_grounding:
+            logger.info("Grounding keyword detected in modification request. Enabling grounding.")
+        else:
+             logger.info("No grounding keyword detected in modification request.")
+
+        # Get the async generator from the service, passing the flag
+        content_stream = component_service_instance.modify_full_component_code(
+            modification_request=request.modification_prompt,
+            current_html=request.current_html,
+            enable_grounding=enable_grounding # Pass the flag
+        )
+        # Return a StreamingResponse
+        return StreamingResponse(content_stream, media_type="text/event-stream")
+
+    except Exception as e:
+        logger.exception(f"An unexpected error occurred setting up streaming modification: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Internal server error during stream setup: {str(e)}"}
+        )
+
+# --- NEW Chat Models ---
+class ChatMessage(BaseModel):
+    role: str # Typically "user" or "model"
+    parts: List[Dict[str, str]] # Gemini format: [{"text": "message content"}]
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1)
+    history: Optional[List[ChatMessage]] = None # Optional history
+
+# --- NEW Chat Endpoint ---
+@app.post("/api/chat")
+async def chat_endpoint(request: ChatRequest, current_user: User = Depends(get_current_user)):
+    """Handles multi-turn chat requests using Gemini."""
+    logger.info(f"Received request for /api/chat from user: {current_user.username}")
+
+    # 1. Construct the conversation history in the format Gemini expects
+    gemini_history = []
+    if request.history:
+        # Validate history structure (simple check)
+        for msg in request.history:
+            if msg.role not in ["user", "model"] or not isinstance(msg.parts, list) or not all("text" in part for part in msg.parts):
+                 logger.error(f"Invalid chat history format received: {msg}")
+                 raise HTTPException(status_code=400, detail="Invalid chat history format.")
+            gemini_history.append(msg.dict()) # Convert Pydantic model to dict
+
+    # Add the new user message
+    gemini_history.append({"role": "user", "parts": [{"text": request.message}]})
+
+    full_response = ""
+    error_message = None
+
+    try:
+        # 3. Call Gemini via the component service's retry wrapper
+        logger.info(f"Calling component_service for chat with structured history (length: {len(gemini_history)}) and GROUNDING ENABLED")
+        async for chunk in component_service_instance._call_gemini_with_retry(gemini_history, enable_grounding=True):
+            if "<!-- ERROR:" in chunk:
+                logger.error(f"Gemini wrapper signaled error during chat: {chunk}")
+                error_match = re.search(r"<!-- ERROR: (.*) -->", chunk)
+                error_message = error_match.group(1) if error_match else "Failed to get chat response due to API error."
+                break
+            full_response += chunk
+
+        if error_message:
+            raise HTTPException(status_code=500, detail=error_message)
+
+        if not full_response.strip():
+            logger.warning("Gemini returned an empty chat response.")
+            # Return an empty response instead of erroring for chat
+            return {"response": ""}
+
+        # 4. Return the successful response
+        logger.info(f"Successfully generated chat response (length: {len(full_response)}).")
+        # The frontend will need to add this response to the history with role 'model'
+        return {"response": full_response.strip()}
+
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        logger.exception(f"An unexpected error occurred during chat processing: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error during chat: {str(e)}")
+# --- End NEW Chat Endpoint ---
+
+# --- NEW JSON Request Models for Media Analysis ---
+class ImageAnalysisJSONRequest(BaseModel):
+    prompt: Optional[str] = None # Make prompt optional, default to None
+    fileDataUrl: str = Field(..., min_length=10) # Basic length check
+
+class VideoAnalysisJSONRequest(BaseModel):
+    prompt: Optional[str] = None # Make prompt optional
+    fileDataUrl: str = Field(..., min_length=10)
+
+class AudioAnalysisJSONRequest(BaseModel):
+    prompt: str = Field(..., min_length=1)
+    fileDataUrl: str = Field(..., min_length=10)
+# --- End NEW JSON Request Models ---
+
+# --- Re-added Image Tool Endpoint ---
+@app.post("/api/image-tool")
+async def image_tool_endpoint(
+    request: ImageAnalysisJSONRequest, # Reuse model from before
+    current_user: User = Depends(get_current_user)
 ):
-    print("Received request for /api/modify-component endpoint")
-    if not request.prompt or not request.current_code:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Both modification prompt and current code are required."
+    """Handles image analysis requests from generated applications."""
+    # Use provided prompt or a default if none/empty
+    effective_prompt = request.prompt if request.prompt else "Describe this image."
+    logger.info(f"Received JSON request for /api/image-tool from user: {current_user.username}, prompt: '{effective_prompt[:50]}...'")
+
+    # 1. Parse Data URL (Copied from previous implementation)
+    try:
+        header, encoded_data = request.fileDataUrl.split(",", 1)
+        mime_type = header.split(":")[1].split(";")[0]
+        image_data = base64.b64decode(encoded_data)
+        logger.info(f"Decoded image data: {len(image_data)} bytes, mime_type: {mime_type}")
+    except (ValueError, IndexError, base64.binascii.Error) as e:
+        logger.error(f"Invalid fileDataUrl format received: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid fileDataUrl format: {e}")
+
+    # 2. Validate file type (Copied from previous implementation)
+    allowed_mime_types = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]
+    if mime_type not in allowed_mime_types:
+        logger.warning(f"User {current_user.username} provided invalid data URL type: {mime_type}")
+        raise HTTPException(status_code=400, detail=f"Invalid file type from data URL: {mime_type}. Allowed types: {', '.join(allowed_mime_types)}")
+
+    full_response = ""
+    error_message = None
+
+    try:
+        # 3. Construct contents for ComponentService (multimodal analysis)
+        gemini_contents = [
+            effective_prompt, # Use the effective prompt
+            {"mime_type": mime_type, "data": image_data} # Simple dict for service
+        ]
+
+        # 4. Call ComponentService's _call_gemini_with_retry for analysis
+        logger.info(f"Calling component_service for image analysis (prompt: '{effective_prompt[:30]}...', image: {len(image_data)} bytes)")
+        # Pass the list directly to the service function
+        async for chunk in component_service_instance._call_gemini_with_retry(gemini_contents):
+            if "<!-- ERROR:" in chunk:
+                logger.error(f"Gemini wrapper signaled error during image analysis: {chunk}")
+                error_match = re.search(r"<!-- ERROR: (.*) -->", chunk)
+                error_message = error_match.group(1) if error_match else "Failed to analyze image due to API error."
+                break
+            full_response += chunk
+
+        if error_message:
+            raise HTTPException(status_code=500, detail=error_message)
+
+        if not full_response.strip():
+            logger.warning("Gemini returned an empty analysis for the image.")
+            return {"analysis": ""} # Return analysis field
+
+        # 5. Return the successful analysis
+        logger.info(f"Successfully generated image analysis (length: {len(full_response)}).")
+        return {"analysis": full_response.strip()} # Return analysis field
+
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        logger.exception(f"An unexpected error occurred during image analysis: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error during image analysis: {str(e)}")
+# --- End Re-added Image Tool Endpoint ---
+
+# --- NEW Image Generation Endpoint ---
+@app.post("/api/generate-image")
+async def generate_image_endpoint(
+    request: ImageGenerationRequest, 
+    current_user: User = Depends(get_current_user)
+):
+    """Handles image generation requests using the component service."""
+    logger.info(f"Received request for /api/generate-image from user: {current_user.username}, prompt: '{request.prompt[:50]}...'")
+
+    if not request.prompt:
+        # Although the model has min_length=1, double-check
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
+
+    try:
+        # Call the service method
+        result = await component_service_instance.generate_image(request.prompt)
+
+        # Check the result from the service
+        if "error" in result and result["error"]:
+            logger.error(f"Image generation failed for user {current_user.username}: {result['error']}")
+            # Return a specific error status code if needed, e.g., 500 or 503
+            raise HTTPException(status_code=500, detail=f"Image generation failed: {result['error']}")
+        elif "imageDataUrl" in result and result["imageDataUrl"]:
+            logger.info(f"Successfully generated image for user {current_user.username}.")
+            return {"imageDataUrl": result["imageDataUrl"]}
+        else:
+            # Should not happen if service guarantees one or the other
+            logger.error(f"Image generation returned unexpected result for user {current_user.username}: {result}")
+            raise HTTPException(status_code=500, detail="Image generation returned an unexpected result.")
+
+    except HTTPException as http_exc:
+        # Re-raise HTTPException to keep FastAPI handling
+        raise http_exc
+    except Exception as e:
+        logger.exception(f"An unexpected error occurred during image generation endpoint processing: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error during image generation: {str(e)}")
+# --- End NEW Image Generation Endpoint ---
+
+# --- NEW Video Analysis Endpoint (Data URL approach) ---
+@app.post("/api/video-tool")
+async def video_tool_endpoint(
+    request: VideoAnalysisJSONRequest, 
+    current_user: User = Depends(get_current_user)
+):
+    """Handles video analysis requests using data URLs and the File API."""
+    effective_prompt = request.prompt if request.prompt else "Describe this video in detail."
+    logger.info(f"Received JSON request for /api/video-tool from user: {current_user.username}, prompt: '{effective_prompt[:50]}...'")
+
+    # 1. Parse Data URL
+    try:
+        header, encoded_data = request.fileDataUrl.split(",", 1)
+        mime_type = header.split(":")[1].split(";")[0]
+        video_data = base64.b64decode(encoded_data)
+        logger.info(f"Decoded video data: {len(video_data)} bytes, mime_type: {mime_type}")
+    except (ValueError, IndexError, base64.binascii.Error) as e:
+        logger.error(f"Invalid fileDataUrl format for video: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid fileDataUrl format: {e}")
+
+    # 2. Validate MIME type (adjust allowed types for video)
+    # Example list, refine based on expected video types
+    allowed_mime_types = [
+        "video/mp4", "video/mpeg", "video/mov", "video/avi", 
+        "video/x-flv", "video/mpg", "video/webm", "video/wmv", "video/3gpp"
+    ]
+    if mime_type not in allowed_mime_types:
+        logger.warning(f"User {current_user.username} provided invalid video data URL type: {mime_type}")
+        raise HTTPException(status_code=400, detail=f"Invalid file type from data URL: {mime_type}. Allowed types: {', '.join(allowed_mime_types)}")
+
+    # 3. Call the service method (async streaming)
+    try:
+        content_stream = component_service_instance.analyze_video_from_bytes(
+            prompt=effective_prompt,
+            video_bytes=video_data,
+            mime_type=mime_type
         )
         
-    # Call a *new* method in component_service to handle modification
-    # This method needs to be created in service.py
-    modified_code_string = component_service.modify_app_config(
-        modification_prompt=request.prompt,
-        current_code=request.current_code
-    )
-    
-    if modified_code_string:
-        print(f"Successfully modified component code string starting with: {modified_code_string[:100]}...")
-        return {
-            "component_code": modified_code_string,
-            "error": None
-        }
-    else:
-        print("Error: Failed to modify component code string.")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to modify component code. Check backend logs."
-        ) 
+        # --- Consume the stream and return JSON --- 
+        full_analysis = ""
+        async for chunk in content_stream:
+            if "<!-- ERROR:" in chunk:
+                logger.error(f"Video analysis service signaled error: {chunk}")
+                error_match = re.search(r"<!-- ERROR: (.*) -->", chunk)
+                error_message = error_match.group(1) if error_match else "Video analysis failed."
+                raise HTTPException(status_code=500, detail=error_message)
+            full_analysis += chunk
+        
+        logger.info(f"Successfully collected video analysis (length: {len(full_analysis)}). Returning JSON.")
+        return JSONResponse(content={"analysis": full_analysis.strip()})
+        # --- End JSON response section ---
 
-# NEW: Model for the full code generation response
-class FullCodeResponse(BaseModel):
-    component_code: Optional[str] = None
-    error: Optional[str] = None
-
-# NEW: Model for the request, only needs prompt
-class PromptRequest(BaseModel):
-    prompt: str
-
-# NEW: Endpoint for generating full, runnable component code
-@app.post("/api/generate-full-component", response_model=FullCodeResponse)
-async def generate_full_component(request: PromptRequest):
-    """Generates a complete, runnable React component file (.tsx)."""
-    logger.info(f"Received request for /api/generate-full-component with prompt: {request.prompt[:100]}...")
-    try:
-        full_code = component_service.generate_full_component_code(request.prompt)
-        if full_code:
-            logger.info("Successfully generated full component code for /api/generate-full-component.")
-            return FullCodeResponse(component_code=full_code)
-        else:
-            logger.error("Full code generation failed for /api/generate-full-component.")
-            return FullCodeResponse(error="Failed to generate full component code. AI might have encountered an issue.")
+    except HTTPException as http_exc:
+        # Re-raise HTTPException if service raises one (e.g., init failure) or if we raise one above
+        raise http_exc
     except Exception as e:
-        logger.exception(f"Exception in /api/generate-full-component endpoint: {e}")
-        return FullCodeResponse(error=f"Server error during full code generation: {e}") 
+        # Handle exceptions during the setup before streaming starts
+        logger.exception(f"An unexpected error occurred setting up video analysis stream: {e}")
+        # Return an error response immediately
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Internal server error during video analysis setup: {str(e)}"}
+        )
+# --- End NEW Video Analysis Endpoint ---
+
+# --- NEW Audio Analysis Endpoint (Data URL approach) ---
+@app.post("/api/audio-tool")
+async def audio_tool_endpoint(
+    request: AudioAnalysisJSONRequest, 
+    current_user: User = Depends(get_current_user)
+):
+    """Handles audio analysis requests using data URLs and inline data."""
+    logger.info(f"Received JSON request for /api/audio-tool from user: {current_user.username}, prompt: '{request.prompt[:50]}...'")
+
+    # 1. Parse Data URL
+    try:
+        header, encoded_data = request.fileDataUrl.split(",", 1)
+        mime_type = header.split(":")[1].split(";")[0]
+        audio_data = base64.b64decode(encoded_data)
+        logger.info(f"Decoded audio data: {len(audio_data)} bytes, mime_type: {mime_type}")
+    except (ValueError, IndexError, base64.binascii.Error) as e:
+        logger.error(f"Invalid fileDataUrl format for audio: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid fileDataUrl format: {e}")
+
+    # 2. Validate MIME type (add allowed audio types)
+    allowed_mime_types = [
+        "audio/mpeg", "audio/mp3", # MP3
+        "audio/wav", "audio/x-wav", # WAV
+        "audio/ogg", # OGG Vorbis
+        "audio/aac", # AAC
+        "audio/flac", "audio/x-flac", # FLAC
+        "audio/amr", # AMR (often mobile)
+        "audio/aiff", # AIFF
+        # Add others as needed based on Gemini supported types
+    ]
+    if mime_type not in allowed_mime_types:
+        logger.warning(f"User {current_user.username} provided invalid audio data URL type: {mime_type}")
+        raise HTTPException(status_code=400, detail=f"Invalid file type from data URL: {mime_type}. Allowed types: {', '.join(allowed_mime_types)}")
+
+    # 3. Call the service method and return JSON response
+    try:
+        content_stream = component_service_instance.analyze_audio_from_bytes(
+            prompt=request.prompt,
+            audio_bytes=audio_data,
+            mime_type=mime_type
+        )
+        
+        # Consume the stream and return JSON
+        full_analysis = ""
+        async for chunk in content_stream:
+            if "<!-- ERROR:" in chunk:
+                logger.error(f"Audio analysis service signaled error: {chunk}")
+                error_match = re.search(r"<!-- ERROR: (.*) -->", chunk)
+                error_message = error_match.group(1) if error_match else "Audio analysis failed."
+                raise HTTPException(status_code=500, detail=error_message)
+            full_analysis += chunk
+        
+        logger.info(f"Successfully collected audio analysis (length: {len(full_analysis)}). Returning JSON.")
+        return JSONResponse(content={"analysis": full_analysis.strip()})
+
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        logger.exception(f"An unexpected error occurred setting up/processing audio analysis stream: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Internal server error during audio analysis: {str(e)}"}
+        )
+# --- End NEW Audio Analysis Endpoint ---
+
+# --- NEW Generation Management Endpoints ---
+
+@app.post("/api/save-generation", status_code=status.HTTP_201_CREATED, response_model=GenerationInfo)
+async def save_generation(
+    request: SaveGenerationRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Saves a generated HTML snippet and its prompt for the user."""
+    if not db:
+        raise HTTPException(status_code=503, detail="Firestore service not available.")
+
+    generation_name = request.name if request.name else f"Generation - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    prompt_preview = (request.prompt[:100] + '...') if len(request.prompt) > 100 else request.prompt
+
+    try:
+        # Prepare data for Firestore
+        generation_data = {
+            "userId": current_user.uid,
+            "prompt": request.prompt,
+            "htmlContent": request.htmlContent,
+            "name": generation_name,
+            "createdAt": firestore.SERVER_TIMESTAMP # Use server timestamp
+        }
+
+        # Add a new doc with auto-generated ID
+        update_time, doc_ref = await asyncio.to_thread(
+            db.collection("userGenerations").add,
+            generation_data
+        )
+
+        logger.info(f"Saved generation {doc_ref.id} for user {current_user.uid}")
+
+        # Return info about the saved generation
+        # We need to fetch the server timestamp after saving, or approximate it
+        # For simplicity now, we'll use client time for the response model
+        return GenerationInfo(
+            id=doc_ref.id,
+            name=generation_name,
+            prompt_preview=prompt_preview,
+            createdAt=datetime.now() # Approximation for response
+        )
+
+    except Exception as e:
+        logger.exception(f"Error saving generation for user {current_user.uid}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save generation.")
+
+@app.get("/api/generations", response_model=List[GenerationInfo])
+async def list_generations(
+    current_user: User = Depends(get_current_user)
+):
+    """Lists saved generations for the current user."""
+    if not db:
+        raise HTTPException(status_code=503, detail="Firestore service not available.")
+
+    generations_list = []
+    try:
+        # Query Firestore for generations belonging to the user, order by creation time
+        docs_stream = await asyncio.to_thread(
+            lambda: db.collection("userGenerations")
+                       .where("userId", "==", current_user.uid)
+                       .order_by("createdAt", direction=firestore.Query.DESCENDING)
+                       .stream()
+        )
+
+        for doc in docs_stream:
+            data = doc.to_dict()
+            # Handle potential missing timestamp during fetch (though SERVER_TIMESTAMP should guarantee it)
+            created_at = data.get("createdAt", datetime.now()) 
+            if isinstance(created_at, datetime): # Ensure it's a datetime object
+                 prompt_preview = (data.get("prompt", "")[:100] + '...') if len(data.get("prompt", "")) > 100 else data.get("prompt", "")
+                 generations_list.append(GenerationInfo(
+                     id=doc.id,
+                     name=data.get("name", "Untitled Generation"),
+                     prompt_preview=prompt_preview,
+                     createdAt=created_at
+                 ))
+            else:
+                logger.warning(f"Skipping generation {doc.id} due to unexpected createdAt type: {type(created_at)}")
+
+        logger.info(f"Found {len(generations_list)} generations for user {current_user.uid}")
+        return generations_list
+
+    except Exception as e:
+        logger.exception(f"Error listing generations for user {current_user.uid}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve generations.")
+
+@app.get("/api/generations/{generation_id}", response_model=GenerationDetail)
+async def get_generation_detail(
+    generation_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Gets the full details of a specific saved generation."""
+    if not db:
+        raise HTTPException(status_code=503, detail="Firestore service not available.")
+
+    try:
+        doc_ref = db.collection("userGenerations").document(generation_id)
+        doc = await asyncio.to_thread(doc_ref.get)
+
+        if not doc.exists:
+            logger.warning(f"Generation {generation_id} not found for user {current_user.uid}")
+            raise HTTPException(status_code=404, detail="Generation not found.")
+
+        data = doc.to_dict()
+
+        # Verify ownership
+        if data.get("userId") != current_user.uid:
+            logger.error(f"User {current_user.uid} attempted to access generation {generation_id} owned by {data.get('userId')}")
+            raise HTTPException(status_code=403, detail="Not authorized to access this generation.")
+
+        created_at = data.get("createdAt", datetime.now())
+        if not isinstance(created_at, datetime):
+             logger.warning(f"Generation {doc.id} has unexpected createdAt type: {type(created_at)}. Using current time.")
+             created_at = datetime.now()
+
+        prompt_preview = (data.get("prompt", "")[:100] + '...') if len(data.get("prompt", "")) > 100 else data.get("prompt", "")
+
+        return GenerationDetail(
+            id=doc.id,
+            name=data.get("name", "Untitled Generation"),
+            prompt_preview=prompt_preview,
+            createdAt=created_at,
+            prompt=data.get("prompt", ""),
+            htmlContent=data.get("htmlContent", "")
+        )
+
+    except HTTPException as http_exc:
+        raise http_exc # Re-raise specific HTTP exceptions
+    except Exception as e:
+        logger.exception(f"Error fetching generation {generation_id} for user {current_user.uid}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve generation details.")
+
+# --- Add Delete Endpoint below get_generation_detail ---
+@app.delete("/api/generations/{generation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_generation(
+    generation_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Deletes a specific saved generation after verifying ownership."""
+    if not db:
+        raise HTTPException(status_code=503, detail="Firestore service not available.")
+
+    logger.info(f"Received DELETE request for generation {generation_id} from user {current_user.uid}")
+    doc_ref = db.collection("userGenerations").document(generation_id)
+
+    try:
+        # First, get the document to verify ownership
+        doc = await asyncio.to_thread(doc_ref.get)
+
+        if not doc.exists:
+            logger.warning(f"Attempt to delete non-existent generation {generation_id} by user {current_user.uid}")
+            raise HTTPException(status_code=404, detail="Generation not found.")
+
+        data = doc.to_dict()
+        # Verify ownership
+        if data.get("userId") != current_user.uid:
+            logger.error(f"User {current_user.uid} attempted to DELETE generation {generation_id} owned by {data.get('userId')}")
+            raise HTTPException(status_code=403, detail="Not authorized to delete this generation.")
+
+        # If ownership is verified, proceed with deletion
+        await asyncio.to_thread(doc_ref.delete)
+        logger.info(f"Successfully deleted generation {generation_id} for user {current_user.uid}")
+        # Return No Content status (FastAPI handles this based on status_code)
+        return
+
+    except HTTPException as http_exc:
+        raise http_exc # Re-raise specific HTTP exceptions
+    except Exception as e:
+        logger.exception(f"Error deleting generation {generation_id} for user {current_user.uid}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete generation.")
+
+# --- End Delete Endpoint ---
+
+# --- NEW Suggest Modifications Endpoint --- 
+@app.post("/api/suggest-modifications", response_model=SuggestModificationsResponse)
+async def suggest_modifications_endpoint(
+    request: SuggestModificationsRequest, 
+    current_user: User = Depends(get_current_user)
+): 
+    """Analyzes the current HTML and suggests modifications."""
+    logger.info(f"Received request for /api/suggest-modifications from user: {current_user.username}")
+
+    if not request.current_html:
+        raise HTTPException(status_code=400, detail="Current HTML content cannot be empty.")
+
+    try:
+        # Call the service method
+        suggestions_list = await component_service_instance.suggest_modifications(request.current_html)
+
+        # Check if the first suggestion indicates an error from the service
+        if suggestions_list and suggestions_list[0].startswith("Error:"): 
+            logger.error(f"Suggestion generation failed for user {current_user.username}: {suggestions_list[0]}")
+            raise HTTPException(status_code=500, detail=suggestions_list[0])
+        
+        logger.info(f"Successfully generated {len(suggestions_list)} suggestions for user {current_user.username}.")
+        return SuggestModificationsResponse(suggestions=suggestions_list)
+
+    except HTTPException as http_exc:
+        # Re-raise HTTPException to keep FastAPI handling
+        raise http_exc
+    except Exception as e:
+        logger.exception(f"An unexpected error occurred during suggestions endpoint processing: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error generating suggestions: {str(e)}")
+# --- End NEW Suggest Modifications Endpoint --- 
+
+# --- NEW ENDPOINT FOR UI GENERATION WITH FILES ---
+@app.post("/api/v2/generate-full-code-with-files")
+async def generate_full_code_with_files_endpoint(
+    prompt: str = Form(...),
+    files: List[UploadFile] = File(default=[]), # Make files optional
+    current_user: User = Depends(get_current_user)
+):
+    logger.info(f"User '{current_user.username}' called /api/v2/generate-full-code-with-files with prompt and {len(files)} files.")
+
+    processed_files_metadata = []
+    gemini_sdk_file_objects = [] # To hold file objects for the Gemini SDK's generate_content
+
+    if not os.getenv("GOOGLE_API_KEY"):
+        logger.error("GOOGLE_API_KEY not configured. Cannot use Gemini Files API for uploads if needed.")
+        # Allow proceeding if all files are small enough for data URI / text content,
+        # but log a warning. The service layer will ultimately decide if Files API is essential.
+        # For now, we prepare as much as possible.
+        # raise HTTPException(status_code=500, detail="AI service not configured for file uploads.")
+
+    gemini_client = None
+    try:
+        if os.getenv("GOOGLE_API_KEY"): # Only initialize client if API key is available
+            gemini_client = genai.Client() # Assumes genai.configure() has been called
+            if not gemini_client:
+                 logger.warning("Failed to initialize Gemini Client, Files API uploads will not be possible.")
+        else:
+            logger.warning("GOOGLE_API_KEY not set. Gemini Files API uploads will not be possible.")
+    except Exception as e:
+        logger.error(f"Error initializing Gemini Client: {e}. Files API uploads will not be possible.")
+        gemini_client = None # Ensure client is None if init fails
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        for uploaded_file in files:
+            if not uploaded_file.filename:
+                logger.warning("Skipping file without a filename.")
+                continue
+
+            metadata = {
+                "id": uploaded_file.filename, # Default ID, will be overridden by Gemini file ID if uploaded
+                "name": uploaded_file.filename,
+                "mime_type": uploaded_file.content_type,
+                "size": uploaded_file.size,
+                "gemini_uri": None,
+                "content_data_url": None,
+                "text_content": None,
+            }
+            
+            # Read file content once
+            file_bytes = None
+            try:
+                file_bytes = await uploaded_file.read()
+                await uploaded_file.seek(0) # Reset stream position if it needs to be read again (e.g. by aiofiles)
+            except Exception as read_exc:
+                logger.error(f"Failed to read content for file {uploaded_file.filename}: {read_exc}", exc_info=True)
+                await uploaded_file.close()
+                continue # Skip this file
+
+            try:
+                is_text_file_type = uploaded_file.content_type and \
+                                   (uploaded_file.content_type.startswith("text/") or \
+                                    uploaded_file.content_type == "application/json" or \
+                                    uploaded_file.content_type == "application/csv" or \
+                                    uploaded_file.content_type == "text/markdown") # More specific for markdown
+
+                is_media_file_type = uploaded_file.content_type and \
+                                     (uploaded_file.content_type.startswith("image/") or \
+                                      uploaded_file.content_type.startswith("video/"))
+
+                if is_media_file_type and uploaded_file.size < MAX_FILE_SIZE_FOR_DATA_URL:
+                    b64_encoded_content = base64.b64encode(file_bytes).decode("utf-8")
+                    metadata["content_data_url"] = f"data:{uploaded_file.content_type};base64,{b64_encoded_content}"
+                    logger.info(f"Processed file '{uploaded_file.filename}' as data URL.")
+
+                elif is_text_file_type and uploaded_file.size < MAX_FILE_SIZE_FOR_TEXT_CONTENT:
+                    try:
+                        metadata["text_content"] = file_bytes.decode("utf-8")
+                        logger.info(f"Processed file '{uploaded_file.filename}' as direct text content.")
+                    except UnicodeDecodeError:
+                        logger.warning(f"Could not decode file '{uploaded_file.filename}' as UTF-8 text. Treating as binary for Files API if needed.")
+                        if not gemini_client:
+                           logger.error(f"Cannot process binary-like text file '{uploaded_file.filename}' as no Gemini client for Files API.")
+                           continue 
+                        pass # Let it fall to the 'else' for Files API
+
+                if gemini_client and not metadata["content_data_url"] and not metadata["text_content"]:
+                    temp_local_filename = f"{uuid.uuid4().hex}-{uploaded_file.filename}"
+                    temp_local_path = os.path.join(temp_dir, temp_local_filename)
+                    with open(temp_local_path, 'wb') as temp_f:
+                        temp_f.write(file_bytes)
+                    logger.info(f"Attempting to upload '{uploaded_file.filename}' to Gemini Files API from path: {temp_local_path}")
+                    gemini_uploaded_file_obj = gemini_client.files.upload(
+                        path=temp_local_path,
+                        display_name=uploaded_file.filename,
+                        mime_type=uploaded_file.content_type
+                    )
+                    if gemini_uploaded_file_obj:
+                        metadata["id"] = gemini_uploaded_file_obj.name
+                        metadata["gemini_uri"] = gemini_uploaded_file_obj.uri
+                        gemini_sdk_file_objects.append(gemini_uploaded_file_obj)
+                        logger.info(f"Uploaded '{uploaded_file.filename}' to Gemini Files API. ID: {gemini_uploaded_file_obj.name}, URI: {gemini_uploaded_file_obj.uri}")
+                    else:
+                        logger.error(f"Failed to upload '{uploaded_file.filename}' to Gemini Files API (upload returned None). Skipping.")
+                        continue
+                elif not metadata["content_data_url"] and not metadata["text_content"]:
+                    logger.warning(f"File '{uploaded_file.filename}' was not converted to data URI or text, and Gemini client is not available for Files API upload. Skipping.")
+                    continue
+
+            except Exception as e:
+                logger.error(f"Error processing file {uploaded_file.filename}: {e}", exc_info=True)
+                continue
+            finally:
+                await uploaded_file.close()
+
+            processed_files_metadata.append(metadata)
+    
+    try:
+        logger.info(f"Calling component service for UI generation. Prompt: '{prompt[:100]}...', {len(processed_files_metadata)} files processed, {len(gemini_sdk_file_objects)} for Gemini Files API.")
+        content_stream = component_service_instance.generate_ui_from_prompt_and_files(
+            text_prompt=prompt,
+            uploaded_files_info=processed_files_metadata,
+            gemini_file_objects=gemini_sdk_file_objects,
+            user=current_user
+        )
+        if gemini_client:
+            for sdk_file_obj in gemini_sdk_file_objects:
+                try:
+                    logger.info(f"Attempting to delete file {sdk_file_obj.name} from Gemini Files API.")
+                    gemini_client.files.delete(name=sdk_file_obj.name)
+                except Exception as del_e:
+                    logger.error(f"Failed to delete file {sdk_file_obj.name} from Gemini Files API: {del_e}", exc_info=True)
+        return StreamingResponse(content_stream, media_type="text/event-stream")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Critical error during UI generation with files for user '{current_user.username}': {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"An unexpected error occurred during UI generation: {str(e)}"}
+        )
+
+# --- NEW ENDPOINT FOR MODIFICATION WITH FILES ---
+@app.post("/api/v2/modify-full-code-with-files")
+async def modify_full_code_with_files_endpoint(
+    modification_prompt: str = Form(...),
+    current_html: str = Form(...),
+    files: List[UploadFile] = File(default=[]), # Make files optional
+    current_user: User = Depends(get_current_user)
+):
+    logger.info(f"User '{current_user.username}' called /api/v2/modify-full-code-with-files with modification prompt and {len(files)} files.")
+
+    processed_files_metadata = []
+    gemini_sdk_file_objects = [] # To hold file objects for the Gemini SDK's generate_content
+
+    if not os.getenv("GOOGLE_API_KEY"):
+        logger.error("GOOGLE_API_KEY not set for file upload processing.")
+        raise HTTPException(status_code=500, detail="Server configuration error related to file processing.")
+
+    try:
+        for file in files:
+            file_content = await file.read()
+            file_size = len(file_content)
+            mime_type = file.content_type or mimetypes.guess_type(file.filename)[0]
+            file_info = {
+                "id": None, # Will be set if uploaded to Gemini Files API
+                "name": file.filename,
+                "mime_type": mime_type,
+                "size": file_size,
+                "gemini_uri": None,
+                "content_data_url": None,
+                "text_content": None
+            }
+
+            logger.debug(f"Processing uploaded file for modification: {file.filename}, Type: {mime_type}, Size: {file_size}")
+
+            # Decide how to process based on type and size
+            is_text = mime_type and ('text/' in mime_type or mime_type in ['application/json', 'application/csv'])
+            is_embeddable_media = mime_type and ('image/' in mime_type or 'video/' in mime_type)
+            
+            # SMALL TEXT FILES: Include content directly
+            if is_text and file_size < 50 * 1024: # e.g., < 50KB
+                try:
+                    file_info["text_content"] = file_content.decode('utf-8')
+                    file_info["id"] = file.filename # Use filename as ID if not using Files API
+                    logger.debug(f"Included text content for {file.filename}")
+                except UnicodeDecodeError:
+                    logger.warning(f"Could not decode file {file.filename} as UTF-8 text, skipping text_content.")
+                    # Fallback to Gemini API upload if needed or just pass metadata
+                    # Pass basic info without text_content if decoding fails
+                    pass # Metadata already contains basic info
+            
+            # SMALL/MEDIUM MEDIA: Include as data URL
+            elif is_embeddable_media and file_size < 5 * 1024 * 1024: # e.g., < 5MB
+                base64_encoded_data = base64.b64encode(file_content).decode('utf-8')
+                file_info["content_data_url"] = f"data:{mime_type};base64,{base64_encoded_data}"
+                file_info["id"] = file.filename # Use filename as ID if not using Files API
+                logger.debug(f"Included data URL for {file.filename}")
+            
+            # OTHER/LARGE FILES: Upload to Gemini Files API (requires genai configured)
+            else:
+                try:
+                    logger.debug(f"Attempting to upload {file.filename} ({mime_type}) to Gemini Files API...")
+                    # Ensure genai is initialized (ideally done globally)
+                    if not component_service_instance.genai_configured:
+                         component_service_instance.configure_genai() # Make sure it's configured
+                    
+                    uploaded_file = component_service_instance.upload_file(file.filename, file_content, mime_type)
+                    if uploaded_file:
+                        file_info["gemini_uri"] = uploaded_file.uri
+                        file_info["id"] = uploaded_file.name # Use the Gemini file ID (e.g., files/xxxx)
+                        gemini_sdk_file_objects.append(uploaded_file) # Keep the SDK object
+                        logger.info(f"Successfully uploaded {file.filename} to Gemini Files API. URI: {uploaded_file.uri}")
+                    else:
+                        logger.warning(f"Failed to upload {file.filename} to Gemini Files API, genai.upload_file returned None.")
+                        # Fallback: only include basic metadata without URI/ID/object
+                        pass
+                except Exception as e:
+                    logger.error(f"Error uploading file {file.filename} to Gemini Files API: {e}", exc_info=True)
+                    # Fallback: only include basic metadata without URI/ID/object
+                    pass 
+
+            processed_files_metadata.append(file_info)
+
+        # Call the new service method for modification with files
+        logger.info(f"Calling service modification method. Mod Prompt: {modification_prompt[:50]}..., {len(processed_files_metadata)} files processed, {len(gemini_sdk_file_objects)} for Gemini Files API.")
+        async def stream_generator(): # Define the async generator locally
+            try:
+                async for chunk in component_service_instance.modify_ui_from_prompt_and_files(
+                    modification_prompt=modification_prompt,
+                    current_html=current_html,
+                    uploaded_files_info=processed_files_metadata,
+                    gemini_file_objects=gemini_sdk_file_objects,
+                    user=current_user,
+                    enable_grounding=False # Or determine based on prompt
+                ):
+                    yield chunk
+            except Exception as e:
+                logger.error(f"Error during modification streaming: {e}", exc_info=True)
+                error_html = f'<!-- ERROR: An internal error occurred during modification: {str(e).replace("-", "--")} -->'
+                yield error_html # Signal error to frontend within the stream
+            finally:
+                # Cleanup Gemini files if needed (optional, depends on lifecycle)
+                if gemini_sdk_file_objects:
+                    logger.info(f"Request completed. Consider deleting {len(gemini_sdk_file_objects)} uploaded Gemini files.")
+                    # Example cleanup (implement delete logic in service if needed)
+                    # for sdk_file in gemini_sdk_file_objects:
+                    #    try:
+                    #        component_service_instance.delete_file(sdk_file.name)
+                    #        logger.info(f"Deleted Gemini file: {sdk_file.name}")
+                    #    except Exception as del_e:
+                    #        logger.error(f"Error deleting Gemini file {sdk_file.name}: {del_e}")
+
+        return StreamingResponse(stream_generator(), media_type="text/html")
+
+    except Exception as e:
+        logger.error(f"Error processing file uploads or calling modification service: {e}", exc_info=True)
+        # Return a JSON response for general errors during setup/file processing
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"An internal error occurred: {str(e)}"}
+        )
+
+# --- END NEW ENDPOINT ---
+
+
+# --- Static files mounting (ensure it's after all route definitions if it matters for overlap) ---
+# Mount static files if you have a 'static' directory in 'backend' for JS, CSS, images
+# ... existing code ...
+# --- Remove verify_password and get_password_hash if /token endpoint is removed
+# def verify_password(plain_password, hashed_password):
+#     return pwd_context.verify(plain_password, hashed_password)
+# 
+# def get_password_hash(password):
+#     return pwd_context.hash(password)
+
+
+async def get_current_user(authorization: Optional[str] = Header(None)) -> User:
+    #we need code here
+    pass

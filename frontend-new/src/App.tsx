@@ -14,15 +14,14 @@ import Footer from './components/layout/Footer';
 import Login from './components/auth/Login';
 import Register from './components/auth/Register';
 import Dashboard from './components/dashboard/Dashboard';
-import { UIGenerator } from './components/generator/UIGenerator';
-import UIPreview from './components/preview/UIPreview';
-import SavedUIs from './components/saved/SavedUIs';
 import NotFound from './components/common/NotFound';
 import ErrorBoundary from './components/ErrorBoundary';
-import TestPage from './pages/TestPage';
+import { useAppSelector } from './store/hooks';
+import GeneratorPage from './pages/GeneratorPage';
+import SavedPage from './pages/SavedPage';
 
-// Import Morpheo component system
-import { registerAllComponents } from './components/ui/ComponentRegistry';
+// Import Toaster
+import { Toaster } from 'react-hot-toast';
 
 // Lazy load components to reduce initial bundle size
 // const ChartsExample = lazy(() => import('./examples/ChartsExample'));
@@ -34,9 +33,9 @@ axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:8000
 axios.defaults.headers.common['Content-Type'] = 'application/json';
 axios.defaults.withCredentials = true;
 
-// Protected route component
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated, loading } = useSelector((state: RootState) => state.auth);
+// Protected route component (defined inline)
+const ProtectedRouteComponent = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated, loading } = useAppSelector((state: RootState) => state.auth);
   
   if (loading) {
     return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
@@ -51,14 +50,11 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
 function App() {
   const dispatch = useDispatch();
-  const { mode } = useSelector((state: RootState) => state.theme);
+  const { mode } = useAppSelector((state: RootState) => state.theme);
   
   useEffect(() => {
     // Set up Firebase auth listener
     const unsubscribe = setupAuthListener(dispatch);
-    
-    // Register Morpheo components (needed for ComponentFactory)
-    registerAllComponents();
     
     // Clean up listener on unmount
     return () => {
@@ -77,6 +73,10 @@ function App() {
   
   return (
     <div className={`min-h-screen ${mode === 'dark' ? 'dark bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+      <Toaster 
+        position="top-center" 
+        reverseOrder={false} 
+      />
       <ErrorBoundary>
         <Router>
           <Header />
@@ -85,42 +85,33 @@ function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route path="/" element={
-                <ProtectedRoute>
+                <ProtectedRouteComponent>
                   <ErrorBoundary>
-                    <Dashboard />
+                    <GeneratorPage />
                   </ErrorBoundary>
-                </ProtectedRoute>
+                </ProtectedRouteComponent>
               } />
               <Route path="/generate" element={
-                <ProtectedRoute>
+                <ProtectedRouteComponent>
                   <ErrorBoundary>
-                    <UIGenerator />
+                    <GeneratorPage />
                   </ErrorBoundary>
-                </ProtectedRoute>
-              } />
-              <Route path="/preview" element={
-                <ProtectedRoute>
-                  <ErrorBoundary>
-                    <UIPreview />
-                  </ErrorBoundary>
-                </ProtectedRoute>
+                </ProtectedRouteComponent>
               } />
               <Route path="/saved" element={
-                <ProtectedRoute>
-                  <ErrorBoundary>
-                    <SavedUIs />
-                  </ErrorBoundary>
-                </ProtectedRoute>
+                <ProtectedRouteComponent>
+                  <SavedPage />
+                </ProtectedRouteComponent>
               } />
-              <Route path="/test" element={<TestPage />} />
-              {/* AI-powered chart generator */}
               <Route path="/chart-generator" element={
-                <Suspense fallback={<div>Loading...</div>}>
-                  <ChartGeneratorPage />
-                </Suspense>
+                <ProtectedRouteComponent>
+                  <ErrorBoundary>
+                    <Suspense fallback={<div>Loading...</div>}>
+                      <ChartGeneratorPage />
+                    </Suspense>
+                  </ErrorBoundary>
+                </ProtectedRouteComponent>
               } />
-              {/* Comment out the route to ChartsExample */}
-              {/* <Route path="/examples/charts" element={<ChartsExample />} /> */}
               <Route path="/async-components" element={
                 <Suspense fallback={<div>Loading...</div>}>
                   <AsyncComponentExample />
