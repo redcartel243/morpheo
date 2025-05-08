@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
-import { AppDispatch, RootState } from '../store';
+import { RootState } from '../store';
 import { clearGeneratedCode, clearError, saveGeneration, clearLoadedGenerationFlags, undoModification, redoModification, fetchSuggestions, generateCodeWithFiles, modifyCodeWithFiles, setLiveUpdateCommand, clearLiveUpdateCommand, PropertySchema } from '../store/slices/uiSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { auth } from '../config/firebase';
@@ -264,7 +263,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const { type, morpheoId, morpheoType, schema, values } = event.data || {};
       
-      // Clarified mixed operators with parentheses
+      // Line ~489: Clarified mixed operators with parentheses
       if ((type === 'MORPHEO_COMPONENT_SELECT' && morpheoId && manualEditMode) || (type === 'MORPHEO_PROPERTIES' && morpheoId)) {
         console.log(`[GeneratorPage] Processing ${type} for morpheoId: ${morpheoId}`);
         if (type === 'MORPHEO_COMPONENT_SELECT') {
