@@ -4,6 +4,16 @@ import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../../store';
 import { logoutAsync } from '../../store/slices/authSlice';
 import { toggleThemeMode } from '../../store/slices/themeSlice';
+import {
+  Box, 
+  Flex, 
+  Text,
+  Button, 
+  Menu, 
+  IconButton,
+  Icon,
+} from '@chakra-ui/react';
+import { FiLogOut, FiMoon, FiSun, FiUser, FiChevronDown } from 'react-icons/fi';
 
 const Header: React.FC = () => {
   const dispatch = useDispatch();
@@ -25,96 +35,107 @@ const Header: React.FC = () => {
     dispatch(toggleThemeMode());
   };
 
-  return (
-    <header className="bg-white dark:bg-gray-800 shadow-md">
-      <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-        <div className="flex items-center">
-          <Link to="/" className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-            Morpheo
-          </Link>
-          <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">
-            AI-Powered UI Generator
-          </span>
-        </div>
+  // Define hover background color directly (works reasonably in both modes)
+  const menuHoverBg = mode === 'dark' ? 'gray.700' : 'gray.100';
+  const headerBg = mode === 'dark' ? 'gray.800' : 'white';
+  const logoColor = mode === 'dark' ? 'blue.400' : 'purple.500';
 
-        <div className="flex items-center space-x-4">
+  return (
+    <Box as="header" bg={headerBg} boxShadow="sm">
+      <Flex 
+        maxW="7xl" 
+        mx="auto" 
+        px={{ base: 4, md: 8 }} 
+        py={3} 
+        justifyContent="space-between" 
+        alignItems="center"
+      >
+        <Link to="/">
+          <Text fontSize="2xl" fontWeight="bold" color={logoColor}>
+            Morpheo
+          </Text>
+        </Link>
+        
+        <Flex alignItems="center" gap={4}>
           {isAuthenticated ? (
             <>
-              <nav className="hidden md:flex space-x-4">
-                <Link to="/generate" className={`px-4 py-2 rounded transition-colors ${
-                    location.pathname === '/generate' || location.pathname === '/' ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 font-medium' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}>
-                  Generator
-                </Link>
-                <Link to="/saved" className={`px-4 py-2 rounded transition-colors ${
-                    location.pathname === '/saved' ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 font-medium' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}>
-                  Saved
-                </Link>
-              </nav>
-              
-              <button
-                onClick={handleToggleTheme}
-                className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
-                aria-label="Toggle theme"
-              >
-                {mode === 'light' ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
-                  </svg>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" />
-                  </svg>
-                )}
-              </button>
-              
-              <div className="relative group">
-                <button className="flex items-center space-x-1 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
-                  <span>{user?.displayName || user?.email || 'User'}</span>
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                  </svg>
-                </button>
-                
-                <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 z-10 hidden group-hover:block">
-                  <button
-                    onClick={handleLogout}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+              <Flex as="nav" display={{ base: 'none', md: 'flex' }} gap={4}>
+                <Link to="/generate">
+                  <Button 
+                    variant={location.pathname === '/generate' || location.pathname === '/' ? 'solid' : 'ghost'} 
+                    colorScheme="purple"
+                    size="sm"
                   >
-                    Logout
-                  </button>
-                </div>
-              </div>
+                    Generator
+                  </Button>
+                </Link>
+                <Link to="/saved">
+                  <Button 
+                    variant={location.pathname === '/saved' ? 'solid' : 'ghost'} 
+                    colorScheme="purple"
+                    size="sm"
+                  >
+                    Saved
+                  </Button>
+                </Link>
+              </Flex>
+
+              <IconButton
+                aria-label="Toggle theme"
+                onClick={handleToggleTheme}
+                variant="ghost"
+                size="sm"
+              >
+                <Icon as={mode === 'dark' ? FiSun : FiMoon} />
+              </IconButton>
+
+              {/* User Menu using Chakra UI Menu v3 structure */}
+              <Menu.Root>
+                <Menu.Trigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                  >
+                    <Flex align="center" gap={2}>
+                      <Icon as={FiUser} />
+                      <Text as="span" display={{ base: 'none', sm: 'inline' }}>
+                        {user?.displayName || user?.email || 'Account'}
+                      </Text>
+                      <Icon as={FiChevronDown} w={3} h={3} />
+                    </Flex>
+                  </Button>
+                </Menu.Trigger>
+                <Menu.Positioner>
+                  <Menu.Content>
+                    <Menu.Item value="logout" onClick={handleLogout} _hover={{ bg: menuHoverBg }}>
+                      <Icon as={FiLogOut} mr={2} /> Logout
+                    </Menu.Item>
+                    {/* Add other items here */}
+                  </Menu.Content>
+                </Menu.Positioner>
+              </Menu.Root>
             </>
           ) : (
-            <div className="flex space-x-4">
-              <Link to="/login" className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300">
-                Login
+            <Flex gap={2}>
+              <Link to="/login">
+                <Button variant="ghost" colorScheme="purple" size="sm">Login</Button>
               </Link>
-              <Link to="/register" className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300">
-                Register
+              <Link to="/register">
+                <Button variant="solid" colorScheme="purple" size="sm">Register</Button>
               </Link>
-              <button
-                onClick={handleToggleTheme}
-                className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+              <IconButton
                 aria-label="Toggle theme"
+                onClick={handleToggleTheme}
+                variant="ghost"
+                size="sm"
               >
-                {mode === 'light' ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
-                  </svg>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" />
-                  </svg>
-                )}
-              </button>
-            </div>
+                <Icon as={mode === 'dark' ? FiSun : FiMoon} />
+              </IconButton>
+            </Flex>
           )}
-        </div>
-      </div>
-    </header>
+        </Flex>
+      </Flex>
+    </Box>
   );
 };
 

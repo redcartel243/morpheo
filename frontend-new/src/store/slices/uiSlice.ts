@@ -1,5 +1,5 @@
 import { createSlice, createAsyncThunk, PayloadAction, Dispatch } from '@reduxjs/toolkit';
-import { auth } from '../../config/firebase';
+// import api from '../../services/api'; // Assuming your API service setup
 import { GenerationDetail, GenerationInfo } from '../../types';
 
 // --- Interfaces ---
@@ -42,6 +42,15 @@ export interface UIState {
   suggestions: string[];
   loadingSuggestions: boolean;
   suggestionsError: string | null;
+  // --- Live update command for preview ---
+  liveUpdateCommandForPreview?: {
+    targetId: string;
+    propertySchema: any;
+    newValue: any;
+  } | null;
+  // --- Types for property extraction ---
+  extractedPropertySchema: PropertySchema[];
+  extractedPropertyValues: Record<string, any>;
 }
 
 const initialState: UIState = {
@@ -65,6 +74,11 @@ const initialState: UIState = {
   suggestions: [],
   loadingSuggestions: false,
   suggestionsError: null,
+  // --- Live update command for preview ---
+  liveUpdateCommandForPreview: null,
+  // --- Types for property extraction ---
+  extractedPropertySchema: [],
+  extractedPropertyValues: {},
 };
 
 // Helper function to clean markdown fences
@@ -579,6 +593,61 @@ export const fetchSuggestions = createAsyncThunk<
 );
 // --- End NEW Thunk --- 
 
+// --- Async thunk for AI-driven property extraction ---
+export const extractComponentProperties = createAsyncThunk<
+  ExtractedComponentProperties,
+  { html: string; componentId: string },
+  { rejectValue: string }
+>(
+  'ui/extractComponentProperties',
+  async ({ html, componentId }, thunkAPI) => {
+    const state = thunkAPI.getState() as { auth: { token: string | null } };
+    const token = state.auth.token;
+    if (!token) {
+      return thunkAPI.rejectWithValue('Authentication token not found.');
+    }
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const fullUrl = `${apiUrl}/api/extract-component-properties`;
+    try {
+      const response = await fetch(fullUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ html, component_id: componentId }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to extract properties' }));
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      return data as ExtractedComponentProperties;
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue(error.message || 'An unknown error occurred while extracting properties.');
+    }
+  }
+);
+
+// --- Types for property schema and extraction ---
+export interface PropertySchema {
+  name: string;
+  label: string;
+  type: 'string' | 'number' | 'color' | 'boolean' | 'select' | 'json_object_editor';
+  options?: string[];
+  liveUpdateSnippet?: string;
+  htmlAttribute?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  [key: string]: any;
+}
+
+export interface ExtractedComponentProperties {
+  propertySchema: PropertySchema[];
+  values: Record<string, any>;
+}
+
 const uiSlice = createSlice({
   name: 'ui',
   initialState,
@@ -715,6 +784,12 @@ const uiSlice = createSlice({
         }
         state.loadedGenerationHtml = null;
         state.loadedGenerationPrompt = null;
+    },
+    setLiveUpdateCommand: (state, action: PayloadAction<{ targetId: string; propertySchema: any; newValue: any }>) => {
+      state.liveUpdateCommandForPreview = action.payload;
+    },
+    clearLiveUpdateCommand: (state) => {
+      state.liveUpdateCommandForPreview = null;
     },
   },
   extraReducers: (builder) => {
@@ -904,6 +979,22 @@ const uiSlice = createSlice({
              state.modificationError = action.payload ?? 'Failed to modify UI with files.';
           }
       })
+      // Extract component properties
+      .addCase(extractComponentProperties.pending, (state) => {
+        state.loadingSuggestions = true; // Reuse loading state for now
+        state.suggestionsError = null;
+      })
+      .addCase(extractComponentProperties.fulfilled, (state, action: PayloadAction<ExtractedComponentProperties>) => {
+        state.loadingSuggestions = false;
+        state.suggestionsError = null;
+        // Store the extracted schema/values in a generic way for now
+        (state as any).extractedPropertySchema = action.payload.propertySchema;
+        (state as any).extractedPropertyValues = action.payload.values;
+      })
+      .addCase(extractComponentProperties.rejected, (state, action) => {
+        state.loadingSuggestions = false;
+        state.suggestionsError = action.payload || 'Failed to extract component properties.';
+      })
   },
 });
 
@@ -920,6 +1011,8 @@ export const {
   undoModification,
   redoModification,
   setFullGeneratedHtml,
+  setLiveUpdateCommand,
+  clearLiveUpdateCommand,
 } = uiSlice.actions;
 
 export default uiSlice.reducer; 

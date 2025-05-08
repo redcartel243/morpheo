@@ -113,24 +113,49 @@ logger = logging.getLogger(__name__) # Get a logger instance for this module
 load_dotenv()
 
 # --- Firebase Admin SDK Initialization ---
+# Prioritize JSON content from env var, then file path, then default path
 try:
-    # Use environment variable for credentials path (more flexible)
-    cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS") 
-    if not cred_path:
-        logger.warning("GOOGLE_APPLICATION_CREDENTIALS env var not set. Trying default path.")
-        # Default path relative to main.py (adjust if needed)
-        cred_path = os.path.join(os.path.dirname(__file__), "..", "serviceAccountKey.json") 
+    firebase_creds_json_str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+    cred = None
 
-    if not os.path.exists(cred_path):
-         raise FileNotFoundError(f"Firebase Admin credentials file not found at: {cred_path}")
+    if firebase_creds_json_str:
+        logger.info("Found GOOGLE_APPLICATION_CREDENTIALS_JSON. Initializing Firebase from JSON string.")
+        try:
+            firebase_creds_dict = json.loads(firebase_creds_json_str)
+            cred = credentials.Certificate(firebase_creds_dict)
+        except json.JSONDecodeError as json_err:
+            logger.error(f"Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON: {json_err}", exc_info=True)
+            raise Exception(f"Invalid JSON in GOOGLE_APPLICATION_CREDENTIALS_JSON: {json_err}")
+        except Exception as cert_err:
+            logger.error(f"Failed to create certificate from JSON credentials: {cert_err}", exc_info=True)
+            raise Exception(f"Could not create Firebase credentials from JSON: {cert_err}")
+    else:
+        logger.info("GOOGLE_APPLICATION_CREDENTIALS_JSON not found. Checking GOOGLE_APPLICATION_CREDENTIALS path.")
+        cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        if not cred_path:
+            logger.warning("GOOGLE_APPLICATION_CREDENTIALS env var (for path) not set. Trying default path relative to main.py.")
+            cred_path = os.path.join(os.path.dirname(__file__), "..", "serviceAccountKey.json")
+        
+        if os.path.exists(cred_path):
+            logger.info(f"Initializing Firebase from credentials file: {cred_path}")
+            cred = credentials.Certificate(cred_path)
+        else:
+            logger.error(f"Firebase Admin credentials file not found at specified/default path: {cred_path} and JSON env var not set.")
+            raise FileNotFoundError(f"Firebase Admin credentials not found. Searched path: {cred_path} and env var GOOGLE_APPLICATION_CREDENTIALS_JSON.")
 
-    cred = credentials.Certificate(cred_path)
-    firebase_admin.initialize_app(cred)
-    logger.info("Firebase Admin SDK initialized successfully.")
+    if not firebase_admin._apps: # Check if already initialized
+        firebase_admin.initialize_app(cred)
+        logger.info("Firebase Admin SDK initialized successfully.")
+    else:
+        logger.info("Firebase Admin SDK already initialized.")
+
 except Exception as e:
     logger.error(f"Failed to initialize Firebase Admin SDK: {e}", exc_info=True)
     # Depending on requirements, you might want to exit or disable auth features
-    # sys.exit("Firebase Admin SDK initialization failed. Exiting.")
+    # For Vercel deployment, a failure here would likely prevent the app from starting correctly.
+    # Consider if raising the exception is desired or if a fallback is needed.
+    # If Firebase is critical, raising the exception is appropriate.
+    raise # Re-raise the exception to make it clear initialization failed
 # --- End Firebase Admin SDK Initialization ---
 
 # --- Initialize Firestore Client ---

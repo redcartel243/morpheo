@@ -14,6 +14,12 @@ import { AnimatePresence, motion } from 'framer-motion';
 interface InlinePreviewProps {
   htmlContent: string | null;
   previewMode: 'desktop' | 'mobile' | 'freeform';
+  liveUpdateCommand?: {
+    targetId: string;
+    propertySchema: any;
+    newValue: any;
+  } | null;
+  selectedComponent?: string | null;
 }
 
 // Define type for pending requests map
@@ -22,7 +28,7 @@ interface PendingRequest {
   reject: (reason?: any) => void;
 }
 
-const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode }) => {
+const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode, liveUpdateCommand, selectedComponent }) => {
   // --- Add console log for debugging env vars ---
   console.log(`InlinePreview mounted. NODE_ENV: ${process.env.NODE_ENV}. process.env:`, process.env);
   // --- End console log ---
@@ -31,17 +37,181 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode 
   // Store pending requests in a ref to persist across re-renders without causing effect re-runs
   const pendingRequestsRef = useRef<Record<string, PendingRequest>>({}); 
 
-  const { generatingFullCode, modifyingCode } = useSelector((state: RootState) => state.ui);
+  const { generatingFullCode, modifyingCode, streamCompletedSuccessfully } = useSelector((state: RootState) => state.ui);
   // Remove useSelector for token, it's fetched from Firebase auth
   // const authToken = useSelector((state: RootState) => state.auth.token); 
 
-  // Ensure finalHtmlContent is always a string for srcDoc
-  const finalHtmlContent = htmlContent || '<html><head><title>Loading...</title></head><body><p>Loading preview...</p></body></html>';
+  // --- Add console log for htmlContent prop ---
+  useEffect(() => {
+    console.log('[InlinePreview] htmlContent prop updated:', htmlContent);
+  }, [htmlContent]);
+  // --- End console log ---
 
-  // Remove the useAuth hook call
-  // const { getToken } = useAuth(); 
+  // --- Define the core iframe script ---
+  const coreIframeScript = `
+    (function() {
+      let lastSelectedEl = null;
+      let currentFullHtml = ''; // Store the full HTML to avoid re-appending same content
+      console.log('[IFRAME_SCRIPT] Core script loaded and running (streaming enabled).');
 
-  // Style for the iframe to make it fill its container
+      function highlightSelected(morpheoId) {
+        if (lastSelectedEl) {
+          lastSelectedEl.style.outline = '';
+          lastSelectedEl.classList.remove('morpheo-selected-highlight');
+        }
+        if (morpheoId) {
+          const el = document.querySelector('[data-morpheo-id="' + morpheoId + '"]');
+          if (el) {
+            el.style.outline = '3px solid #805ad5';
+            el.classList.add('morpheo-selected-highlight');
+            lastSelectedEl = el;
+          } else {
+            lastSelectedEl = null;
+          }
+        } else {
+          lastSelectedEl = null;
+        }
+      }
+
+      window.addEventListener('message', function(event) {
+        const { type, morpheoId, script, htmlChunk } = event.data || {}; // Removed unused schema, values from destructuring for this top-level handler
+
+        switch (type) {
+          case 'MORPHEO_STREAM_CHUNK':
+            console.log('[IFRAME_SCRIPT] Received MORPHEO_STREAM_CHUNK. htmlChunk length:', htmlChunk ? htmlChunk.length : 'null');
+            const contentRoot = document.getElementById('content-root');
+            if (contentRoot) {
+              console.log('[IFRAME_SCRIPT] #content-root found.');
+              if (htmlChunk && htmlChunk !== currentFullHtml) {
+                contentRoot.innerHTML = htmlChunk; 
+                currentFullHtml = htmlChunk;
+                console.log('[IFRAME_SCRIPT] #content-root.innerHTML updated.');
+              } else if (htmlChunk === currentFullHtml) {
+                console.log('[IFRAME_SCRIPT] htmlChunk is same as currentFullHtml, no update to innerHTML.');
+              } else if (!htmlChunk) {
+                console.log('[IFRAME_SCRIPT] htmlChunk is null/empty, no update to innerHTML.');
+              }
+            } else {
+              console.error('[IFRAME_SCRIPT] #content-root not found for streaming chunk.');
+            }
+            break;
+
+          case 'MORPHEO_EXECUTE_LIVE_SCRIPT':
+            console.log('[IFRAME_SCRIPT] Executing live script:', script);
+            try {
+              eval(script); // Be cautious with eval
+            } catch (e) {
+              console.error('IFRAME_SCRIPT Error executing live script:', e, script);
+            }
+            break;
+
+          case 'MORPHEO_EXTRACT_PROPERTIES':
+            // console.log('[IFRAME_SCRIPT] Extracting properties for id:', morpheoId);
+            const elToExtract = document.querySelector('[data-morpheo-id="' + morpheoId + '"]');
+            if (!elToExtract) {
+              window.parent.postMessage({ type: 'MORPHEO_PROPERTIES', morpheoId, schema: [], values: {} }, '*');
+              return;
+            }
+            let originalOutline = elToExtract.style.outline;
+            let hadHighlightClass = elToExtract.classList.contains('morpheo-selected-highlight');
+            elToExtract.style.outline = '';
+            if (hadHighlightClass) {
+              elToExtract.classList.remove('morpheo-selected-highlight');
+            }
+            var extractedSchema = [];
+            var extractedValues = {};
+            // Attribute extraction
+            for (var i = 0; i < elToExtract.attributes.length; i++) {
+              var attr = elToExtract.attributes[i];
+              if (attr.name.startsWith('data-') || attr.name === 'style' || attr.name === 'class') continue; // Added 'class' to exclusion
+              var name = attr.name;
+              var value = attr.value;
+              var propType = 'string';
+              if (/color/i.test(name) && /^#([0-9a-f]{3}){1,2}$|rgb|hsl/i.test(value)) propType = 'color';
+              else if (value === 'true' || value === 'false') propType = 'boolean';
+              // Simplified number check: check if it's a number string and not empty
+              else if (value !== '' && !isNaN(Number(value))) propType = 'number';
+              
+              extractedSchema.push({ name, label: name.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), type: propType });
+              extractedValues[name] = propType === 'number' ? Number(value) : propType === 'boolean' ? value === 'true' : value;
+            }
+            // Style extraction (example for a few common style properties)
+            const computedStyle = window.getComputedStyle(elToExtract);
+            const relevantStyles = ['color', 'backgroundColor', 'fontSize', 'fontFamily', 'padding', 'margin', 'width', 'height']; // Example list
+            relevantStyles.forEach(styleName => {
+                const styleValue = computedStyle.getPropertyValue(styleName);
+                if (styleValue) { // Only add if a value exists
+                    let stylePropType = 'string';
+                    if (/color/i.test(styleName) && /^#([0-9a-f]{3}){1,2}$|rgb|hsl/i.test(styleValue)) stylePropType = 'color';
+                    else if (styleValue.match(/px$|em$|rem$|%$|vw$|vh$/) && !isNaN(parseFloat(styleValue))) stylePropType = 'string'; // Keep as string for units like '10px'
+                    else if (styleValue !== '' && !isNaN(Number(styleValue))) stylePropType = 'number';
+
+                    extractedSchema.push({ 
+                        name: styleName, 
+                        label: styleName.replace(/([A-Z])/g, ' $1').replace(/\b\w/g, c => c.toUpperCase()), // Format camelCase
+                        type: stylePropType, 
+                        isStyle: true 
+                    });
+                    extractedValues[styleName] = stylePropType === 'number' ? Number(styleValue) : styleValue;
+                }
+            });
+
+            window.parent.postMessage({ type: 'MORPHEO_PROPERTIES', morpheoId, schema: extractedSchema, values: extractedValues }, '*');
+            if (originalOutline || hadHighlightClass) {
+              elToExtract.style.outline = '3px solid #805ad5';
+              if(hadHighlightClass) elToExtract.classList.add('morpheo-selected-highlight');
+            }
+            break;
+
+          case 'MORPHEO_HIGHLIGHT_SELECTION':
+            highlightSelected(morpheoId);
+            break;
+
+          default:
+            break;
+        }
+      });
+
+      document.addEventListener('click', function(e) {
+        let el = e.target;
+        let clickedMorpheoId = null;
+        let depth = 0;
+        while (el && el !== document.body && depth < 10) {
+          if (el.hasAttribute && el.hasAttribute('data-morpheo-id')) {
+            clickedMorpheoId = el.getAttribute('data-morpheo-id');
+            const morpheoType = el.getAttribute('data-component-type') || null;
+            window.parent.postMessage({ type: 'MORPHEO_COMPONENT_SELECT', morpheoId: clickedMorpheoId, morpheoType }, '*');
+            break;
+          }
+          el = el.parentElement;
+          depth++;
+        }
+      }, true);
+
+      console.log('[IFRAME_SCRIPT] Event listeners attached (streaming enabled).');
+      window.parent.postMessage({ type: 'MORPHEO_IFRAME_READY' }, '*');
+    })();
+  `;
+  // --- End core iframe script ---
+
+  const initialIframeSrcDoc = `<!DOCTYPE html>
+    <html>
+    <head>
+      <base target="_blank" />
+      <title>Preview</title>
+      <style>
+        html, body { margin:0; padding:0; width:100%; height:100%; overflow:auto; }
+        #content-root { width:100%; height:100%; } /* Ensure content root takes full space */
+        .morpheo-selected-highlight { outline: 3px solid #805ad5 !important; box-shadow: 0 0 0 3px rgba(128, 90, 213, 0.3) !important; z-index: 9999 !important; }
+      </style>
+    </head>
+    <body>
+      <div id="content-root"></div>
+      <script>${coreIframeScript}</script>
+    </body>
+    </html>
+  `;
+  
   const iframeStyle: React.CSSProperties = {
     width: '100%',
     height: '100%',
@@ -50,10 +220,115 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode 
     overflow: 'auto !important', // Ensure iframe itself can scroll its content if needed
   };
 
-  // Construct the full HTML for initialContent
-  const completeInitialContent = htmlContent
-    ? `<!DOCTYPE html><html><head><base target="_blank" /><title>Preview</title><style>html,body{margin:0;padding:0;width:100%;height:100%;overflow:auto;}</style></head><body>${htmlContent}</body></html>`
-    : '<!DOCTYPE html><html><head><title>Loading...</title></head><body><p>Loading preview...</p></body></html>';
+  // State to manage if the iframe is ready to receive stream messages
+  const [iframeReadyForStream, setIframeReadyForStream] = useState(false);
+
+  // Use the new initialIframeSrcDoc for the iframe's srcDoc initially
+  const [currentSrcDoc, setCurrentSrcDoc] = useState(initialIframeSrcDoc);
+
+  // This effect handles sending chunks to the iframe via postMessage
+  useEffect(() => {
+    // --- Add console log for iframeReadyForStream state ---
+    console.log('[InlinePreview] Effect for sending chunks. iframeReadyForStream:', iframeReadyForStream, 'generatingFullCode:', generatingFullCode, 'modifyingCode:', modifyingCode, 'htmlContent:', !!htmlContent);
+    // --- End console log ---
+    if (iframeRef.current && iframeRef.current.contentWindow && htmlContent && (generatingFullCode || modifyingCode) && iframeReadyForStream) {
+      console.log('[InlinePreview] Streaming: Posting MORPHEO_STREAM_CHUNK to iframe. Content length:', htmlContent.length);
+      iframeRef.current.contentWindow.postMessage({ type: 'MORPHEO_STREAM_CHUNK', htmlChunk: htmlContent }, '*');
+    }
+  }, [htmlContent, generatingFullCode, modifyingCode, iframeReadyForStream]);
+
+  // This effect handles the final content load or non-streaming updates
+  useEffect(() => {
+    if (htmlContent && (!generatingFullCode && !modifyingCode)) {
+      console.log('[InlinePreview] Non-streaming/final update: Setting full srcDoc.');
+      // Construct the full HTML: Take the user's generated htmlContent for the body,
+      // and ensure our core script and necessary styles are in the head.
+      
+      let finalHtml = htmlContent;
+      
+      // Ensure the core script is present. Add it before </body> or at the end.
+        const bodyEndTag = '</body>';
+      const bodyEndIndex = finalHtml.toLowerCase().lastIndexOf(bodyEndTag);
+      const scriptTag = `<script>${coreIframeScript}</script>`;
+        if (bodyEndIndex !== -1) {
+        finalHtml = finalHtml.substring(0, bodyEndIndex) + scriptTag + finalHtml.substring(bodyEndIndex);
+        } else {
+        finalHtml += scriptTag; // Append if no body tag found (less ideal)
+        }
+
+      // Ensure highlight style is present in the head
+        const headEndTag = '</head>';
+      const headEndIndex = finalHtml.toLowerCase().lastIndexOf(headEndTag);
+      const highlightStyleTag = `<style>.morpheo-selected-highlight { outline: 3px solid #805ad5 !important; box-shadow: 0 0 0 3px rgba(128, 90, 213, 0.3) !important; z-index: 9999 !important; }</style>`;
+      
+      let headContent = '';
+      let bodyContent = finalHtml;
+
+        if (headEndIndex !== -1) {
+        headContent = finalHtml.substring(finalHtml.toLowerCase().indexOf('<head>') + '<head>'.length, headEndIndex);
+        // Check if our highlight style is already in headContent to avoid duplication
+        if (!headContent.includes('.morpheo-selected-highlight')) {
+            headContent += highlightStyleTag;
+        }
+        bodyContent = finalHtml.substring(finalHtml.toLowerCase().indexOf('<body>')); // Assumes body tag exists
+        } else {
+        // No <head> tag found, create one with the style
+        headContent = `<title>Preview</title><style>html,body{margin:0;padding:0;width:100%;height:100%;overflow:auto;}</style>${highlightStyleTag}`;
+        // The script is already added to finalHtml (which is bodyContent here)
+      }
+      
+      // Reconstruct the document. If htmlContent provided a full HTML structure, try to respect it.
+      // Otherwise, wrap it.
+      if (htmlContent.toLowerCase().startsWith('<!doctype html>') || htmlContent.toLowerCase().startsWith('<html>')) {
+         // User provided full HTML, try to inject script and styles carefully
+         // This logic re-inserts the script and style if not present or if body/head tags are missing.
+         // For simplicity, the current logic above might add script/style again if user content also had them.
+         // A more robust merge would be complex. Let's assume htmlContent is mostly body content for now.
+         // The current addition of scriptTag and highlightStyleTag to finalHtml aims to ensure they are there.
+         // The below reconstruction might be simplified if we assume htmlContent is just body inner HTML.
+
+        let tempFinalSrcDoc = htmlContent;
+        // Ensure highlight style
+        if (tempFinalSrcDoc.toLowerCase().includes('</head>')) {
+            if (!tempFinalSrcDoc.includes('.morpheo-selected-highlight')) {
+                 tempFinalSrcDoc = tempFinalSrcDoc.replace('</head>', `${highlightStyleTag}</head>`);
+            }
+        } else {
+            tempFinalSrcDoc = `<head>${highlightStyleTag}</head>${tempFinalSrcDoc}`;
+        }
+        // Ensure script
+        if (tempFinalSrcDoc.toLowerCase().includes('</body>')) {
+            if(!tempFinalSrcDoc.includes(coreIframeScript.substring(0,50))) { // check a snippet
+                tempFinalSrcDoc = tempFinalSrcDoc.replace('</body>', `${scriptTag}</body>`);
+            }
+        } else {
+            tempFinalSrcDoc += scriptTag;
+        }
+        setCurrentSrcDoc(tempFinalSrcDoc);
+
+      } else {
+        // htmlContent is likely partial (e.g. just body elements)
+        setCurrentSrcDoc(`<!DOCTYPE html>
+          <html>
+          <head>
+            <base target="_blank" />
+            ${headContent}
+          </head>
+          ${bodyContent}`); // bodyContent already has script if it was appended
+      }
+
+      setIframeReadyForStream(false); 
+    } else if (!htmlContent && (!generatingFullCode && !modifyingCode)) {
+      console.log('[InlinePreview] No content and not generating: Setting initial iframe srcDoc.');
+      setCurrentSrcDoc(initialIframeSrcDoc);
+      setIframeReadyForStream(false);
+    }
+  }, [htmlContent, generatingFullCode, modifyingCode, streamCompletedSuccessfully, initialIframeSrcDoc, coreIframeScript]);
+
+  // Log the complete srcDoc content for debugging script injection
+  useEffect(() => {
+    console.log('[InlinePreview] currentSrcDoc (for iframe):', currentSrcDoc);
+  }, [currentSrcDoc]);
 
   // --- Function to inject the morpheoApi helper --- 
   const injectApiHelper = useCallback(() => {
@@ -178,7 +453,7 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode 
     // Adjust height after content potentially changes
     const timer = setTimeout(adjustIframeHeight, 250); 
     return () => clearTimeout(timer);
-  }, [finalHtmlContent, adjustIframeHeight]); // Depend on content and the memoized height function
+  }, [currentSrcDoc, adjustIframeHeight]); // Depend on content and the memoized height function
 
   // --- NEW: Dedicated handler for Resize Requests --- 
   const handleResizeRequest = useCallback((event: MessageEvent) => {
@@ -315,39 +590,57 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode 
   // Effect to add and remove the message listener for BOTH request types
   useEffect(() => {
     // Listener added to the PARENT window
-    console.log('[InlinePreview Parent] Adding message listeners to parent window.'); // DEBUG
+    console.log('[InlinePreview Parent] Adding message listeners to parent window.');
     
-    // --- MODIFIED: Add BOTH listeners --- 
     const combinedHandler = (event: MessageEvent) => {
-        // Prioritize resize requests first for simplicity
-        if (event.data && event.data.type === 'morpheoResizeRequest') {
-            handleResizeRequest(event);
-        } else if (event.data && event.data.type === 'morpheoApiRequest') {
-            // Only call handleApiRequest if it's the correct type
-            // Avoid passing resize events to the API handler
-            handleApiRequest(event);
-        } else {
-            // Optional: Log other ignored messages
-            // console.log('[InlinePreview Parent] Ignoring message:', event.data);
+        // Ensure message is from our iframe
+        if (event.source !== iframeRef.current?.contentWindow) {
+            // console.warn('[InlinePreview Parent] Message from unexpected source ignored:', event.source, event.data);
+            return;
         }
+
+        const { type: messageType, morpheoId, requestId, payload } = event.data || {};
+
+        // Handle iframe ready signal for streaming
+        if (messageType === 'MORPHEO_IFRAME_READY') {
+            console.log('[InlinePreview Parent] Received MORPHEO_IFRAME_READY from iframe.');
+            setIframeReadyForStream(true);
+            // After iframe signals ready, if we are in a streaming state and have content, send it immediately.
+            // This handles cases where content might have been set in Redux before the iframe was ready.
+            if (iframeRef.current && iframeRef.current.contentWindow && htmlContent && (generatingFullCode || modifyingCode)) {
+                console.log('[InlinePreview Parent] Iframe ready, sending initial/missed MORPHEO_STREAM_CHUNK. Content length:', htmlContent.length);
+                iframeRef.current.contentWindow.postMessage({ type: 'MORPHEO_STREAM_CHUNK', htmlChunk: htmlContent }, '*');
+            }
+            return; // MORPHEO_IFRAME_READY is handled.
+        }
+        
+        // Delegate to other handlers based on type
+        if (messageType === 'morpheoResizeRequest') {
+            // console.log('[InlinePreview Parent] Routing to handleResizeRequest');
+            handleResizeRequest(event);
+        } else if (messageType === 'morpheoApiRequest' && requestId && payload) {
+            // console.log('[InlinePreview Parent] Routing to handleApiRequest');
+            handleApiRequest(event);
+        } else if (messageType === 'MORPHEO_COMPONENT_SELECT' && morpheoId) {
+             // console.log('[InlinePreview Parent] Routing to selectComponent (placeholder)');
+             // Placeholder: dispatch action to select component based on morpheoId and morpheoType from event.data
+             // Example: dispatch(selectComponent({ id: morpheoId, type: event.data.morpheoType }));
+        } else if (messageType === 'MORPHEO_PROPERTIES' && morpheoId) {
+            // console.log('[InlinePreview Parent] Routing to handleExtractedProperties (placeholder)');
+            // Placeholder: dispatch action to store extracted properties
+            // Example: dispatch(setExtractedProperties({ schema: event.data.schema, values: event.data.values }));
+        }
+        // Add other specific message type handling here if needed
     };
     
     window.addEventListener('message', combinedHandler);
-    // window.addEventListener('message', handleResizeRequest); // OLD - replaced
-    // window.addEventListener('message', handleApiRequest); // OLD - replaced
-    // --- END MODIFICATION ---
 
     return () => {
-      console.log('[InlinePreview Parent] Removing message listeners from parent window.'); // DEBUG
-      // --- MODIFIED: Remove the combined listener --- 
+      console.log('[InlinePreview Parent] Removing message listeners from parent window.');
       window.removeEventListener('message', combinedHandler);
-      // window.removeEventListener('message', handleResizeRequest); // OLD
-      // window.removeEventListener('message', handleApiRequest); // OLD
-      // --- END MODIFICATION ---
   };
-
-  // --- MODIFIED dependencies --- 
-  }, [handleApiRequest, handleResizeRequest]); // Add handleResizeRequest to dependency array
+  // Ensure htmlContent, generatingFullCode, modifyingCode are dependencies for the MORPHEO_IFRAME_READY logic that sends initial chunk.
+  }, [handleApiRequest, handleResizeRequest, htmlContent, generatingFullCode, modifyingCode]); 
 
   // Use a simpler key based on whether content exists, or remove if causing issues
   // const frameKey = htmlContent ? 'content-loaded' : 'empty';
@@ -531,6 +824,46 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode 
     exit: { opacity: 0, scale: 0.98, y: -20, transition: { duration: 0.25 } },
   };
 
+  // Live update effect: send script to iframe when liveUpdateCommand changes
+  useEffect(() => {
+    if (liveUpdateCommand && iframeRef.current && iframeRef.current.contentWindow) {
+      const { targetId, propertySchema, newValue } = liveUpdateCommand;
+      const iframeWindow = iframeRef.current.contentWindow;
+      if (propertySchema.liveUpdateSnippet) {
+        let serializedValue;
+        if (typeof newValue === 'string') {
+          serializedValue = `'${newValue.replace(/'/g, "\\'")}'`;
+        } else if (typeof newValue === 'number' || typeof newValue === 'boolean') {
+          serializedValue = newValue.toString();
+        } else {
+          console.warn('[InlinePreview] Live update for unsupported value type:', newValue);
+          return;
+        }
+        const scriptToExecute = `(${propertySchema.liveUpdateSnippet})(${serializedValue});`;
+        iframeWindow.postMessage({
+          type: 'MORPHEO_EXECUTE_LIVE_SCRIPT',
+          script: scriptToExecute
+        }, '*');
+      } else if (propertySchema.htmlAttribute && targetId) {
+        const script = `\n          try {\n            const el = document.querySelector('[data-morpheo-id="${targetId}"]');\n            if (el) {\n              el.setAttribute('${propertySchema.htmlAttribute}', '${newValue.toString().replace(/'/g, "\\'")}');\n            } else {\n              console.warn('Element with data-morpheo-id ${targetId} not found for live HTML attribute update.');\n            }\n          } catch (e) {\n            console.error('Error live updating HTML attribute:', e);\n          }\n        `;
+        iframeWindow.postMessage({
+          type: 'MORPHEO_EXECUTE_LIVE_SCRIPT',
+          script: script
+        }, '*');
+      } else {
+        console.warn('[InlinePreview] No live update method for property:', propertySchema.label);
+      }
+    }
+  }, [liveUpdateCommand]);
+
+  // Highlight selected element when selectedComponent changes
+  useEffect(() => {
+    if (iframeRef.current && selectedComponent) {
+      iframeRef.current.contentWindow?.postMessage({ type: 'MORPHEO_HIGHLIGHT_SELECTION', morpheoId: selectedComponent }, '*');
+      console.log('[InlinePreview] Sent MORPHEO_HIGHLIGHT_SELECTION for', selectedComponent);
+    }
+  }, [selectedComponent]);
+
   return (
     <div ref={parentRef} style={{ width: '100%', height: '100vh', minHeight: 0, position: 'relative' }}>
       <AnimatePresence mode="wait">
@@ -539,7 +872,7 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode 
             <div style={desktopContainerStyle}>
               <iframe
                 ref={iframeRef}
-                srcDoc={finalHtmlContent}
+                srcDoc={currentSrcDoc}
                 style={{ ...iframeStyle, borderRadius: '12px', background: '#fff' }}
                 width="100%"
                 height="100%"
@@ -558,7 +891,7 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode 
             <div style={mobileContainerStyle}>
               <iframe
                 ref={iframeRef}
-                srcDoc={finalHtmlContent}
+                srcDoc={currentSrcDoc}
                 style={iframeStyle}
                 width="100%"
                 height="100%"
@@ -604,7 +937,7 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode 
             {/* The entire preview box (including border/shadow) is now draggable/resizable */}
             <iframe
               ref={iframeRef}
-              srcDoc={finalHtmlContent}
+              srcDoc={currentSrcDoc}
               style={{ ...iframeStyle, borderRadius: 12, background: 'transparent', pointerEvents: freeform.dragging || freeform.resizing ? 'none' : 'auto' }}
               width="100%"
               height="100%"
