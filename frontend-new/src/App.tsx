@@ -25,8 +25,6 @@ import { Toaster } from 'react-hot-toast';
 
 // Lazy load components to reduce initial bundle size
 // const ChartsExample = lazy(() => import('./examples/ChartsExample'));
-const AsyncComponentExample = lazy(() => import('./examples/AsyncComponentExample'));
-const DynamicLibraryExample = lazy(() => import('./examples/DynamicLibraryExample'));
 
 // Set up axios defaults
 axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -102,30 +100,6 @@ function App() {
                 <ProtectedRouteComponent>
                   <SavedPage />
                 </ProtectedRouteComponent>
-              } />
-              <Route path="/chart-generator" element={
-                <ProtectedRouteComponent>
-                  <ErrorBoundary>
-                    <Suspense fallback={<div>Loading...</div>}>
-                      <ChartGeneratorPage />
-                    </Suspense>
-                  </ErrorBoundary>
-                </ProtectedRouteComponent>
-              } />
-              <Route path="/async-components" element={
-                <Suspense fallback={<div>Loading...</div>}>
-                  <AsyncComponentExample />
-                </Suspense>
-              } />
-              <Route path="/dynamic-libraries" element={
-                <Suspense fallback={<div>Loading...</div>}>
-                  <DynamicLibraryExample />
-                </Suspense>
-              } />
-              <Route path="/data-series" element={
-                <Suspense fallback={<div>Loading...</div>}>
-                  <DataSeriesPage />
-                </Suspense>
               } />
               <Route path="*" element={<NotFound />} />
             </Routes>
