@@ -263,7 +263,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const { type, morpheoId, morpheoType, schema, values } = event.data || {};
       
-      // Line ~489: Clarified mixed operators with parentheses
+      // Line ~488: Ensure mixed operators are clarified with parentheses
       if ((type === 'MORPHEO_COMPONENT_SELECT' && morpheoId && manualEditMode) || (type === 'MORPHEO_PROPERTIES' && morpheoId)) {
         console.log(`[GeneratorPage] Processing ${type} for morpheoId: ${morpheoId}`);
         if (type === 'MORPHEO_COMPONENT_SELECT') {
