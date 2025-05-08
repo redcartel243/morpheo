@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { AppDispatch, RootState } from '../store';
 import { clearGeneratedCode, clearError, saveGeneration, clearLoadedGenerationFlags, undoModification, redoModification, fetchSuggestions, generateCodeWithFiles, modifyCodeWithFiles, setLiveUpdateCommand, clearLiveUpdateCommand, PropertySchema } from '../store/slices/uiSlice';
@@ -65,6 +65,12 @@ function instrumentHtmlWithMorpheoIds(html: string): string {
   });
 }
 
+// Define the structure for component property data
+interface ComponentPropertyData {
+  schema: PropertySchema[];
+  values: Record<string, any>;
+}
+
 const GeneratorPage: React.FC = () => {
   const [prompt, setPrompt] = useState<string>('');
   const [modificationPrompt, setModificationPrompt] = useState<string>('');
@@ -110,8 +116,8 @@ const GeneratorPage: React.FC = () => {
   // --- Mock selection state for demonstration ---
   const [selectedComponent, setSelectedComponent] = useState<string | null>(null);
 
-  // Local property schema/values map for manual editing
-  const componentProperties: Record<string, { schema: PropertySchema[]; values: Record<string, any> }> = {
+  // Wrap componentProperties definition in useMemo and provide explicit type
+  const componentProperties = useMemo<Record<string, ComponentPropertyData>>(() => ({
     sphere: {
       schema: [
         { name: 'color', label: 'Sphere Color', type: 'color', liveUpdateSnippet: "(val) => { if(window.sphere) window.sphere.material.color.set(val); }" },
@@ -122,7 +128,8 @@ const GeneratorPage: React.FC = () => {
       values: { color: '#29abe2', radius: 2, metalness: 0.3, roughness: 0.5 },
     },
     // Add more components as needed
-  };
+  }), []); // Empty dependency array means it's created only once
+
   // State for current editable values
   const [propertySchema, setPropertySchema] = useState<PropertySchema[]>([]);
   const [propertyValues, setPropertyValues] = useState<Record<string, any>>({});
@@ -150,10 +157,12 @@ const GeneratorPage: React.FC = () => {
   // When a component is selected, set schema/values from local map
   useEffect(() => {
     if (selectedComponent && componentProperties[selectedComponent]) {
-      setPropertySchema(componentProperties[selectedComponent].schema);
-      setPropertyValues(componentProperties[selectedComponent].values);
+      // Access is now type-safe due to the Record<string, ComponentPropertyData> type
+      const props = componentProperties[selectedComponent];
+      setPropertySchema(props.schema);
+      setPropertyValues(props.values);
     }
-  }, [selectedComponent, componentProperties]);
+  }, [selectedComponent, componentProperties]); // Correct dependency array
 
   // Handler for live update (onChange)
   const handlePropertyChange = (property: PropertySchema, value: any) => {
@@ -279,7 +288,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.addEventListener('message', handleComponentSelect);
-    const iframe = iframeRef.current; // Capture iframe ref for cleanup
+    // const iframe = iframeRef.current; // Removed unused variable assignment
 
     return () => {
       window.removeEventListener('message', handleComponentSelect);
