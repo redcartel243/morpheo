@@ -133,7 +133,7 @@ try:
         error_message = "GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable is not set. Firebase Admin SDK cannot be initialized."
         logger.error(error_message)
         raise FileNotFoundError(error_message)
-
+    
     if not firebase_admin._apps: # Check if already initialized
         firebase_admin.initialize_app(cred)
         logger.info("Firebase Admin SDK initialized successfully.")
