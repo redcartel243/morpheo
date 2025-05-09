@@ -97,6 +97,17 @@ const cleanHtmlContent = (html: string | null): string | null => {
   return cleaned.trim(); // Trim again after removal
 };
 
+// Utility to get the correct API base URL
+function getApiBaseUrl() {
+  // Prefer REACT_APP_API_URL, then REACT_APP_API_BASE_URL, then fallback to relative path
+  if (typeof window !== 'undefined') {
+    // On the client, use env vars injected at build time
+    return process.env.REACT_APP_API_URL || process.env.REACT_APP_API_BASE_URL || '/api';
+  }
+  // On the server (SSR), fallback to /api
+  return process.env.REACT_APP_API_URL || process.env.REACT_APP_API_BASE_URL || '/api';
+}
+
 // --- Helper Function for Streaming API Calls ---
 const streamApiCall = async (url: string, body: any, thunkAPI: any): Promise<string> => {
     const state = thunkAPI.getState() as { auth: { token: string | null } };
@@ -107,12 +118,8 @@ const streamApiCall = async (url: string, body: any, thunkAPI: any): Promise<str
     }
 
     // --- Construct full API URL --- 
-    let baseUrl = '';
-    if (process.env.NODE_ENV !== 'production') {
-      baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-    }
-    // url parameter is expected to be the endpoint itself, e.g., '/api/generate-full-code'
-    const fullUrl = `${baseUrl}${url}`; 
+    const apiUrl = getApiBaseUrl();
+    const fullUrl = `${apiUrl}${url}`; // Prepend base URL
     console.log(`[streamApiCall] Making request to: ${fullUrl}`); // Log the full URL
     // --- End URL construction ---
 
@@ -214,12 +221,8 @@ export const generateCodeWithFiles = createAsyncThunk<
       console.log('[generateCodeWithFiles] No files to append.');
     }
 
-    let baseUrl = '';
-    if (process.env.NODE_ENV !== 'production') {
-      baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-    }
-    const endpoint = '/api/v2/generate-full-code-with-files';
-    const fullUrl = `${baseUrl}${endpoint}`;
+    const apiUrl = getApiBaseUrl();
+    const fullUrl = `${apiUrl}/api/v2/generate-full-code-with-files`;
     console.log(`[generateCodeWithFiles] Making streaming request to: ${fullUrl}`);
 
     try {
@@ -322,12 +325,8 @@ export const modifyCodeWithFiles = createAsyncThunk<
       console.log('[modifyCodeWithFiles] No files to append for modification.');
     }
 
-    let baseUrl = '';
-    if (process.env.NODE_ENV !== 'production') {
-      baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-    }
-    const endpoint = '/api/v2/modify-full-code-with-files'; // Endpoint for modifying with files
-    const fullUrl = `${baseUrl}${endpoint}`;
+    const apiUrl = getApiBaseUrl();
+    const fullUrl = `${apiUrl}/api/v2/modify-full-code-with-files`; // Use the new v2 endpoint
     console.log(`[modifyCodeWithFiles] Making streaming request to: ${fullUrl}`);
 
     try {
@@ -341,15 +340,8 @@ export const modifyCodeWithFiles = createAsyncThunk<
 
       if (!response.ok) {
         let errorDetail = `HTTP error! Status: ${response.status}`;
-        try {
-          const errorJson = await response.json();
-          errorDetail = errorJson.detail || errorDetail;
-        } catch (e) {
-          try {
-            const errorText = await response.text();
-            errorDetail = errorText || errorDetail;
-          } catch (textErr) { /* Keep original HTTP error */ }
-        }
+        try { const errorJson = await response.json(); errorDetail = errorJson.detail || errorDetail; }
+        catch (e) { try { const errorText = await response.text(); errorDetail = errorText || errorDetail; } catch (textErr) { /* Keep original */ } }
         console.error('[modifyCodeWithFiles] Request failed:', errorDetail);
         thunkAPI.dispatch(uiSlice.actions.streamError({ message: errorDetail, isModifying: true }));
         return thunkAPI.rejectWithValue(errorDetail);
@@ -357,7 +349,7 @@ export const modifyCodeWithFiles = createAsyncThunk<
 
       const reader = response.body?.getReader();
       if (!reader) {
-        const errorMsg = 'Failed to get response reader for streaming modification.';
+        const errorMsg = 'Failed to get response reader for modification streaming.';
         thunkAPI.dispatch(uiSlice.actions.streamError({ message: errorMsg, isModifying: true }));
         throw new Error(errorMsg);
       }
@@ -374,8 +366,8 @@ export const modifyCodeWithFiles = createAsyncThunk<
         
         if (chunk.includes("<!-- ERROR:")) {
            const errorMatch = chunk.match(/<!-- ERROR: (.*) -->/);
-           const errorMessage = errorMatch ? errorMatch[1] : "Unknown error from backend stream during modification.";
-           console.error("Backend stream signaled error during modification:", errorMessage);
+           const errorMessage = errorMatch ? errorMatch[1] : "Unknown error signaled from backend modification stream.";
+           console.error("[modifyCodeWithFiles] Backend stream signaled error:", errorMessage);
            thunkAPI.dispatch(uiSlice.actions.streamError({ message: errorMessage, isModifying: true }));
            throw new Error(errorMessage); 
         }
@@ -411,7 +403,7 @@ export const saveGeneration = createAsyncThunk<
       return thunkAPI.rejectWithValue({ message: 'Authentication token not found.' });
     }
     // --- MODIFICATION START: Prepend API URL ---
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const apiUrl = getApiBaseUrl();
     const fullUrl = `${apiUrl}/api/save-generation`;
     try {
       const response = await fetch(fullUrl, {
@@ -450,7 +442,7 @@ export const fetchGenerations = createAsyncThunk<
       return thunkAPI.rejectWithValue({ message: 'Authentication token not found.' });
     }
     // --- MODIFICATION START: Prepend API URL ---
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const apiUrl = getApiBaseUrl();
     const fullUrl = `${apiUrl}/api/generations`;
     try {
       const response = await fetch(fullUrl, {
@@ -490,7 +482,7 @@ export const fetchGenerationDetail = createAsyncThunk<
       return thunkAPI.rejectWithValue({ message: 'Authentication token not found.' });
     }
     // --- MODIFICATION START: Prepend API URL ---
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const apiUrl = getApiBaseUrl();
     const fullUrl = `${apiUrl}/api/generations/${generationId}`;
     try {
       const response = await fetch(fullUrl, {
@@ -535,7 +527,7 @@ export const deleteGeneration = createAsyncThunk<
       return thunkAPI.rejectWithValue({ message: 'Authentication token not found.' });
     }
     // --- MODIFICATION START: Prepend API URL ---
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const apiUrl = getApiBaseUrl();
     const fullUrl = `${apiUrl}/api/generations/${generationId}`;
     try {
       const response = await fetch(fullUrl, {
@@ -577,7 +569,7 @@ export const fetchSuggestions = createAsyncThunk<
     }
 
     // --- Construct full API URL --- 
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const apiUrl = getApiBaseUrl();
     const fullUrl = `${apiUrl}/api/suggest-modifications`;
     console.log(`[fetchSuggestions] Making request to: ${fullUrl}`);
     // --- End URL construction ---
@@ -625,7 +617,7 @@ export const extractComponentProperties = createAsyncThunk<
     if (!token) {
       return thunkAPI.rejectWithValue('Authentication token not found.');
     }
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const apiUrl = getApiBaseUrl();
     const fullUrl = `${apiUrl}/api/extract-component-properties`;
     try {
       const response = await fetch(fullUrl, {
