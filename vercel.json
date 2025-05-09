@@ -19,6 +19,25 @@
       "dest": "backend/main.py"
     },
     {
+      "src": "/static/(.*)",
+      "dest": "frontend-new/build/static/$1"
+    },
+    {
+      "src": "/(.*\\.(css|js|map|txt|json|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|otf))$",
+      "dest": "frontend-new/build/$1"
+    },
+    {
+      "src": "/favicon.ico",
+      "dest": "frontend-new/build/favicon.ico"
+    },
+    {
+      "src": "/manifest.json",
+      "dest": "frontend-new/build/manifest.json"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
       "src": "/(.*)",
       "dest": "frontend-new/build/index.html"
     }
