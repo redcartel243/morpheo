@@ -7,6 +7,7 @@ import axios from 'axios';
 import './App.css';
 import ChartGeneratorPage from './pages/ChartGeneratorPage';
 import DataSeriesPage from './pages/DataSeriesPage';
+import { Analytics } from '@vercel/analytics/react';
 
 // Import components
 import Header from './components/layout/Header';
@@ -107,6 +108,7 @@ function App() {
           <Footer />
         </Router>
       </ErrorBoundary>
+      <Analytics />
     </div>
   );
 }

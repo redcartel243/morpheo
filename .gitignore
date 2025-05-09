@@ -77,3 +77,4 @@ serviceAccountKey.json
 # Morpheo Plan File
 implementation_plan.md
 backend/tests/morpheo_o2g61co73-david-bukedis-projects_vercel_app_logs.csv
+backend/gemini_request_log.txt
