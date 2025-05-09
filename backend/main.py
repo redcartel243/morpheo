@@ -135,7 +135,7 @@ try:
         final_cred_path = None
 
         if cred_path_from_env:
-            logger.info(f"Found GOOGLE_APPLICATION_CREDENTIALS env var for path: {cred_path_from_env}")
+            logger.info(f"Found GOOGLE_APPLICATION_CREDENTIALS env var: {cred_path_from_env}")
             final_cred_path = cred_path_from_env
         else:
             logger.warning("GOOGLE_APPLICATION_CREDENTIALS env var (for path) not set. Trying default path relative to main.py.")
@@ -208,7 +208,6 @@ if not SECRET_KEY:
     SECRET_KEY = secrets.token_hex(32)
 
 ALGORITHM = "HS256"
-print(f"Using SECRET_KEY: {SECRET_KEY}")
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 # Password hashing
