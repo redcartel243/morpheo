@@ -1,4 +1,5 @@
 fastapi
+python-multipart
 uvicorn[standard]
 python-dotenv
 openai>=1.0.0 # Allow newer versions
