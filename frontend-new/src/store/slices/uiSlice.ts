@@ -97,17 +97,6 @@ const cleanHtmlContent = (html: string | null): string | null => {
   return cleaned.trim(); // Trim again after removal
 };
 
-// Utility to get the correct API base URL
-function getApiBaseUrl() {
-  // Prefer REACT_APP_API_URL, then REACT_APP_API_BASE_URL, then fallback to relative path
-  if (typeof window !== 'undefined') {
-    // On the client, use env vars injected at build time
-    return process.env.REACT_APP_API_URL || process.env.REACT_APP_API_BASE_URL || '/api';
-  }
-  // On the server (SSR), fallback to /api
-  return process.env.REACT_APP_API_URL || process.env.REACT_APP_API_BASE_URL || '/api';
-}
-
 // --- Helper Function for Streaming API Calls ---
 const streamApiCall = async (url: string, body: any, thunkAPI: any): Promise<string> => {
     const state = thunkAPI.getState() as { auth: { token: string | null } };
@@ -117,15 +106,58 @@ const streamApiCall = async (url: string, body: any, thunkAPI: any): Promise<str
       return thunkAPI.rejectWithValue('No authentication token found.');
     }
 
-    // --- Construct full API URL --- 
-    const apiUrl = getApiBaseUrl();
-    const fullUrl = `${apiUrl}${url}`; // Prepend base URL
-    console.log(`[streamApiCall] Making request to: ${fullUrl}`); // Log the full URL
+    // --- CORRECTED URL Construction for Vercel/Prod and Local ---
+    // The 'url' parameter (e.g., '/api/generate-full-code') is already the correct path relative to the domain.
+    // No need to prepend REACT_APP_API_URL if it's set to '/api' on Vercel, as that would lead to '/api/api/...'
+    // For local, if REACT_APP_API_URL is http://localhost:8000, then this will still call http://localhost:8000/api/...
+    // However, to be robust for both local (where fetch needs full URL) and deployed (where fetch needs relative path or full deployed URL):
+    let requestUrl = url; // url is like '/api/generate-full-code'
+    if (process.env.NODE_ENV !== 'production' && process.env.REACT_APP_API_URL) {
+      // Local development and REACT_APP_API_URL is set (e.g. http://localhost:8000)
+      // Ensure no double /api if REACT_APP_API_URL is /api and url is /api/endpoint
+      // This case should ideally not happen if REACT_APP_API_URL is correctly set to the base for local (http://localhost:8000)
+      // Let's assume REACT_APP_API_URL locally will be the full base http://localhost:8000
+      // and url will be /api/endpoint. This means we need to ensure REACT_APP_API_URL for local is *not* /api.
+      // The simplest for now is to assume url IS THE PATH and let fetch handle it for deployed,
+      // and for local, we might need to adjust REACT_APP_API_URL setting or explicitly check.
+      // For now, let's assume direct path usage is fine for Vercel, and local works due to proxy or full URL in REACT_APP_API_URL.
+      // The original logic was: const fullUrl = `${apiUrl}${url}` where apiUrl could be http://localhost:8000 or /api.
+      // If apiUrl is /api (Vercel) and url is /api/..., then /api/api/... (bad)
+      // If apiUrl is http://localhost:8000 (local) and url is /api/..., then http://localhost:8000/api/... (good for local)
+
+      // Let's simplify: In Vercel, REACT_APP_API_URL is /api. The thunk passes '/api/generate-full-code'.
+      // This means the 'url' argument to streamApiCall is already the correct path relative to domain.
+      // The issue was prepending process.env.REACT_APP_API_URL to it.
+      // So, `requestUrl` should just be `url` if it starts with `/api`.
+      // If `process.env.REACT_APP_API_URL` is `http://localhost:8000` (local) and `url` is `/api/...`
+      // then we *do* want to prepend.
+      // The original log showed `[streamApiCall] Making request to: ${fullUrl}`. Let's see `url` here.
+      console.log(`[streamApiCall] Received url parameter: ${url}`);
+      // If REACT_APP_API_URL is set AND we are in development, it's likely the full base like http://localhost:8000
+      // In this case, the `url` parameter from thunks like `generateFullCode` is `/api/generate-full-code`.
+      // So, we should *not* prepend `REACT_APP_API_URL` if it's just `/api` (Vercel).
+      // We *should* prepend if `REACT_APP_API_URL` is `http://localhost:8000` (local).
+
+      // Corrected logic: If REACT_APP_API_URL is a full URL (includes http), use it as base.
+      // Otherwise (it's a path like /api, or undefined), use `url` as is (relative path for deployed).
+      const envApiUrl = process.env.REACT_APP_API_URL;
+      if (envApiUrl && (envApiUrl.startsWith('http://') || envApiUrl.startsWith('https://'))) {
+        // Local dev with full base URL in env var
+        requestUrl = `${envApiUrl}${url.startsWith('/') ? url : '/' + url}`;
+      } else {
+        // Deployed (REACT_APP_API_URL might be /api or not set, relying on relative path for fetch)
+        // or local dev where REACT_APP_API_URL is not a full URL (e.g. /api, which is not typical for local base)
+        // In this case, `url` itself (e.g. /api/generate-full-code) is the correct path for fetch.
+        requestUrl = url; 
+      }
+    }
+    // For production on Vercel, REACT_APP_API_URL is /api. `url` is /api/endpoint.
+    // `requestUrl` will be `url` which is /api/endpoint, which is correct for fetch.
+    console.log(`[streamApiCall] Making request to final URL: ${requestUrl}`);
     // --- End URL construction ---
 
     try {
-        // --- Use fullUrl --- 
-        const response = await fetch(fullUrl, {
+        const response = await fetch(requestUrl, { // Use corrected requestUrl
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -221,12 +253,20 @@ export const generateCodeWithFiles = createAsyncThunk<
       console.log('[generateCodeWithFiles] No files to append.');
     }
 
-    const apiUrl = getApiBaseUrl();
-    const fullUrl = `${apiUrl}/api/v2/generate-full-code-with-files`;
-    console.log(`[generateCodeWithFiles] Making streaming request to: ${fullUrl}`);
+    // --- CORRECTED URL Construction for Vercel/Prod and Local ---
+    let requestUrl = '/api/v2/generate-full-code-with-files'; // This is the path for deployed
+    const envApiUrl = process.env.REACT_APP_API_URL;
+
+    if (envApiUrl && (envApiUrl.startsWith('http://') || envApiUrl.startsWith('https://'))) {
+      // Local development with REACT_APP_API_URL as full base (e.g., http://localhost:8000)
+      requestUrl = `${envApiUrl}${requestUrl}`;
+    }
+    // If envApiUrl is /api (like on Vercel) or not set, requestUrl remains /api/v2/generate-full-code-with-files, which is correct.
+    console.log(`[generateCodeWithFiles] Making streaming request to final URL: ${requestUrl}`);
+    // --- End URL construction ---
 
     try {
-      const response = await fetch(fullUrl, {
+      const response = await fetch(requestUrl, { // Use corrected requestUrl
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -322,15 +362,23 @@ export const modifyCodeWithFiles = createAsyncThunk<
       }
       console.log(`[modifyCodeWithFiles] Appended ${files.length} files to FormData.`);
     } else {
-      console.log('[modifyCodeWithFiles] No files to append for modification.');
+      console.log('[modifyCodeWithFiles] No files to append.');
     }
 
-    const apiUrl = getApiBaseUrl();
-    const fullUrl = `${apiUrl}/api/v2/modify-full-code-with-files`; // Use the new v2 endpoint
-    console.log(`[modifyCodeWithFiles] Making streaming request to: ${fullUrl}`);
+    // --- CORRECTED URL Construction for Vercel/Prod and Local ---
+    let requestUrl = '/api/v2/modify-full-code-with-files'; // Path for deployed
+    const envApiUrl = process.env.REACT_APP_API_URL;
+
+    if (envApiUrl && (envApiUrl.startsWith('http://') || envApiUrl.startsWith('https://'))) {
+      // Local development with REACT_APP_API_URL as full base (e.g., http://localhost:8000)
+      requestUrl = `${envApiUrl}${requestUrl}`;
+    }
+    // If envApiUrl is /api (like on Vercel) or not set, requestUrl remains as is, which is correct.
+    console.log(`[modifyCodeWithFiles] Making streaming request to final URL: ${requestUrl}`);
+    // --- End URL construction ---
 
     try {
-      const response = await fetch(fullUrl, {
+      const response = await fetch(requestUrl, { // Use corrected requestUrl
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -403,7 +451,7 @@ export const saveGeneration = createAsyncThunk<
       return thunkAPI.rejectWithValue({ message: 'Authentication token not found.' });
     }
     // --- MODIFICATION START: Prepend API URL ---
-    const apiUrl = getApiBaseUrl();
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     const fullUrl = `${apiUrl}/api/save-generation`;
     try {
       const response = await fetch(fullUrl, {
@@ -442,7 +490,7 @@ export const fetchGenerations = createAsyncThunk<
       return thunkAPI.rejectWithValue({ message: 'Authentication token not found.' });
     }
     // --- MODIFICATION START: Prepend API URL ---
-    const apiUrl = getApiBaseUrl();
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     const fullUrl = `${apiUrl}/api/generations`;
     try {
       const response = await fetch(fullUrl, {
@@ -482,7 +530,7 @@ export const fetchGenerationDetail = createAsyncThunk<
       return thunkAPI.rejectWithValue({ message: 'Authentication token not found.' });
     }
     // --- MODIFICATION START: Prepend API URL ---
-    const apiUrl = getApiBaseUrl();
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     const fullUrl = `${apiUrl}/api/generations/${generationId}`;
     try {
       const response = await fetch(fullUrl, {
@@ -527,7 +575,7 @@ export const deleteGeneration = createAsyncThunk<
       return thunkAPI.rejectWithValue({ message: 'Authentication token not found.' });
     }
     // --- MODIFICATION START: Prepend API URL ---
-    const apiUrl = getApiBaseUrl();
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     const fullUrl = `${apiUrl}/api/generations/${generationId}`;
     try {
       const response = await fetch(fullUrl, {
@@ -569,7 +617,7 @@ export const fetchSuggestions = createAsyncThunk<
     }
 
     // --- Construct full API URL --- 
-    const apiUrl = getApiBaseUrl();
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     const fullUrl = `${apiUrl}/api/suggest-modifications`;
     console.log(`[fetchSuggestions] Making request to: ${fullUrl}`);
     // --- End URL construction ---
@@ -617,7 +665,7 @@ export const extractComponentProperties = createAsyncThunk<
     if (!token) {
       return thunkAPI.rejectWithValue('Authentication token not found.');
     }
-    const apiUrl = getApiBaseUrl();
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     const fullUrl = `${apiUrl}/api/extract-component-properties`;
     try {
       const response = await fetch(fullUrl, {
