@@ -121,11 +121,12 @@ try:
     if firebase_creds_json_str:
         logger.info("GOOGLE_APPLICATION_CREDENTIALS_JSON found. Initializing Firebase from JSON string (content not shown for security/log clarity).")
         try:
+            logger.info("trying to get details")
             firebase_creds_dict = json.loads(firebase_creds_json_str)
             cred = credentials.Certificate(firebase_creds_dict)
         except json.JSONDecodeError as json_err:
-            logger.error(f"Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON: {json_err}", exc_info=True)
-            raise Exception(f"Invalid JSON in GOOGLE_APPLICATION_CREDENTIALS_JSON: {json_err}")
+            logger.error(f"Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON: {json_err} Failed to get JSON", exc_info=True)
+            raise Exception(f"Invalid JSON in GOOGLE_APPLICATION_CREDENTIALS_JSON: {json_err} Failed to get JSON")
         except Exception as cert_err:
             logger.error(f"Failed to create certificate from JSON credentials: {cert_err}", exc_info=True)
             raise Exception(f"Could not create Firebase credentials from JSON: {cert_err}")
