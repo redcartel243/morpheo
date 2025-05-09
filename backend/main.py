@@ -77,10 +77,10 @@ print(f"DEBUG (main.py entry): sys.path = {sys.path}")
 
 # Import Gemini library using the new SDK pattern
 # --- Use direct top-level imports --- 
-from google import genai
-from google.genai.types import Part, Blob, GenerationConfig
-# from google.generativeai import GenerativeModel # REMOVED - Not used directly here
+import google.genai as genai
+from google.genai.types import Part, Blob, GenerationConfig, GenerateContentResponse, Tool, GoogleSearch, File as GeminiSDKFile
 from google.ai import generativelanguage as glm
+# from google.generativeai import GenerativeModel # REMOVED - Not used directly here
 # --- End direct imports ---
 
 # --- Configure GenAI globally here ---
