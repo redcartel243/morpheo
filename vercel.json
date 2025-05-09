@@ -19,11 +19,36 @@
       "dest": "backend/main.py"
     },
     {
-      "handle": "filesystem"
+      "src": "/favicon.ico",
+      "dest": "/frontend-new/favicon.ico"
+    },
+    {
+      "src": "/manifest.json",
+      "dest": "/frontend-new/manifest.json"
+    },
+    {
+      "src": "/robots.txt",
+      "dest": "/frontend-new/robots.txt"
+    },
+    {
+      "src": "/logo192.png",
+      "dest": "/frontend-new/logo192.png"
+    },
+    {
+      "src": "/logo512.png",
+      "dest": "/frontend-new/logo512.png"
+    },
+    {
+      "src": "/asset-manifest.json",
+      "dest": "/frontend-new/asset-manifest.json"
+    },
+    {
+      "src": "/static/(.*)",
+      "dest": "/frontend-new/static/$1"
     },
     {
       "src": "/(.*)",
-      "dest": "frontend-new/build/index.html"
+      "dest": "/frontend-new/index.html"
     }
   ]
 } 
