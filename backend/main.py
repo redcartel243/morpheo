@@ -131,17 +131,26 @@ try:
             raise Exception(f"Could not create Firebase credentials from JSON: {cert_err}")
     else:
         logger.info("GOOGLE_APPLICATION_CREDENTIALS_JSON not found. Checking GOOGLE_APPLICATION_CREDENTIALS path.")
-        cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        if not cred_path:
-            logger.warning("GOOGLE_APPLICATION_CREDENTIALS env var (for path) not set. Trying default path relative to main.py.")
-            cred_path = os.path.join(os.path.dirname(__file__), "..", "serviceAccountKey.json")
-        
-        if os.path.exists(cred_path):
-            logger.info(f"Initializing Firebase from credentials file: {cred_path}")
-            cred = credentials.Certificate(cred_path)
+        cred_path_from_env = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        final_cred_path = None
+
+        if cred_path_from_env:
+            logger.info(f"Found GOOGLE_APPLICATION_CREDENTIALS env var for path: {cred_path_from_env}")
+            final_cred_path = cred_path_from_env
         else:
-            logger.error(f"Firebase Admin credentials file not found at specified/default path: {cred_path} and JSON env var not set.")
-            raise FileNotFoundError(f"Firebase Admin credentials not found. Searched path: {cred_path} and env var GOOGLE_APPLICATION_CREDENTIALS_JSON.")
+            logger.warning("GOOGLE_APPLICATION_CREDENTIALS env var (for path) not set. Trying default path relative to main.py.")
+            # Construct the default path relative to the location of main.py
+            default_path_check = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "serviceAccountKey.json")
+            final_cred_path = default_path_check
+        
+        logger.info(f"Attempting to use credentials file path: {final_cred_path}")
+        if final_cred_path and os.path.exists(final_cred_path):
+            logger.info(f"Initializing Firebase from credentials file: {final_cred_path}")
+            cred = credentials.Certificate(final_cred_path)
+        else:
+            error_message = f"Firebase Admin credentials file not found. Searched path: '{final_cred_path}'. GOOGLE_APPLICATION_CREDENTIALS env var was also not set."
+            logger.error(error_message)
+            raise FileNotFoundError(error_message)
 
     if not firebase_admin._apps: # Check if already initialized
         firebase_admin.initialize_app(cred)
