@@ -77,19 +77,28 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
         const { type, morpheoId, script, htmlChunk } = event.data || {}; // Removed unused schema, values from destructuring for this top-level handler
 
         switch (type) {
+          case 'MORPHEO_STREAM_START_SIGNAL':
+            console.log('[IFRAME_SCRIPT] Received MORPHEO_STREAM_START_SIGNAL.');
+            const contentRootForStart = document.getElementById('content-root');
+            if (contentRootForStart) {
+              contentRootForStart.innerHTML = ''; // Clear previous content
+            }
+            currentFullHtml = ''; // Reset current full HTML
+            // isStreamingActive = true; // This flag might not be strictly necessary if START_SIGNAL reliably resets state
+            break;
+
           case 'MORPHEO_STREAM_CHUNK':
             console.log('[IFRAME_SCRIPT] Received MORPHEO_STREAM_CHUNK. htmlChunk length:', htmlChunk ? htmlChunk.length : 'null');
             const contentRoot = document.getElementById('content-root');
             if (contentRoot) {
-              console.log('[IFRAME_SCRIPT] #content-root found.');
-              if (htmlChunk && htmlChunk !== currentFullHtml) {
-                contentRoot.innerHTML = htmlChunk; 
-                currentFullHtml = htmlChunk;
+              // htmlChunk is the full accumulated content.
+              // Only update if it's actually different from what's rendered.
+              if (htmlChunk !== currentFullHtml) {
+                contentRoot.innerHTML = htmlChunk || ''; // Ensure it's a string, even if null/undefined
+                currentFullHtml = htmlChunk || '';
                 console.log('[IFRAME_SCRIPT] #content-root.innerHTML updated.');
-              } else if (htmlChunk === currentFullHtml) {
+              } else {
                 console.log('[IFRAME_SCRIPT] htmlChunk is same as currentFullHtml, no update to innerHTML.');
-              } else if (!htmlChunk) {
-                console.log('[IFRAME_SCRIPT] htmlChunk is null/empty, no update to innerHTML.');
               }
             } else {
               console.error('[IFRAME_SCRIPT] #content-root not found for streaming chunk.');
@@ -863,6 +872,24 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
       console.log('[InlinePreview] Sent MORPHEO_HIGHLIGHT_SELECTION for', selectedComponent);
     }
   }, [selectedComponent]);
+
+  const prevGeneratingFullCodeRef = useRef<boolean>(false);
+  const prevModifyingCodeRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    const isStartingGeneration = generatingFullCode && !prevGeneratingFullCodeRef.current;
+    const isStartingModification = modifyingCode && !prevModifyingCodeRef.current;
+
+    if (iframeRef.current?.contentWindow && iframeReadyForStream) {
+      if (isStartingGeneration || isStartingModification) {
+        console.log('[InlinePreview] Stream starting. Sending MORPHEO_STREAM_START_SIGNAL to iframe.');
+        iframeRef.current.contentWindow.postMessage({ type: 'MORPHEO_STREAM_START_SIGNAL' }, '*');
+      }
+    }
+
+    prevGeneratingFullCodeRef.current = generatingFullCode;
+    prevModifyingCodeRef.current = modifyingCode;
+  }, [generatingFullCode, modifyingCode, iframeReadyForStream]);
 
   return (
     <div ref={parentRef} style={{ width: '100%', height: '100vh', minHeight: 0, position: 'relative' }}>
