@@ -107,8 +107,12 @@ const streamApiCall = async (url: string, body: any, thunkAPI: any): Promise<str
     }
 
     // --- Construct full API URL --- 
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000'; // Fallback for safety
-    const fullUrl = `${apiUrl}${url}`; // Prepend base URL
+    let baseUrl = '';
+    if (process.env.NODE_ENV !== 'production') {
+      baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    }
+    // url parameter is expected to be the endpoint itself, e.g., '/api/generate-full-code'
+    const fullUrl = `${baseUrl}${url}`; 
     console.log(`[streamApiCall] Making request to: ${fullUrl}`); // Log the full URL
     // --- End URL construction ---
 
@@ -210,8 +214,12 @@ export const generateCodeWithFiles = createAsyncThunk<
       console.log('[generateCodeWithFiles] No files to append.');
     }
 
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-    const fullUrl = `${apiUrl}/api/v2/generate-full-code-with-files`;
+    let baseUrl = '';
+    if (process.env.NODE_ENV !== 'production') {
+      baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    }
+    const endpoint = '/api/v2/generate-full-code-with-files';
+    const fullUrl = `${baseUrl}${endpoint}`;
     console.log(`[generateCodeWithFiles] Making streaming request to: ${fullUrl}`);
 
     try {
@@ -314,8 +322,12 @@ export const modifyCodeWithFiles = createAsyncThunk<
       console.log('[modifyCodeWithFiles] No files to append for modification.');
     }
 
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-    const fullUrl = `${apiUrl}/api/v2/modify-full-code-with-files`; // Use the new v2 endpoint
+    let baseUrl = '';
+    if (process.env.NODE_ENV !== 'production') {
+      baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    }
+    const endpoint = '/api/v2/modify-full-code-with-files'; // Endpoint for modifying with files
+    const fullUrl = `${baseUrl}${endpoint}`;
     console.log(`[modifyCodeWithFiles] Making streaming request to: ${fullUrl}`);
 
     try {
@@ -329,8 +341,15 @@ export const modifyCodeWithFiles = createAsyncThunk<
 
       if (!response.ok) {
         let errorDetail = `HTTP error! Status: ${response.status}`;
-        try { const errorJson = await response.json(); errorDetail = errorJson.detail || errorDetail; }
-        catch (e) { try { const errorText = await response.text(); errorDetail = errorText || errorDetail; } catch (textErr) { /* Keep original */ } }
+        try {
+          const errorJson = await response.json();
+          errorDetail = errorJson.detail || errorDetail;
+        } catch (e) {
+          try {
+            const errorText = await response.text();
+            errorDetail = errorText || errorDetail;
+          } catch (textErr) { /* Keep original HTTP error */ }
+        }
         console.error('[modifyCodeWithFiles] Request failed:', errorDetail);
         thunkAPI.dispatch(uiSlice.actions.streamError({ message: errorDetail, isModifying: true }));
         return thunkAPI.rejectWithValue(errorDetail);
@@ -338,7 +357,7 @@ export const modifyCodeWithFiles = createAsyncThunk<
 
       const reader = response.body?.getReader();
       if (!reader) {
-        const errorMsg = 'Failed to get response reader for modification streaming.';
+        const errorMsg = 'Failed to get response reader for streaming modification.';
         thunkAPI.dispatch(uiSlice.actions.streamError({ message: errorMsg, isModifying: true }));
         throw new Error(errorMsg);
       }
@@ -355,8 +374,8 @@ export const modifyCodeWithFiles = createAsyncThunk<
         
         if (chunk.includes("<!-- ERROR:")) {
            const errorMatch = chunk.match(/<!-- ERROR: (.*) -->/);
-           const errorMessage = errorMatch ? errorMatch[1] : "Unknown error signaled from backend modification stream.";
-           console.error("[modifyCodeWithFiles] Backend stream signaled error:", errorMessage);
+           const errorMessage = errorMatch ? errorMatch[1] : "Unknown error from backend stream during modification.";
+           console.error("Backend stream signaled error during modification:", errorMessage);
            thunkAPI.dispatch(uiSlice.actions.streamError({ message: errorMessage, isModifying: true }));
            throw new Error(errorMessage); 
         }
