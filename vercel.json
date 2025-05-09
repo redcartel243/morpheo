@@ -20,14 +20,6 @@
     },
     {
       "src": "/(.*)",
-      "dest": "frontend-new/build/$1",
-      "continue": true
-    },
-    {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
       "dest": "frontend-new/build/index.html"
     }
   ]
