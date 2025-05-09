@@ -119,7 +119,7 @@ try:
     cred = None
 
     if firebase_creds_json_str:
-        logger.info("Found GOOGLE_APPLICATION_CREDENTIALS_JSON. Initializing Firebase from JSON string.")
+        logger.info("GOOGLE_APPLICATION_CREDENTIALS_JSON found. Initializing Firebase from JSON string (content not shown for security/log clarity).")
         try:
             firebase_creds_dict = json.loads(firebase_creds_json_str)
             cred = credentials.Certificate(firebase_creds_dict)
