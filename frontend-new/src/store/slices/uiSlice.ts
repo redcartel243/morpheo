@@ -1,6 +1,8 @@
 import { createSlice, createAsyncThunk, PayloadAction, Dispatch } from '@reduxjs/toolkit';
 // import api from '../../services/api'; // Assuming your API service setup
 import { GenerationDetail, GenerationInfo } from '../../types';
+import { auth } from '../../config/firebase'; // Import the auth object from Firebase config
+// import { cleanHtmlContent } from '../../utils/cleaning'; // Import the cleaning utility
 
 // --- Interfaces ---
 
@@ -29,6 +31,9 @@ export interface UIState {
   modifyingCode: boolean;
   modificationError: string | null;
   streamCompletedSuccessfully: boolean;
+  isCorrectingSecurity: boolean;
+  isReplacingForCorrection: boolean;
+  securityCorrectionError: string | null;
   loadedGenerationHtml: string | null;
   loadedGenerationPrompt: string | null;
   htmlHistory: string[];
@@ -61,6 +66,9 @@ const initialState: UIState = {
   modifyingCode: false,
   modificationError: null,
   streamCompletedSuccessfully: false,
+  isCorrectingSecurity: false,
+  isReplacingForCorrection: false,
+  securityCorrectionError: null,
   loadedGenerationHtml: null,
   loadedGenerationPrompt: null,
   htmlHistory: [],
@@ -81,20 +89,22 @@ const initialState: UIState = {
   extractedPropertyValues: {},
 };
 
-// Helper function to clean markdown fences
-const cleanHtmlContent = (html: string | null): string | null => {
-  if (!html) return null;
-  let cleaned = html.trim(); // Trim whitespace first
-  if (cleaned.startsWith('```html')) {
-    cleaned = cleaned.substring(7); // Remove ```html
+// Helper function to get the auth token
+const getAuthToken = async (thunkAPI: any) => {
+  // Use the imported auth object
+  if (!auth.currentUser) {
+    return thunkAPI.rejectWithValue('User not authenticated');
   }
-  if (cleaned.startsWith('```')) { // Also handle just ```
-    cleaned = cleaned.substring(3);
+  try {
+    const token = await auth.currentUser.getIdToken();
+    if (!token) {
+      return thunkAPI.rejectWithValue('Failed to retrieve Firebase ID token.');
+    }
+    return token;
+  } catch (error: any) {
+    console.error('Error getting Firebase ID token:', error);
+    return thunkAPI.rejectWithValue(error.message || 'Error retrieving Firebase ID token.');
   }
-  if (cleaned.endsWith('```')) {
-    cleaned = cleaned.substring(0, cleaned.length - 3);
-  }
-  return cleaned.trim(); // Trim again after removal
 };
 
 // --- Helper Function for Streaming API Calls ---
@@ -190,14 +200,9 @@ export const generateCodeWithFiles = createAsyncThunk<
 >(
   'ui/generateCodeWithFiles',
   async ({ prompt, files }, thunkAPI) => {
-    console.log('[generateCodeWithFiles] Thunk started (streaming).');
-    const state = thunkAPI.getState() as { auth: { token: string | null } };
-    const token = state.auth.token;
-
-    if (!token) {
-      console.error('[generateCodeWithFiles] Authentication token not found.');
-      return thunkAPI.rejectWithValue('Authentication token not found.');
-    }
+    // console.log('[generateCodeWithFiles] Thunk started (streaming).');
+    const token = await getAuthToken(thunkAPI);
+    if (typeof token === 'object' && token !== null && 'rejectWithValue' in token) return token;
 
     const formData = new FormData();
     formData.append('prompt', prompt);
@@ -205,9 +210,9 @@ export const generateCodeWithFiles = createAsyncThunk<
       for (let i = 0; i < files.length; i++) {
         formData.append('files', files[i], files[i].name);
       }
-      console.log(`[generateCodeWithFiles] Appended ${files.length} files to FormData.`);
+      // console.log(`[generateCodeWithFiles] Appended ${files.length} files to FormData.`);
     } else {
-      console.log('[generateCodeWithFiles] No files to append.');
+      // console.log('[generateCodeWithFiles] No files to append.');
     }
 
     const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -270,7 +275,7 @@ export const generateCodeWithFiles = createAsyncThunk<
         accumulatedContent += chunk;
       }
       // Do not dispatch streamComplete here, it's handled by the extraReducer's fulfilled case
-      console.log('[generateCodeWithFiles] Streaming successful, accumulated HTML.');
+      // console.log('[generateCodeWithFiles] Streaming successful. Final accumulated HTML (first 500 chars):', accumulatedContent ? accumulatedContent.substring(0, 500) + '...' : 'null_or_empty');
       return accumulatedContent; // Return the full content on success
 
     } catch (error: any) {
@@ -293,14 +298,9 @@ export const modifyCodeWithFiles = createAsyncThunk<
 >(
   'ui/modifyCodeWithFiles',
   async ({ modificationPrompt, currentHtml, files }, thunkAPI) => {
-    console.log('[modifyCodeWithFiles] Thunk started (streaming).');
-    const state = thunkAPI.getState() as { auth: { token: string | null } };
-    const token = state.auth.token;
-
-    if (!token) {
-      console.error('[modifyCodeWithFiles] Authentication token not found.');
-      return thunkAPI.rejectWithValue('Authentication token not found.');
-    }
+    // console.log('[modifyCodeWithFiles] Thunk started (streaming).');
+    const token = await getAuthToken(thunkAPI);
+    if (typeof token === 'object' && token !== null && 'rejectWithValue' in token) return token;
 
     const formData = new FormData();
     formData.append('modification_prompt', modificationPrompt);
@@ -309,9 +309,9 @@ export const modifyCodeWithFiles = createAsyncThunk<
       for (let i = 0; i < files.length; i++) {
         formData.append('files', files[i], files[i].name);
       }
-      console.log(`[modifyCodeWithFiles] Appended ${files.length} files to FormData.`);
+      // console.log(`[modifyCodeWithFiles] Appended ${files.length} files to FormData.`);
     } else {
-      console.log('[modifyCodeWithFiles] No files to append for modification.');
+      // console.log('[modifyCodeWithFiles] No files to append for modification.');
     }
 
     const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -363,7 +363,7 @@ export const modifyCodeWithFiles = createAsyncThunk<
         thunkAPI.dispatch(uiSlice.actions.streamChunkReceived({ chunk }));
         accumulatedContent += chunk;
       }
-      console.log('[modifyCodeWithFiles] Streaming successful, accumulated HTML.');
+      // console.log('[modifyCodeWithFiles] Streaming successful. Final accumulated HTML (first 500 chars):', accumulatedContent ? accumulatedContent.substring(0, 500) + '...' : 'null_or_empty');
       return accumulatedContent;
 
     } catch (error: any) {
@@ -551,11 +551,8 @@ export const fetchSuggestions = createAsyncThunk<
 >(
   'ui/fetchSuggestions',
   async (currentHtml, thunkAPI) => {
-    const state = thunkAPI.getState() as { auth: { token: string | null } };
-    const token = state.auth.token;
-    if (!token) {
-      return thunkAPI.rejectWithValue({ message: 'Authentication token not found.' });
-    }
+    const token = await getAuthToken(thunkAPI);
+    if (typeof token === 'object' && token !== null && 'rejectWithValue' in token) return token;
 
     // --- Construct full API URL --- 
     const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -653,7 +650,7 @@ const uiSlice = createSlice({
   initialState,
   reducers: {
     clearGeneratedCode: (state) => {
-      console.log('clearGeneratedCode reducer called');
+      // console.log('clearGeneratedCode reducer called');
       state.generatedHtmlContent = null;
       state.error = null;
       state.modificationError = null;
@@ -672,50 +669,116 @@ const uiSlice = createSlice({
         if (action.payload.isGenerating) {
             state.generatingFullCode = true;
             state.modifyingCode = false;
+            state.isReplacingForCorrection = false;
             state.lastPrompt = action.payload.prompt || null;
-            state.htmlHistory = [];
+            state.htmlHistory = []; // Reset history on new generation
             state.historyIndex = -1;
         } else if (action.payload.isModifying) {
             state.generatingFullCode = false;
             state.modifyingCode = true;
+            state.isReplacingForCorrection = false;
+            // For modification, history is managed in streamComplete
         }
-        state.generatedHtmlContent = '';
+        state.generatedHtmlContent = ''; // Always start with empty for a new stream
         state.error = null;
         state.modificationError = null;
         state.streamCompletedSuccessfully = false;
+        state.isCorrectingSecurity = false;
+        state.securityCorrectionError = null;
     },
     streamChunkReceived: (state, action: PayloadAction<{ chunk: string }>) => {
-        if (state.generatingFullCode || state.modifyingCode) { 
-           state.generatedHtmlContent = (state.generatedHtmlContent || '') + action.payload.chunk;
-        }
+      let processingChunk = action.payload.chunk;
+      let hasContentToAppend = true;
+
+      // --- Signal Processing & Stripping Logic ---
+      // Note: Order of checks might matter if signals can be combined in one chunk.
+
+      if (processingChunk.includes('<!-- MORPHEO_SECURITY_CORRECTION_START -->')) {
+        state.isCorrectingSecurity = true;
+        state.securityCorrectionError = null;
+        processingChunk = processingChunk.replace('<!-- MORPHEO_SECURITY_CORRECTION_START -->', '');
+      }
+      if (processingChunk.includes('<!-- MORPHEO_SECURITY_CORRECTION_END -->')) {
+        state.isCorrectingSecurity = false;
+        state.isReplacingForCorrection = false; // Ensure replacement mode also ends here
+        processingChunk = processingChunk.replace('<!-- MORPHEO_SECURITY_CORRECTION_END -->', '');
+      }
+      if (processingChunk.includes('<!-- MORPHEO_SECURITY_CORRECTION_FAILED_AI_ERROR -->')) {
+        state.isCorrectingSecurity = false;
+        state.isReplacingForCorrection = false;
+        state.securityCorrectionError = 'Automated security correction failed due to an AI error during the correction attempt.';
+        processingChunk = processingChunk.replace('<!-- MORPHEO_SECURITY_CORRECTION_FAILED_AI_ERROR -->', '');
+      }
+      
+      const warningMatch = processingChunk.match(/<!-- MORPHEO_SECURITY_WARNING: (.*?) -->/);
+      if (warningMatch && warningMatch[0]) {
+        state.securityCorrectionError = warningMatch[1];
+        processingChunk = processingChunk.replace(warningMatch[0], '');
+      }
+
+      // This signal is critical for clearing old content
+      if (processingChunk.includes('<!-- MORPHEO_REPLACE_WITH_CORRECTED_START -->')) {
+        state.generatedHtmlContent = ''; // Clear previously accumulated (unsafe) content
+        state.isReplacingForCorrection = true;
+        state.isCorrectingSecurity = true; // Usually correction involves replacement
+        state.securityCorrectionError = null; 
+        state.htmlHistory = []; // Reset history for the new content
+        state.historyIndex = -1;
+        // Get content *after* this signal in the current chunk
+        processingChunk = processingChunk.substring(processingChunk.indexOf('<!-- MORPHEO_REPLACE_WITH_CORRECTED_START -->') + '<!-- MORPHEO_REPLACE_WITH_CORRECTED_START -->'.length);
+      }
+      
+      // This signal indicates the end of the corrected content stream
+      if (processingChunk.includes('<!-- MORPHEO_REPLACE_WITH_CORRECTED_END -->')) {
+        // isReplacingForCorrection is typically set to false by MORPHEO_SECURITY_CORRECTION_END,
+        // but if this comes separately or later, ensure it's false.
+        state.isReplacingForCorrection = false; 
+        // Get content *before* this signal in the current chunk
+        processingChunk = processingChunk.substring(0, processingChunk.indexOf('<!-- MORPHEO_REPLACE_WITH_CORRECTED_END -->'));
+      }
+
+      // --- Append actual content --- 
+      // Only append if processingChunk has non-whitespace characters left
+      if (processingChunk.trim() !== '') {
+        // Basic cleaning for markdown code fences before appending
+        let cleanedChunk = processingChunk.replace(/^\s*```html\s*\n?/im, '');
+        cleanedChunk = cleanedChunk.replace(/\n?\s*```\s*$/im, '');
+        
+        state.generatedHtmlContent = (state.generatedHtmlContent || '') + cleanedChunk.trim(); // Trim the cleaned chunk too
+      } else {
+        // If, after stripping signals, the chunk is empty, we might not need to do anything further with appending.
+        // This prevents appending empty strings, but state changes from signals above would have already occurred.
+        hasContentToAppend = false;
+      }
+      // The original `return` statements for some signals are removed to allow content within the same chunk
+      // (before/after a signal) to be processed and appended if it exists.
     },
     streamComplete: (state, action: PayloadAction<{ isGenerating?: boolean; isModifying?: boolean }>) => {
-        const cleanedHtml = cleanHtmlContent(state.generatedHtmlContent);
-        state.generatedHtmlContent = cleanedHtml;
+      let finalHtml = state.generatedHtmlContent || '';
+      // Basic cleaning for markdown code fences
+      finalHtml = finalHtml.replace(/^\s*```html\s*\n?/im, ''); // Remove ```html at the beginning
+      finalHtml = finalHtml.replace(/\n?\s*```\s*$/im, ''); // Remove ``` at the end
+      state.generatedHtmlContent = finalHtml.trim();
         
-        if (action.payload.isGenerating) {
-            state.generatingFullCode = false;
-            if (cleanedHtml) {
-              state.htmlHistory = [cleanedHtml];
-              state.historyIndex = 0;
-            } else {
-              state.htmlHistory = [];
-              state.historyIndex = -1;
-            }
-        } else if (action.payload.isModifying) {
-            state.modifyingCode = false;
-            if (cleanedHtml) {
-                if (state.historyIndex < 0) { state.historyIndex = 0; }
-                if (state.historyIndex < state.htmlHistory.length - 1) {
-                  state.htmlHistory = state.htmlHistory.slice(0, state.historyIndex + 1);
-                }
-                if (state.htmlHistory[state.historyIndex] !== cleanedHtml) {
-                    state.htmlHistory.push(cleanedHtml);
-                    state.historyIndex = state.htmlHistory.length - 1;
-                }
-            }
+      if (action.payload.isGenerating) {
+        state.generatingFullCode = false;
+        if (state.generatedHtmlContent !== null && state.generatedHtmlContent.trim() !== '') {
+          state.htmlHistory = [state.generatedHtmlContent];
+          state.historyIndex = 0;
+        } else {
+          state.htmlHistory = [];
+          state.historyIndex = -1;
         }
-        state.streamCompletedSuccessfully = !!cleanedHtml;
+      } else if (action.payload.isModifying) {
+        state.modifyingCode = false;
+        if (state.generatedHtmlContent !== null && state.generatedHtmlContent.trim() !== '') {
+          state.htmlHistory.push(state.generatedHtmlContent);
+          state.historyIndex = state.htmlHistory.length - 1;
+        }
+      }
+      state.streamCompletedSuccessfully = !!state.generatedHtmlContent;
+      state.isCorrectingSecurity = false;
+      state.isReplacingForCorrection = false;
     },
     streamError: (state, action: PayloadAction<{ message: string; isGenerating?: boolean; isModifying?: boolean }>) => {
        if (action.payload.isGenerating) {
@@ -729,6 +792,9 @@ const uiSlice = createSlice({
         }
         state.streamCompletedSuccessfully = false;
         state.generatedHtmlContent = null;
+        state.isCorrectingSecurity = false;
+        state.isReplacingForCorrection = false;
+        state.securityCorrectionError = null;
     },
     setLoadedGeneration: (state, action: PayloadAction<GenerationDetail>) => {
         state.generatedHtmlContent = action.payload.htmlContent;
@@ -766,17 +832,20 @@ const uiSlice = createSlice({
       }
     },
     setFullGeneratedHtml: (state, action: PayloadAction<string | null>) => {
-        console.log('Reducer: setFullGeneratedHtml');
-        const cleanedHtml = cleanHtmlContent(action.payload);
-        state.generatedHtmlContent = cleanedHtml;
+        let htmlToSet = action.payload || '';
+        // Basic cleaning for markdown code fences
+        htmlToSet = htmlToSet.replace(/^\s*```html\s*\n?/im, '');
+        htmlToSet = htmlToSet.replace(/\n?\s*```\s*$/im, '');
+        state.generatedHtmlContent = htmlToSet.trim();
+
         state.generatingFullCode = false; // Assume generation is complete
         state.modifyingCode = false;
         state.error = null;
         state.modificationError = null;
-        state.streamCompletedSuccessfully = !!cleanedHtml; // True if content exists
+        state.streamCompletedSuccessfully = !!state.generatedHtmlContent; // True if content exists
         // Reset history when setting full content 
-        if (cleanedHtml) {
-          state.htmlHistory = [cleanedHtml];
+        if (state.generatedHtmlContent) {
+          state.htmlHistory = [state.generatedHtmlContent];
           state.historyIndex = 0;
         } else {
           state.htmlHistory = [];
@@ -821,7 +890,7 @@ const uiSlice = createSlice({
       
       // --- REVISED: Add cases for generateCodeWithFiles (Now Streaming) ---
       .addCase(generateCodeWithFiles.pending, (state, action) => {
-          console.log('Reducer: generateCodeWithFiles.pending (streaming)');
+          // console.log('Reducer: generateCodeWithFiles.pending (streaming)');
           // streamStart is now dispatched from within the thunk itself upon successful connection
           // So, here we just set the initial loading state for the overall thunk
           state.generatingFullCode = true; // Indicates the thunk is running
@@ -837,15 +906,21 @@ const uiSlice = createSlice({
           state.loadedGenerationPrompt = null;
       })
       .addCase(generateCodeWithFiles.fulfilled, (state, action: PayloadAction<string>) => {
-          console.log('Reducer: generateCodeWithFiles.fulfilled (streaming)');
-          // The accumulated content is in action.payload, but streamComplete reducer handles cleaning & history
+          // console.log('Reducer: generateCodeWithFiles.fulfilled (streaming).');
+          // console.log('[generateCodeWithFiles.fulfilled] action.payload (first 500 chars):', action.payload ? action.payload.substring(0, 500) + '...' : 'null_or_empty');
+          
+          // --- FIX: Directly use action.payload to set generatedHtmlContent ---
+          // The streamChunkReceived actions dispatched during the thunk might not have updated the state
+          // that this specific fulfilled reducer instance sees. The action.payload IS the complete content.
+          state.generatedHtmlContent = action.payload; 
+          // console.log('[generateCodeWithFiles.fulfilled] state.generatedHtmlContent AFTER setting from action.payload (first 500 chars):', state.generatedHtmlContent ? state.generatedHtmlContent.substring(0, 500) + '...' : 'null_or_empty');
+
           uiSlice.caseReducers.streamComplete(state, { payload: { isGenerating: true }, type: 'ui/streamComplete' });
-          // No need to set generatedHtmlContent here directly, streamComplete does it.
           // generatingFullCode is set to false within streamComplete.
           // streamCompletedSuccessfully is set within streamComplete.
       })
       .addCase(generateCodeWithFiles.rejected, (state, action) => {
-          console.log('Reducer: generateCodeWithFiles.rejected (streaming)', action.payload);
+          // console.log('Reducer: generateCodeWithFiles.rejected (streaming)', action.payload);
           // streamError is dispatched from within the thunk for stream-related errors or HTTP errors before stream.
           // This reducer handles the state transition if the thunk itself is rejected for other reasons
           // or if streamError didn't already set these states.
@@ -950,7 +1025,7 @@ const uiSlice = createSlice({
       })
       // --- NEW: Add cases for modifyCodeWithFiles (Streaming FormData) ---
       .addCase(modifyCodeWithFiles.pending, (state, action) => {
-          console.log('Reducer: modifyCodeWithFiles.pending (streaming)');
+          // console.log('Reducer: modifyCodeWithFiles.pending (streaming)');
           // streamStart is dispatched from within the thunk itself
           state.modifyingCode = true; // Set overall thunk loading state
           state.generatingFullCode = false;
@@ -961,12 +1036,18 @@ const uiSlice = createSlice({
           // Do NOT reset history here, streamComplete will handle adding the new state
       })
       .addCase(modifyCodeWithFiles.fulfilled, (state, action: PayloadAction<string>) => {
-          console.log('Reducer: modifyCodeWithFiles.fulfilled (streaming)');
+          // console.log('Reducer: modifyCodeWithFiles.fulfilled (streaming)');
+          // console.log('[modifyCodeWithFiles.fulfilled] action.payload (first 500 chars):', action.payload ? action.payload.substring(0, 500) + '...' : 'null_or_empty');
+          
+          // --- FIX: Directly use action.payload to set generatedHtmlContent ---
+          state.generatedHtmlContent = action.payload; 
+          // console.log('[modifyCodeWithFiles.fulfilled] state.generatedHtmlContent AFTER setting from action.payload (first 500 chars):', state.generatedHtmlContent ? state.generatedHtmlContent.substring(0, 500) + '...' : 'null_or_empty');
+
           // streamComplete handles cleaning, setting state.modifyingCode=false, and history
           uiSlice.caseReducers.streamComplete(state, { payload: { isModifying: true }, type: 'ui/streamComplete' });
       })
       .addCase(modifyCodeWithFiles.rejected, (state, action) => {
-          console.log('Reducer: modifyCodeWithFiles.rejected (streaming)', action.payload);
+          // console.log('Reducer: modifyCodeWithFiles.rejected (streaming)', action.payload);
           // streamError dispatched in thunk handles stream/HTTP errors
           if (state.modifyingCode) { // If it was modifying and got rejected outside streamError
              state.modifyingCode = false; 
@@ -1014,5 +1095,18 @@ export const {
   setLiveUpdateCommand,
   clearLiveUpdateCommand,
 } = uiSlice.actions;
+
+// --- Add Selectors ---
+export const selectGeneratedHtmlContent = (state: { ui: UIState }) => state.ui.generatedHtmlContent;
+export const selectIsGeneratingFullCode = (state: { ui: UIState }) => state.ui.generatingFullCode;
+export const selectIsModifyingCode = (state: { ui: UIState }) => state.ui.modifyingCode;
+export const selectStreamCompletedSuccessfully = (state: { ui: UIState }) => state.ui.streamCompletedSuccessfully;
+export const selectError = (state: { ui: UIState }) => state.ui.error;
+export const selectModificationError = (state: { ui: UIState }) => state.ui.modificationError;
+export const selectIsCorrectingSecurity = (state: { ui: UIState }) => state.ui.isCorrectingSecurity;
+export const selectSecurityCorrectionError = (state: { ui: UIState }) => state.ui.securityCorrectionError;
+export const selectLastPrompt = (state: { ui: UIState }) => state.ui.lastPrompt;
+export const selectIsReplacingForCorrection = (state: { ui: UIState }) => state.ui.isReplacingForCorrection;
+// Add other selectors as needed
 
 export default uiSlice.reducer; 

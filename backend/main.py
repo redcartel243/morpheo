@@ -171,7 +171,7 @@ app = FastAPI(title="Morpheo - AI-Powered Dynamic UI Generator")
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://morpheo.vercel.app"],  # Explicitly allow your frontend origin
+    allow_origins=["https://morpheo.vercel.app", "http://localhost:3000"],  # Explicitly allow your frontend origin
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

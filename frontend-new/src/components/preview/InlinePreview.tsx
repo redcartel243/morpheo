@@ -14,6 +14,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 interface InlinePreviewProps {
   htmlContent: string | null;
   previewMode: 'desktop' | 'mobile' | 'freeform';
+  isPreviewFullScreen?: boolean; // New optional prop
   liveUpdateCommand?: {
     targetId: string;
     propertySchema: any;
@@ -28,22 +29,50 @@ interface PendingRequest {
   reject: (reason?: any) => void;
 }
 
-const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode, liveUpdateCommand, selectedComponent }) => {
+// Define baseHtmlStructure function
+const baseHtmlStructure = (bodyContent: string, scriptContent?: string): string => {
+  const scriptToEmbed = scriptContent || ''; // Use provided script or empty string
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <base target="_blank" />
+  <title>Preview</title>
+  <style>
+    html, body { margin:0; padding:0; width:100%; height:100%; overflow:auto; }
+    #content-root { width:100%; height:100%; } /* Ensure content root takes full space */
+    .morpheo-selected-highlight { outline: 3px solid #805ad5 !important; box-shadow: 0 0 0 3px rgba(128, 90, 213, 0.3) !important; transition: outline 0.1s ease-out, box-shadow 0.1s ease-out; }
+  </style>
+</head>
+<body>
+  <div id="content-root">${bodyContent}</div>
+  <script>${scriptToEmbed}</script>
+</body>
+</html>`;
+};
+
+const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode, isPreviewFullScreen, liveUpdateCommand, selectedComponent }) => {
   // --- Add console log for debugging env vars ---
-  console.log(`InlinePreview mounted. NODE_ENV: ${process.env.NODE_ENV}. process.env:`, process.env);
+  // console.log(`InlinePreview mounted. NODE_ENV: ${process.env.NODE_ENV}. process.env:`, process.env);
   // --- End console log ---
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // Store pending requests in a ref to persist across re-renders without causing effect re-runs
   const pendingRequestsRef = useRef<Record<string, PendingRequest>>({}); 
+  const lastSentHtmlLengthRef = useRef<number>(0); // Ref to track length of HTML last sent to iframe
 
-  const { generatingFullCode, modifyingCode, streamCompletedSuccessfully } = useSelector((state: RootState) => state.ui);
+  const { 
+    generatingFullCode, 
+    modifyingCode, 
+    streamCompletedSuccessfully, 
+    generatedHtmlContent: reduxHtmlContent,
+    isReplacingForCorrection
+  } = useSelector((state: RootState) => state.ui);
   // Remove useSelector for token, it's fetched from Firebase auth
   // const authToken = useSelector((state: RootState) => state.auth.token); 
 
   // --- Add console log for htmlContent prop ---
   useEffect(() => {
-    console.log('[InlinePreview] htmlContent prop updated:', htmlContent);
+    // console.log('[InlinePreview] htmlContent prop updated:', htmlContent);
   }, [htmlContent]);
   // --- End console log ---
 
@@ -52,7 +81,7 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
     (function() {
       let lastSelectedEl = null;
       let currentFullHtml = ''; // Store the full HTML to avoid re-appending same content
-      console.log('[IFRAME_SCRIPT] Core script loaded and running (streaming enabled).');
+      // console.log('[IFRAME_SCRIPT] Core script loaded and running (streaming enabled).');
 
       function highlightSelected(morpheoId) {
         if (lastSelectedEl) {
@@ -74,43 +103,54 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
       }
 
       window.addEventListener('message', function(event) {
-        const { type, morpheoId, script, htmlChunk } = event.data || {}; // Removed unused schema, values from destructuring for this top-level handler
+        const { type, morpheoId, script, htmlChunk, newHtmlPart } = event.data || {}; // Added newHtmlPart
 
         switch (type) {
           case 'MORPHEO_STREAM_START_SIGNAL':
-            console.log('[IFRAME_SCRIPT] Received MORPHEO_STREAM_START_SIGNAL.');
+            // console.log('[IFRAME_SCRIPT] Received MORPHEO_STREAM_START_SIGNAL.');
             const contentRootForStart = document.getElementById('content-root');
             if (contentRootForStart) {
               contentRootForStart.innerHTML = ''; // Clear previous content
             }
             currentFullHtml = ''; // Reset current full HTML
-            // isStreamingActive = true; // This flag might not be strictly necessary if START_SIGNAL reliably resets state
             break;
 
+          // MORPHEO_STREAM_CHUNK now handles full content replacement (e.g., for final load or recovery)
           case 'MORPHEO_STREAM_CHUNK':
-            console.log('[IFRAME_SCRIPT] Received MORPHEO_STREAM_CHUNK. htmlChunk length:', htmlChunk ? htmlChunk.length : 'null');
-            const contentRoot = document.getElementById('content-root');
-            if (contentRoot) {
-              // htmlChunk is the full accumulated content.
-              // Only update if it's actually different from what's rendered.
+            // console.log('[IFRAME_SCRIPT] Received MORPHEO_STREAM_CHUNK (full replace). htmlChunk length:', htmlChunk ? htmlChunk.length : 'null');
+            const contentRootFull = document.getElementById('content-root');
+            if (contentRootFull) {
               if (htmlChunk !== currentFullHtml) {
-                contentRoot.innerHTML = htmlChunk || ''; // Ensure it's a string, even if null/undefined
+                contentRootFull.innerHTML = htmlChunk || ''; 
                 currentFullHtml = htmlChunk || '';
-                console.log('[IFRAME_SCRIPT] #content-root.innerHTML updated.');
+                // console.log('[IFRAME_SCRIPT] #content-root.innerHTML fully updated.');
               } else {
-                console.log('[IFRAME_SCRIPT] htmlChunk is same as currentFullHtml, no update to innerHTML.');
+                // console.log('[IFRAME_SCRIPT] htmlChunk (full) is same as currentFullHtml, no update.');
               }
             } else {
-              console.error('[IFRAME_SCRIPT] #content-root not found for streaming chunk.');
+              // console.error('[IFRAME_SCRIPT] #content-root not found for MORPHEO_STREAM_CHUNK.');
+            }
+            break;
+
+          // NEW: Handler for appending new parts of HTML
+          case 'MORPHEO_APPEND_STREAM_CHUNK':
+            // console.log('[IFRAME_SCRIPT] Received MORPHEO_APPEND_STREAM_CHUNK. newHtmlPart length:', newHtmlPart ? newHtmlPart.length : 'null');
+            const contentRootAppend = document.getElementById('content-root');
+            if (contentRootAppend && newHtmlPart) {
+              contentRootAppend.innerHTML += newHtmlPart; // Append the new part
+              currentFullHtml += newHtmlPart; // Update internal tracking of full HTML
+              // console.log('[IFRAME_SCRIPT] #content-root appended with new part.');
+            } else {
+              // console.error('[IFRAME_SCRIPT] #content-root not found or newHtmlPart is empty for MORPHEO_APPEND_STREAM_CHUNK.');
             }
             break;
 
           case 'MORPHEO_EXECUTE_LIVE_SCRIPT':
-            console.log('[IFRAME_SCRIPT] Executing live script:', script);
+            // console.log('[IFRAME_SCRIPT] Executing live script:', script);
             try {
               eval(script); // Be cautious with eval
             } catch (e) {
-              console.error('IFRAME_SCRIPT Error executing live script:', e, script);
+              // console.error('IFRAME_SCRIPT Error executing live script:', e, script);
             }
             break;
 
@@ -197,7 +237,7 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
         }
       }, true);
 
-      console.log('[IFRAME_SCRIPT] Event listeners attached (streaming enabled).');
+      // console.log('[IFRAME_SCRIPT] Event listeners attached (streaming enabled).');
       window.parent.postMessage({ type: 'MORPHEO_IFRAME_READY' }, '*');
     })();
   `;
@@ -235,108 +275,68 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
   // Use the new initialIframeSrcDoc for the iframe's srcDoc initially
   const [currentSrcDoc, setCurrentSrcDoc] = useState(initialIframeSrcDoc);
 
+  // --- NEW EFFECT for isReplacingForCorrection ---
+  useEffect(() => {
+    if (isReplacingForCorrection) {
+      // console.log('[InlinePreview] isReplacingForCorrection is true. Setting currentSrcDoc to initialIframeSrcDoc.');
+      setCurrentSrcDoc(initialIframeSrcDoc);
+      setIframeReadyForStream(false); // Iframe will signal when ready again
+      lastSentHtmlLengthRef.current = 0;
+    }
+  }, [isReplacingForCorrection, initialIframeSrcDoc]);
+  // --- END NEW EFFECT ---
+
   // This effect handles sending chunks to the iframe via postMessage
   useEffect(() => {
-    // --- Add console log for iframeReadyForStream state ---
-    console.log('[InlinePreview] Effect for sending chunks. iframeReadyForStream:', iframeReadyForStream, 'generatingFullCode:', generatingFullCode, 'modifyingCode:', modifyingCode, 'htmlContent:', !!htmlContent);
-    // --- End console log ---
-    if (iframeRef.current && iframeRef.current.contentWindow && htmlContent && (generatingFullCode || modifyingCode) && iframeReadyForStream) {
-      console.log('[InlinePreview] Streaming: Posting MORPHEO_STREAM_CHUNK to iframe. Content length:', htmlContent.length);
-      iframeRef.current.contentWindow.postMessage({ type: 'MORPHEO_STREAM_CHUNK', htmlChunk: htmlContent }, '*');
+    // console.log('[InlinePreview] Effect for streaming srcDoc updates. generatingFullCode:', generatingFullCode, 'modifyingCode:', modifyingCode, 'isReplacingForCorrection:', isReplacingForCorrection, 'reduxHtmlContent length:', reduxHtmlContent?.length);
+
+    if (isReplacingForCorrection) {
+      // When isReplacingForCorrection is true, the specific effect for it (above)
+      // already sets currentSrcDoc = initialIframeSrcDoc.
+      // If reduxHtmlContent starts filling up with corrected code, update srcDoc.
+      if (reduxHtmlContent) {
+          // console.log('[InlinePreview] isReplacingForCorrection=true, corrected content arriving. Setting srcDoc.');
+          setCurrentSrcDoc(baseHtmlStructure(reduxHtmlContent, coreIframeScript));
+      } else {
+          // reduxHtmlContent is empty, meaning MORPHEO_REPLACE_WITH_CORRECTED_START just arrived.
+          // The other effect has set currentSrcDoc to initialIframeSrcDoc. We don't need to do it again here.
+          // console.log('[InlinePreview] isReplacingForCorrection=true, reduxHtmlContent is empty. Relying on initialSrcDoc set by other effect.');
+      }
+    } else if (generatingFullCode || modifyingCode) {
+      // Standard streaming (not in immediate replacement phase)
+      if (reduxHtmlContent) {
+        // console.log('[InlinePreview] Streaming update: Setting srcDoc.');
+        setCurrentSrcDoc(baseHtmlStructure(reduxHtmlContent, coreIframeScript));
+      } else {
+        // Actively streaming but content is empty (e.g., very start of a new generation before first chunk)
+        // console.log('[InlinePreview] Streaming active (not replacing) but reduxHtmlContent is empty. Setting srcDoc to initial.');
+        setCurrentSrcDoc(initialIframeSrcDoc); // Use initial to show a clean slate
+      }
     }
-  }, [htmlContent, generatingFullCode, modifyingCode, iframeReadyForStream]);
+    // This effect is focused on active streaming or replacement.
+    // Final/non-streaming updates are handled by the effect below.
+  }, [reduxHtmlContent, generatingFullCode, modifyingCode, isReplacingForCorrection, coreIframeScript, initialIframeSrcDoc]);
 
   // This effect handles the final content load or non-streaming updates
   useEffect(() => {
-    if (htmlContent && (!generatingFullCode && !modifyingCode)) {
-      console.log('[InlinePreview] Non-streaming/final update: Setting full srcDoc.');
-      // Construct the full HTML: Take the user's generated htmlContent for the body,
-      // and ensure our core script and necessary styles are in the head.
-      
-      let finalHtml = htmlContent;
-      
-      // Ensure the core script is present. Add it before </body> or at the end.
-        const bodyEndTag = '</body>';
-      const bodyEndIndex = finalHtml.toLowerCase().lastIndexOf(bodyEndTag);
-      const scriptTag = `<script>${coreIframeScript}</script>`;
-        if (bodyEndIndex !== -1) {
-        finalHtml = finalHtml.substring(0, bodyEndIndex) + scriptTag + finalHtml.substring(bodyEndIndex);
-        } else {
-        finalHtml += scriptTag; // Append if no body tag found (less ideal)
-        }
-
-      // Ensure highlight style is present in the head
-        const headEndTag = '</head>';
-      const headEndIndex = finalHtml.toLowerCase().lastIndexOf(headEndTag);
-      const highlightStyleTag = `<style>.morpheo-selected-highlight { outline: 3px solid #805ad5 !important; box-shadow: 0 0 0 3px rgba(128, 90, 213, 0.3) !important; z-index: 9999 !important; }</style>`;
-      
-      let headContent = '';
-      let bodyContent = finalHtml;
-
-        if (headEndIndex !== -1) {
-        headContent = finalHtml.substring(finalHtml.toLowerCase().indexOf('<head>') + '<head>'.length, headEndIndex);
-        // Check if our highlight style is already in headContent to avoid duplication
-        if (!headContent.includes('.morpheo-selected-highlight')) {
-            headContent += highlightStyleTag;
-        }
-        bodyContent = finalHtml.substring(finalHtml.toLowerCase().indexOf('<body>')); // Assumes body tag exists
-        } else {
-        // No <head> tag found, create one with the style
-        headContent = `<title>Preview</title><style>html,body{margin:0;padding:0;width:100%;height:100%;overflow:auto;}</style>${highlightStyleTag}`;
-        // The script is already added to finalHtml (which is bodyContent here)
+    // console.log('[InlinePreview main useEffect for final/non-streaming] States -- reduxHtmlContent:', reduxHtmlContent ? reduxHtmlContent.substring(0, 100) + '...' : reduxHtmlContent, 'generating:', generatingFullCode, 'modifying:', modifyingCode, 'completedSuccessfully:', streamCompletedSuccessfully, 'isReplacing:', isReplacingForCorrection);
+    
+    // Only run if not actively streaming AND not in the process of replacing content
+    if (!generatingFullCode && !modifyingCode && !isReplacingForCorrection) {
+      if (reduxHtmlContent && streamCompletedSuccessfully) {
+        // console.log('[InlinePreview] Non-streaming/final update: Setting srcDoc.');
+        setCurrentSrcDoc(baseHtmlStructure(reduxHtmlContent, coreIframeScript));
+      } else if (!reduxHtmlContent) { // No content, and not generating/modifying
+        // console.log('[InlinePreview] No content and not generating/modifying/replacing: Setting srcDoc to initial.');
+        setCurrentSrcDoc(initialIframeSrcDoc);
+        setIframeReadyForStream(false);
+        lastSentHtmlLengthRef.current = 0;
       }
-      
-      // Reconstruct the document. If htmlContent provided a full HTML structure, try to respect it.
-      // Otherwise, wrap it.
-      if (htmlContent.toLowerCase().startsWith('<!doctype html>') || htmlContent.toLowerCase().startsWith('<html>')) {
-         // User provided full HTML, try to inject script and styles carefully
-         // This logic re-inserts the script and style if not present or if body/head tags are missing.
-         // For simplicity, the current logic above might add script/style again if user content also had them.
-         // A more robust merge would be complex. Let's assume htmlContent is mostly body content for now.
-         // The current addition of scriptTag and highlightStyleTag to finalHtml aims to ensure they are there.
-         // The below reconstruction might be simplified if we assume htmlContent is just body inner HTML.
-
-        let tempFinalSrcDoc = htmlContent;
-        // Ensure highlight style
-        if (tempFinalSrcDoc.toLowerCase().includes('</head>')) {
-            if (!tempFinalSrcDoc.includes('.morpheo-selected-highlight')) {
-                 tempFinalSrcDoc = tempFinalSrcDoc.replace('</head>', `${highlightStyleTag}</head>`);
-            }
-        } else {
-            tempFinalSrcDoc = `<head>${highlightStyleTag}</head>${tempFinalSrcDoc}`;
-        }
-        // Ensure script
-        if (tempFinalSrcDoc.toLowerCase().includes('</body>')) {
-            if(!tempFinalSrcDoc.includes(coreIframeScript.substring(0,50))) { // check a snippet
-                tempFinalSrcDoc = tempFinalSrcDoc.replace('</body>', `${scriptTag}</body>`);
-            }
-        } else {
-            tempFinalSrcDoc += scriptTag;
-        }
-        setCurrentSrcDoc(tempFinalSrcDoc);
-
-      } else {
-        // htmlContent is likely partial (e.g. just body elements)
-        setCurrentSrcDoc(`<!DOCTYPE html>
-          <html>
-          <head>
-            <base target="_blank" />
-            ${headContent}
-          </head>
-          ${bodyContent}`); // bodyContent already has script if it was appended
-      }
-
-      setIframeReadyForStream(false); 
-    } else if (!htmlContent && (!generatingFullCode && !modifyingCode)) {
-      console.log('[InlinePreview] No content and not generating: Setting initial iframe srcDoc.');
-      setCurrentSrcDoc(initialIframeSrcDoc);
-      setIframeReadyForStream(false);
     }
-  }, [htmlContent, generatingFullCode, modifyingCode, streamCompletedSuccessfully, initialIframeSrcDoc, coreIframeScript]);
+  }, [reduxHtmlContent, generatingFullCode, modifyingCode, streamCompletedSuccessfully, initialIframeSrcDoc, coreIframeScript, isReplacingForCorrection]);
 
   // Log the complete srcDoc content for debugging script injection
   useEffect(() => {
-    console.log('[InlinePreview] currentSrcDoc (for iframe):', currentSrcDoc);
   }, [currentSrcDoc]);
 
   // --- Function to inject the morpheoApi helper --- 
@@ -346,20 +346,20 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
         
         // Make sure not to overwrite if already exists (e.g., during fast refresh)
         if (!iframeWindow.morpheoApi) {
-            console.log('[InlinePreview - Injector] Injecting morpheoApi helper into iframe.'); // Enhanced log
+            // console.log('[InlinePreview - Injector] Injecting morpheoApi helper into iframe.'); // Enhanced log
             iframeWindow.morpheoApi = {
                 call: (url: string, options: RequestInit = {}) => {
                     return new Promise((resolve, reject) => {
                         const requestId = Date.now().toString() + Math.random();
                         // Use the pendingRequestsRef defined in the parent scope
                         pendingRequestsRef.current[requestId] = { resolve, reject }; 
-                        console.log(`[iframe morpheoApi - Caller] Sending morpheoApiRequest: ${requestId}`, { url, options }); // Enhanced log
+                        // console.log(`[iframe morpheoApi - Caller] Sending morpheoApiRequest: ${requestId}`, { url, options }); // Enhanced log
                         // Send message to parent (InlinePreview)
                         iframeWindow.parent.postMessage(
                             { type: 'morpheoApiRequest', requestId, payload: { url, options } }, // url and options nested in payload
                             '*' // Use target origin in production
                         );
-                        console.log(`[iframe morpheoApi - Caller] Message sent for requestId: ${requestId}`); // Enhanced log
+                        // console.log(`[iframe morpheoApi - Caller] Message sent for requestId: ${requestId}`); // Enhanced log
                     });
                 }
             };
@@ -368,38 +368,38 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
             const handleApiResponse = (event: MessageEvent) => {
                  // Add origin check for security in production
                  // if (event.origin !== window.location.origin) return; 
-                console.log('[iframe morpheoApi - Listener] Received message:', event.data); // Log ALL messages received by iframe listener
+                // console.log('[iframe morpheoApi - Listener] Received message:', event.data); // Log ALL messages received by iframe listener
                 
                 // *** FIX: Destructure 'payload' instead of 'data' ***
                 const { type, requestId, success, payload, error } = event.data; // Correctly get payload
                 
                 if (type === 'morpheoApiResponse') { 
-                    console.log(`[iframe morpheoApi - Listener] Received morpheoApiResponse for ${requestId}. Success: ${success}`); // Log success status
+                    // console.log(`[iframe morpheoApi - Listener] Received morpheoApiResponse for ${requestId}. Success: ${success}`); // Log success status
                     const promiseFuncs = pendingRequestsRef.current[requestId];
                     if (promiseFuncs) {
-                        console.log(`[iframe morpheoApi - Listener] Found pending promise for ${requestId}.`);
+                        // console.log(`[iframe morpheoApi - Listener] Found pending promise for ${requestId}.`);
                         if (success) { // Check the destructured success variable
                             promiseFuncs.resolve(payload); // <-- Resolve with payload
                         } else {
-                            console.error(`[iframe morpheoApi - Listener] API call failed for ${requestId}:`, error); // Log destructured error
+                            // console.error(`[iframe morpheoApi - Listener] API call failed for ${requestId}:`, error); // Log destructured error
                             promiseFuncs.reject(new Error(error)); // Reject with destructured error
                         }
                         delete pendingRequestsRef.current[requestId]; // Clean up
                     } else {
-                        console.warn(`[iframe morpheoApi - Listener] Received response for unknown requestId: ${requestId}`);
+                        // console.warn(`[iframe morpheoApi - Listener] Received response for unknown requestId: ${requestId}`);
                     }
                 } else if (type) {
                     // Log other message types received by the iframe listener for debugging
-                    console.log(`[iframe morpheoApi - Listener] Ignored message type: ${type}`); 
+                    // console.log(`[iframe morpheoApi - Listener] Ignored message type: ${type}`); 
                 }
             };
             
             // Add listener within the iframe window
             iframeWindow.addEventListener('message', handleApiResponse);
-            console.log('[InlinePreview - Injector] morpheoApi helper and listener injected into iframe.'); // Enhanced log
+            // console.log('[InlinePreview - Injector] morpheoApi helper and listener injected into iframe.'); // Enhanced log
         }
     } else {
-        console.warn('[InlinePreview - Injector] Cannot inject morpheoApi: iframe or contentWindow not ready.');
+        // console.warn('[InlinePreview - Injector] Cannot inject morpheoApi: iframe or contentWindow not ready.');
     }
   }, []);
 
@@ -407,7 +407,7 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
     if (iframeRef.current) { // Check top-level ref first
       if (previewMode === 'desktop') {
         // --- MODIFICATION START: Set height to 100% for desktop too ---
-        console.log('[InlinePreview] Desktop mode: Setting iframe height to 100%.');
+        // console.log('[InlinePreview] Desktop mode: Setting iframe height to 100%.');
         iframeRef.current.style.height = '100%';
         // --- Remove old scrollHeight calculation logic ---
         /*
@@ -446,7 +446,7 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
         */
        // --- MODIFICATION END ---
       } else { // Mobile mode
-        console.log('[InlinePreview] Mobile mode: Setting iframe height to 100%.');
+        // console.log('[InlinePreview] Mobile mode: Setting iframe height to 100%.');
         iframeRef.current.style.height = '100%';
       }
     }
@@ -478,11 +478,11 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
 
   const handleApiRequest = useCallback(async (event: MessageEvent) => {
     // --- DEBUG: Log all received messages --- 
-    console.log('[InlinePreview Parent] Raw message received:', event.data, 'Source:', event.source);
+    // console.log('[InlinePreview Parent] Raw message received:', event.data, 'Source:', event.source);
     // --- END DEBUG --- 
     
     // --- DEBUG: Log iframe contentWindow reference --- 
-    console.log('[InlinePreview Parent] Current iframeRef.current?.contentWindow:', iframeRef.current?.contentWindow);
+    // console.log('[InlinePreview Parent] Current iframeRef.current?.contentWindow:', iframeRef.current?.contentWindow);
     // --- END DEBUG ---
     
     // --- FIX: Remove potentially unreliable window source check ---
@@ -497,12 +497,12 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
 
     // Rely on type and payload structure for validation
     if (type !== 'morpheoApiRequest' || !payload || !requestId) {
-        console.log('[InlinePreview Parent] Message type/payload invalid. Ignoring.', { type, requestId, hasPayload: !!payload }); // DEBUG
+        // console.log('[InlinePreview Parent] Message type/payload invalid. Ignoring.', { type, requestId, hasPayload: !!payload }); // DEBUG
       return; // Ignore irrelevant messages
     }
 
     // This log should appear if the checks above pass
-    console.log(`[InlinePreview Parent] Processing requestApi message:`, event.data); 
+    // console.log(`[InlinePreview Parent] Processing requestApi message:`, event.data); 
 
     const { url, options = {} } = payload;
     const apiUrl = `/api/proxy${url}`; // Prepend proxy path
@@ -554,7 +554,7 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
             body: bodyToSend, // Use the correctly prepared body
         };
 
-        console.log(`[InlinePreview Parent] Fetching ${apiUrl} with options:`, fetchOptions);
+        // console.log(`[InlinePreview Parent] Fetching ${apiUrl} with options:`, fetchOptions);
 
         const response = await fetch(apiUrl, fetchOptions);
 
@@ -594,12 +594,12 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
         error: errorMessage,
     }, '*');
 
-  }, []); // Dependency array is empty as auth instance is stable and token is fetched inside
+  }, [generatingFullCode, modifyingCode, iframeReadyForStream]);
 
   // Effect to add and remove the message listener for BOTH request types
   useEffect(() => {
     // Listener added to the PARENT window
-    console.log('[InlinePreview Parent] Adding message listeners to parent window.');
+    // console.log('[InlinePreview Parent] Adding message listeners to parent window.');
     
     const combinedHandler = (event: MessageEvent) => {
         // Ensure message is from our iframe
@@ -612,13 +612,13 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
 
         // Handle iframe ready signal for streaming
         if (messageType === 'MORPHEO_IFRAME_READY') {
-            console.log('[InlinePreview Parent] Received MORPHEO_IFRAME_READY from iframe.');
+            // console.log('[InlinePreview Parent] Received MORPHEO_IFRAME_READY from iframe.');
             setIframeReadyForStream(true);
             // After iframe signals ready, if we are in a streaming state and have content, send it immediately.
             // This handles cases where content might have been set in Redux before the iframe was ready.
-            if (iframeRef.current && iframeRef.current.contentWindow && htmlContent && (generatingFullCode || modifyingCode)) {
-                console.log('[InlinePreview Parent] Iframe ready, sending initial/missed MORPHEO_STREAM_CHUNK. Content length:', htmlContent.length);
-                iframeRef.current.contentWindow.postMessage({ type: 'MORPHEO_STREAM_CHUNK', htmlChunk: htmlContent }, '*');
+            if (iframeRef.current && iframeRef.current.contentWindow && reduxHtmlContent && (generatingFullCode || modifyingCode)) {
+                // console.log('[InlinePreview Parent] Iframe ready, sending initial/missed MORPHEO_STREAM_CHUNK. Content length:', reduxHtmlContent.length);
+                iframeRef.current.contentWindow.postMessage({ type: 'MORPHEO_STREAM_CHUNK', htmlChunk: reduxHtmlContent }, '*');
             }
             return; // MORPHEO_IFRAME_READY is handled.
         }
@@ -645,11 +645,11 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
     window.addEventListener('message', combinedHandler);
 
     return () => {
-      console.log('[InlinePreview Parent] Removing message listeners from parent window.');
+      // console.log('[InlinePreview Parent] Removing message listeners from parent window.');
       window.removeEventListener('message', combinedHandler);
   };
   // Ensure htmlContent, generatingFullCode, modifyingCode are dependencies for the MORPHEO_IFRAME_READY logic that sends initial chunk.
-  }, [handleApiRequest, handleResizeRequest, htmlContent, generatingFullCode, modifyingCode]); 
+  }, [handleApiRequest, handleResizeRequest, reduxHtmlContent, generatingFullCode, modifyingCode]); 
 
   // Use a simpler key based on whether content exists, or remove if causing issues
   // const frameKey = htmlContent ? 'content-loaded' : 'empty';
@@ -692,6 +692,12 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
     justifyContent: 'center',
     minHeight: '0',
     padding: 0,
+  };
+
+  const mobileTrueFullScreenStyle: React.CSSProperties = {
+    width: '100%',
+    height: '100%',
+    // No other constraints like maxWidth or aspectRatio
   };
 
   // --- Freeform state ---
@@ -845,7 +851,7 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
         } else if (typeof newValue === 'number' || typeof newValue === 'boolean') {
           serializedValue = newValue.toString();
         } else {
-          console.warn('[InlinePreview] Live update for unsupported value type:', newValue);
+          // console.warn('[InlinePreview] Live update for unsupported value type:', newValue);
           return;
         }
         const scriptToExecute = `(${propertySchema.liveUpdateSnippet})(${serializedValue});`;
@@ -860,7 +866,7 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
           script: script
         }, '*');
       } else {
-        console.warn('[InlinePreview] No live update method for property:', propertySchema.label);
+        // console.warn('[InlinePreview] No live update method for property:', propertySchema.label);
       }
     }
   }, [liveUpdateCommand]);
@@ -869,7 +875,7 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
   useEffect(() => {
     if (iframeRef.current && selectedComponent) {
       iframeRef.current.contentWindow?.postMessage({ type: 'MORPHEO_HIGHLIGHT_SELECTION', morpheoId: selectedComponent }, '*');
-      console.log('[InlinePreview] Sent MORPHEO_HIGHLIGHT_SELECTION for', selectedComponent);
+      // console.log('[InlinePreview] Sent MORPHEO_HIGHLIGHT_SELECTION for', selectedComponent);
     }
   }, [selectedComponent]);
 
@@ -882,8 +888,9 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
 
     if (iframeRef.current?.contentWindow && iframeReadyForStream) {
       if (isStartingGeneration || isStartingModification) {
-        console.log('[InlinePreview] Stream starting. Sending MORPHEO_STREAM_START_SIGNAL to iframe.');
+        // console.log('[InlinePreview] Stream starting. Sending MORPHEO_STREAM_START_SIGNAL to iframe.');
         iframeRef.current.contentWindow.postMessage({ type: 'MORPHEO_STREAM_START_SIGNAL' }, '*');
+        lastSentHtmlLengthRef.current = 0; // Reset on new stream start
       }
     }
 
@@ -915,7 +922,8 @@ const InlinePreview: React.FC<InlinePreviewProps> = ({ htmlContent, previewMode,
         )}
         {previewMode === 'mobile' && (
           <motion.div key="mobile" variants={variants} initial="initial" animate="animate" exit="exit" style={{ width: '100%', height: '100%' }}>
-            <div style={mobileContainerStyle}>
+            {/* Conditional styling for mobile preview */}
+            <div style={isPreviewFullScreen ? mobileTrueFullScreenStyle : mobileContainerStyle}>
               <iframe
                 ref={iframeRef}
                 srcDoc={currentSrcDoc}

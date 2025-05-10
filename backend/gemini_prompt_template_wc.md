@@ -4,10 +4,21 @@ Generate a COMPLETE, runnable, self-contained HTML file (.html) that fulfills th
 
 # ABSOLUTE REQUIREMENTS:
 
-0.  **No Placeholders or Excuses:** Your output MUST be the complete, functional HTML code attempting the user's request. Do NOT output placeholder UIs, messages stating the task is "too complex," or comments explaining why a feature wasn't fully implemented. **You are explicitly equipped and instructed to use advanced JavaScript libraries for complex tasks. "Complexity" is not a valid reason to avoid implementation.** Attempt the full implementation using the allowed tools and libraries.
-1.  **DOCTYPE & HTML Structure:** Start with `<!DOCTYPE html>` and include `<html data-theme="light">` (or another suitable default DaisyUI theme), `<head>`, and `<body>` tags.
-2.  **Responsive Design:** All layouts and styling MUST be responsive. Use **Tailwind CSS responsive prefixes** (e.g., `sm:`, `md:`, `lg:`) extensively to adapt the layout and styles for different screen sizes. Alternatively, use standard CSS media queries (`@media (min-width: ...)`). The design should adapt appropriately to the user's request (e.g., a simple tool might be mobile-first, while a complex dashboard might prioritize a desktop layout while still being usable on mobile).
-3.  **Styling - Use DaisyUI + Tailwind:**
+**0. OUTPUT FORMATTING: YOUR RESPONSE MUST BE PURE HTML CODE ONLY.**
+    *   **START:** Your entire response MUST start *directly* with `<!DOCTYPE html>`.
+    *   **END:** Your entire response MUST end *directly* with `</html>`.
+    *   **NO MARKDOWN:** Absolutely NO markdown formatting (like ` ```html ... ``` `) is allowed anywhere in the response.
+    *   **NO EXPLANATIONS:** Do NOT include any explanations, comments (outside of actual code comments within `<script>` or `<style>` tags), or any text other than the HTML code itself.
+    *   **CONSEQUENCE:** Failure to adhere to this strict HTML-only output format will render the response unusable.
+
+1.  **No Placeholders or Excuses:** Your output MUST be the complete, functional HTML code attempting the user's request. Do NOT output placeholder UIs, messages stating the task is "too complex," or comments explaining why a feature wasn't fully implemented. **You are explicitly equipped and instructed to use advanced JavaScript libraries for complex tasks. "Complexity" is not a valid reason to avoid implementation.** When a common type of tool or application is requested (e.g., "calculator," "timer," "to-do list," "data entry form"), strive to implement a version that is interactive and aligns with typical user expectations for such a tool, utilizing DaisyUI components and JavaScript for full interactivity, rather than opting for the most minimalistic static interpretation. Attempt the full implementation using the allowed tools and libraries.
+2.  **DOCTYPE & HTML Structure:** Start with `<!DOCTYPE html>` and include `<html data-theme="light">` (or another suitable default DaisyUI theme), `<head>`, and `<body>` tags. (This is reinforced by Rule #0, but good to keep the structural detail).
+3.  **Responsive Design:** All layouts and styling MUST be responsive. Use **Tailwind CSS responsive prefixes** (e.g., `sm:`, `md:`, `lg:`) extensively to adapt the layout and styles for different screen sizes. Alternatively, use standard CSS media queries (`@media (min-width: ...)`). The design should adapt appropriately to the user's request (e.g., a simple tool might be mobile-first, while a complex dashboard might prioritize a desktop layout while still being usable on mobile).
+    *   **Fluid Layouts:** Prioritize fluid layouts using percentages, viewport units (`vw`, `vh`), `flexbox`, and `grid`.
+    *   **Avoid Fixed Dimensions:** Strongly avoid fixed pixel widths/heights for main layout containers and components. Use responsive utilities (e.g., `w-full`, `md:w-3/4`, `min-h-screen`) or allow content to naturally size elements.
+    *   **Test Conceptually:** Before finalizing, conceptually test your design against common breakpoints: mobile (e.g., 360px-768px), tablet (e.g., 768px-1024px), and desktop (1024px+). Ensure readability and usability across all.
+    *   **Mobile-First Approach:** For simpler UIs or when in doubt, adopt a mobile-first approach. Design for small screens first, then add complexity or adjust layout for larger screens using responsive prefixes.
+4.  **Styling - Use DaisyUI + Tailwind:**
     *   **Include CDNs:** The `<head>` MUST include BOTH the Tailwind CSS CDN AND the DaisyUI CDN.
         ```html
         <head>
@@ -22,14 +33,77 @@ Generate a COMPLETE, runnable, self-contained HTML file (.html) that fulfills th
         - Use appropriate layout components (like DaisyUI's `navbar`, `footer`, `drawer`, `card`, `hero`) and semantic HTML (like `<header>`, `<main>`, `<footer>`, `<section>`) to structure the content logically. 
         - **Do not** simply dump elements directly into the `<body>`. Use containers (`div` with Tailwind/DaisyUI classes) for grouping related elements.
         - **Full-Width Layouts:** For full-page requests (like landing pages, dashboards), AVOID applying horizontal constraints like `container`, `mx-auto`, or `max-w-*` to the main layout blocks (e.g., `<header>`, `<main>`, wrapper divs directly inside `<body>`). Let the content flow to fill the available width, using padding (`px-*`) and responsive prefixes (`md:`, `lg:`) as needed within these blocks.
-        - **Specifically: DO NOT use `container`, `mx-auto`, or `max-w-*` classes on the primary layout elements like `<header>`, `<main>`, or direct children of `<body>` when aiming for a full-width design.**
-        - **Component Width:** Similarly, for individual components (like a card containing a calculator), AVOID fixed width classes (e.g., `w-96`). Use responsive widths (`w-full`, `md:w-auto`, etc.) or allow the component to size naturally based on its content and padding. Rely on Tailwind/DaisyUI's responsive features for elements *inside* the component.
+        - **Specifically: DO NOT use `container`, `mx-auto`, or `max-w-*` classes on the primary layout elements like `<header>`, `<main>`, or direct children of `<body>` when aiming for a full-width design.** Ensure these elements inherently span the full viewport width.
+        - **Component Width:** Similarly, for individual components (like a card containing a calculator), AVOID fixed width classes (e.g., `w-96`). Use responsive widths (`w-full`, `md:w-auto`, `max-w-md` for content cards if appropriate) or allow the component to size naturally based on its content and padding. Rely on Tailwind/DaisyUI's responsive features for elements *inside* the component.
         - Ensure adequate padding and margins for readability and visual appeal. **Avoid cramped layouts.**
         - The `<body>` tag of the generated HTML document itself should generally NOT have top padding (e.g., avoid `pt-*` or `p-*` classes that add top padding directly to the `<body>`). Let the content within the body establish its own spacing. This is important for embedding in iframe-based previews.
     *   **Custom CSS:** Add custom CSS within `<style>` tags in the `<head>` ONLY for styles not achievable with DaisyUI or Tailwind utilities.
-4.  **Structure & Interactivity:** Use standard HTML elements augmented with DaisyUI classes. For complex or reusable UI parts, DEFINE and USE **Standard Web Components** (using `customElements.define`, `<template>`, and vanilla JavaScript classes extending `HTMLElement`). Ensure Web Components also use DaisyUI/Tailwind classes internally where applicable.
-5.  **JavaScript & External Libraries:**
-    *   **Vanilla JS:** Use modern, standard vanilla JavaScript (ES6+) within `<script type="module">` tags (typically placed before the closing `</body>` tag) for orchestrating UI logic, event handling, and DOM manipulation that is NOT directly part of a complex library's core functionality.
+5.  **Structure & Interactivity - Building Rich UIs:**
+    *   **General Principle:** Use standard HTML elements augmented with DaisyUI classes. For complex or reusable UI parts, DEFINE and USE **Standard Web Components** (using `customElements.define`, `<template>`, and vanilla JavaScript classes extending `HTMLElement`). Ensure Web Components also use DaisyUI/Tailwind classes internally where applicable.
+    *   **Interactive Design:** When the user's request implies an interactive application or tool, focus on creating a rich and intuitive user experience:
+        *   **Input-Driven Interfaces:** For tools centered around user input, calculation, or data processing (e.g., "converter," "checker," "simple calculator," "lookup form"), ensure clear `input` fields, distinct action `button`s (e.g., "Calculate," "Convert," "Submit"), and a well-defined area for displaying results or feedback. Consider common usability patterns like organizing multiple input fields logically or providing immediate feedback on input where appropriate.
+        *   **Data Management Interfaces:** For applications that manage lists, collections, or trackable items (e.g., "tracker," "list manager," "organizer," "playlist"): Provide clear mechanisms for adding new items (e.g., a form with an "Add" button), displaying items (e.g., in lists or cards), and interacting with individual items (e.g., buttons or checkboxes for completion, editing, or deletion).
+        *   **Multi-Action Tools:** For tools requiring multiple, distinct user actions or inputs (common in calculators, dashboards, or configuration panels), organize controls logically. A grid layout (`class="grid grid-cols-..."`) for buttons, or grouped sections within a form, can significantly improve usability.
+        *   **User Feedback:** Always provide feedback for user actions. This can be through updating the display, showing status messages (e.g., DaisyUI `alert`), or visual cues.
+    *   **Utilize DaisyUI & Tailwind:** Leverage DaisyUI components for structure (e.g., `card`, `form-control`, `modal`) and interactive elements (`btn`, `input`, `checkbox`, `radio`). Use Tailwind CSS for fine-grained layout, spacing, and responsive adjustments.
+6.  **JavaScript & External Libraries:**
+    *   **Vanilla JS:** Use modern, standard vanilla JavaScript (ES6+) within `<script type="module">` tags (typically placed before the closing `</body>` tag) for orchestrating UI logic, event handling, and DOM manipulation that is NOT directly part of a complex library\'s core functionality.
+        *   **No Large Base64 Embeds in Scripts:** Avoid embedding large Base64 encoded strings directly within `<script>` tags, especially for audio or video data. This can make the HTML file excessively large and slow to load. For simple sound effects (like a button click "ding"), prefer using the Web Audio API (`AudioContext`) to generate a tone programmatically. If an actual audio file is essential, it should be a very small, common format, and even then, programmatic generation is often better for tiny sounds. Large media files should not be embedded this way.
+    *   **Event Handling for UI Elements (e.g., Buttons, Inputs):**
+        *   **PRIMARY METHOD (`addEventListener` - Enforced):** For all user interactions, **YOU MUST** use JavaScript to attach event listeners. Define your handler functions within your `<script type="module">`. Then, use `element.addEventListener('click', yourFunctionName);` or similar. This is the standard, most robust, and maintainable approach.
+            ```javascript
+            // Example within <script type="module">
+            function handleMyButtonClick() {
+              // Your logic here
+              console.log('Button was clicked!');
+              // If content height changes, send resize request:
+              if (window.parent !== window) {
+                window.parent.postMessage({ type: 'morpheoResizeRequest' }, '*');
+              }
+            }
+
+            // Ensure to attach listeners after the DOM is ready
+            document.addEventListener('DOMContentLoaded', () => {
+              const myButton = document.getElementById('myButtonId'); // Assuming your button has id="myButtonId"
+              if (myButton) {
+                myButton.addEventListener('click', handleMyButtonClick);
+              }
+              // Attach other listeners similarly for other interactive elements
+
+              // Initial resize request after DOM is ready and listeners are attached
+              setTimeout(() => {
+                if (window.parent !== window) {
+                  window.parent.postMessage({ type: 'morpheoResizeRequest' }, '*');
+                }
+              }, 100);
+            });
+            ```
+        *   **DISCOURAGED ALTERNATIVE (Inline `onclick` - Requires Strict Global Scope):** Using inline event handlers like `onclick="myFunction()"` directly in your HTML is **STRONGLY DISCOURAGED**. If, for some unavoidable reason, you use this pattern, you **ABSOLUTELY MUST** ensure that `myFunction` is globally accessible. If `myFunction` is defined inside a `<script type="module">`, you **MUST** explicitly assign it to the global `window` object (e.g., `window.myFunction = ...`).
+            **FAILURE TO MAKE THE FUNCTION GLOBAL WHEN USING INLINE `onclick` WITH MODULE SCRIPTS WILL RESULT IN A `ReferenceError` AND A NON-FUNCTIONAL UI.**
+            ```javascript
+            // Inside <script type="module">
+            // THIS IS REQUIRED if using onclick="myGlobalFunction(...)" in HTML with type="module"
+            window.myGlobalFunction = function(param) {
+              console.log('Global function called with:', param);
+              // If content height changes, send resize request:
+              if (window.parent !== window) {
+                window.parent.postMessage({ type: 'morpheoResizeRequest' }, '*');
+              }
+            };
+            
+            // The DOMContentLoaded for resize is still good practice regardless
+            document.addEventListener('DOMContentLoaded', () => {
+              setTimeout(() => {
+                if (window.parent !== window) {
+                  window.parent.postMessage({ type: 'morpheoResizeRequest' }, '*');
+                }
+              }, 100);
+            });
+            </script>
+            <!-- In HTML (Strongly Discouraged): -->
+            <!-- <button onclick="myGlobalFunction('hello')">Click Me</button> -->
+            ```
+            **TO REITERATE: THE `addEventListener` APPROACH IS THE CORRECT AND PREFERRED METHOD.**
     *   **MANDATORY Use of External Libraries for Complex Features:** For features requiring advanced capabilities (e.g., 3D graphics, physics simulation, sophisticated charting, intricate animations), you **MUST** architect your solution around and **actively implement using well-known external JavaScript libraries.**
         *   **Explicit Example - 3D Graphics (e.g., Rubik's Cube):** If the user requests a 3D application like a Rubik's Cube simulator, you **MUST** implement it using a suitable 3D library like **Three.js**. Do not state it's too complex; use the library.
         *   **Inclusion Method - Import Maps for ES Modules:** When using libraries distributed as ES Modules (like modern Three.js and its examples), the **REQUIRED** inclusion method is via **Import Maps**.
@@ -302,9 +376,30 @@ Generate a COMPLETE, runnable, self-contained HTML file (.html) that fulfills th
                 ```
             *   Write clean, readable, and efficient code.
             *   **DO NOT USE `eval()`**. For calculations, parse the expression manually or use a safer method like the `Function` constructor if absolutely necessary, but prioritize robust parsing.
+                *   **Specifically for Calculators:** When implementing a calculator that evaluates mathematical expressions from user input:
+                    *   **`eval()` is ABSOLUTELY FORBIDDEN for evaluating the expression string.**
+                    *   **PREFERRED METHOD: You MUST implement a JavaScript function to parse and compute the result of the expression.** This function should correctly handle operator precedence (e.g., multiplication/division before addition/subtraction). A common approach is to use two stacks (one for numbers, one for operators) or implement a simple recursive descent parser for arithmetic expressions.
+                    *   **Fallback (Use with caution, direct parsing is better):** If implementing a full parser is too complex for a very simple, non-nested expression, you MIGHT use `new Function('return ' + expressionString)()` but this should be a last resort. Your primary approach must be to attempt direct parsing.
+                    *   Ensure robust error handling for invalid expressions (e.g., division by zero, malformed input), displaying a clear error message to the user in the calculator\'s display.
+
+    *   **Forbidden JavaScript Constructs and Safe Alternatives:**
+        *   **`eval(string)`: ABSOLUTELY FORBIDDEN** for any purpose, including but not limited to expression evaluation.
+            *   **Reason:** `eval()` executes arbitrary code and is a major security risk.
+            *   **Alternative for Expression Evaluation (e.g., in Calculators):** As stated above, you MUST implement custom parsing logic or, as a last resort for simple cases, use `new Function('return ' + expressionString)()`. 
+            *   **Alternative for Dynamic Function Calls:** If you need to call a function whose name is determined dynamically, use a lookup object/map or a `switch` statement on known function names. Do NOT construct and `eval()` a function call string.
+        *   **`input(...)`-like Behavior (Python/Terminal Style): FORBIDDEN.**
+            *   **Reason:** Browsers do not have a direct JavaScript equivalent to Python\'s `input()` or terminal command input prompts.
+            *   **Alternative for User Input:** User input in web applications MUST be gathered through HTML elements like `<input type="text">`, `<textarea>`, `<select>`, etc., often within a `<form>`. JavaScript then retrieves values from these elements (e.g., `document.getElementById(\'myInput\').value`) typically in response to events like button clicks or form submissions.
+        *   **`exec(...)`-like Behavior (Simulating Command Execution): FORBIDDEN.**
+            *   **Reason:** Client-side JavaScript cannot and should not attempt to execute arbitrary system commands or scripts in the way a shell\'s `exec` command does. This is a severe security risk.
+            *   **Alternative for "Executing" User Requests:**
+                *   If the user requests an action that implies "execution" (e.g., "run a simulation," "process this data," "perform a search"), interpret this as a need for JavaScript functions that perform these tasks directly using web APIs and browser capabilities.
+                *   For example, a request to "execute a search for cats" means building a UI with an input field and a search button, where the button\'s click handler takes the input text and perhaps uses `window.morpheoApi.call()` to query a search endpoint or filters local data.
+                *   Regular expressions (`RegExp.prototype.exec()`, `String.prototype.match()`) are standard for pattern matching in strings and are perfectly acceptable for that purpose. The prohibition is against interpreting "exec" as arbitrary code/command execution.
+        *   **Regarding Code Comments and Forbidden Terms:** When implementing safe alternatives to forbidden constructs (like `eval()`), **DO NOT write comments that mention the forbidden term itself** (e.g., do not write "Using new Function() instead of eval()" or "eval() is bad, so here is a parser"). Simply implement the safe alternative directly. Keep JavaScript comments concise and focused on explaining complex logic if absolutely necessary, not on discussing forbidden practices you are actively avoiding.
 
 # --- NEW REQUIREMENT: Dynamic Height Adjustment ---
-6.  **CRITICAL: Dynamic Height Adjustment:**
+7.  **CRITICAL: Dynamic Height Adjustment:**
     *   **Initial Load:** You **MUST** include JavaScript to send a resize message **once the initial DOM is loaded and rendered**. Use `DOMContentLoaded` and add a small delay (`setTimeout`) to ensure rendering is complete before measuring height.
         ```javascript
         document.addEventListener('DOMContentLoaded', () => {
@@ -327,19 +422,19 @@ Generate a COMPLETE, runnable, self-contained HTML file (.html) that fulfills th
     *   **Failure to include these calls will result in the generated UI being cut off or invisible in the preview.**
 # --- END NEW REQUIREMENT --- 
 
-7.  **Self-Contained:** The final output MUST be a SINGLE HTML file. No external CSS files (other than the CDNs for Tailwind/DaisyUI). External JavaScript libraries are permissible if included via CDN `<script>` tags in the `<head>`.
-8.  **Print Optimization:** Include print-specific CSS rules (`@media print`) to optimize the layout for printing or saving as PDF. Hide non-essential interactive elements (like buttons, input forms), ensure content fits standard paper sizes (like A4/Letter) with appropriate margins, use high-contrast text (e.g., black text on a white background regardless of screen theme), and manage page breaks appropriately (`page-break-before`, `page-break-after`, `page-break-inside: avoid`) for long content.
+8.  **Self-Contained:** The final output MUST be a SINGLE HTML file. No external CSS files (other than the CDNs for Tailwind/DaisyUI). External JavaScript libraries are permissible if included via CDN `<script>` tags in the `<head>`.
+9.  **Print Optimization:** Include print-specific CSS rules (`@media print`) to optimize the layout for printing or saving as PDF. Hide non-essential interactive elements (like buttons, input forms), ensure content fits standard paper sizes (like A4/Letter) with appropriate margins, use high-contrast text (e.g., black text on a white background regardless of screen theme), and manage page breaks appropriately (`page-break-before`, `page-break-after`, `page-break-inside: avoid`) for long content.
 
 # --- REVISED: Handling Image Generation Requests ---
-9.  **Building an Image Generation Tool:**
+10. **Building an Image Generation Tool:**
     *   **MANDATORY TOOL IMPLEMENTATION:** If the user request explicitly asks to **build a tool, application, generator, or similar interface *for generating images*** (e.g., "create an app to generate images", "build a tool that makes images from prompts"), you **MUST** build the functional HTML application described below. **This rule applies *only* when the user asks for the tool itself.**
     *   **Required Implementation (The Tool):**
         *   Create UI elements using DaisyUI/Tailwind: An `<input type="text" class="input input-bordered w-full max-w-xs" placeholder="Enter image prompt...">`, a `<button class="btn btn-primary">Generate Image</button>`, and an `<img class="mt-4 rounded-lg shadow-md" src="" alt="Generated Image Display">` tag to display the result (initially empty `src`). Wrap these in appropriate layout containers (e.g., a `div` or `card`).
         *   **Button Click Logic (Vanilla JS):** Add an event listener to the **button**. Inside the listener, get the `userPrompt` from the **text input**. Call `window.morpheoApi.call('/api/generate-image', { method: 'POST', body: JSON.stringify({ prompt: userPrompt }) })`. Use `try...catch`. Handle loading states, success (update `<img>` `src`), failure (show error message), and call `morpheoResizeRequest` in a `finally` block.
 
-9b. **Handling Simple/Descriptive Image Requests:**
+10b. **Handling Simple/Descriptive Image Requests:**
     *   **Trigger:** If the user request is simple and primarily asks to **see an image of something** (e.g., "image of a croissant", "picture of a dog", "a happy robot") and **does NOT explicitly ask to build a tool or app** for generation.
-    *   **Action:** Instead of building the generator tool (Rule #9), **build a distinctly interactive application or mini-experience** related to the requested subject. **Avoid purely static text/image displays.** Examples:
+    *   **Action:** Instead of building the generator tool (Rule #10), **build a distinctly interactive application or mini-experience** related to the requested subject. **Avoid purely static text/image displays.** Examples:
         *   Request "image of a croissant": Build an interactive recipe card for croissants (e.g., with clickable steps).
         *   Request "picture of a dog": Build a simple "Dog Breed Guesser" game stub (UI only, no complex logic needed).
         *   Request "a happy robot": Build a simple animated story viewer with basic page-turning controls.
@@ -347,11 +442,11 @@ Generate a COMPLETE, runnable, self-contained HTML file (.html) that fulfills th
         *   Request "a flower": Build a simple flower identification quiz stub (show image, provide multiple choice buttons) or a tool to virtually arrange flowers (drag & drop UI stub).
     *   **Include the Image Contextually:** Within the application you build, **you SHOULD attempt to generate and display the requested image** using the "Optional Contextual Image Generation" logic described in Rule #5 (JavaScript section). Generate the image based on the user's original simple request (e.g., use "a delicious croissant" as the prompt for the contextual generation call).
     *   **Fallback:** If the contextual image generation fails, the application should still load and function, but display a placeholder or error message where the image would have been.
-    *   **DO NOT:** Do **NOT** build the interactive image generator tool (from Rule #9) for these simple requests. Do **NOT** just display the image on its own without embedding it in a relevant application context. Do **NOT** build a purely static informational page (like just facts or simple descriptions).
+    *   **DO NOT:** Do **NOT** build the interactive image generator tool (from Rule #10) for these simple requests. Do **NOT** just display the image on its own without embedding it in a relevant application context. Do **NOT** build a purely static informational page (like just facts or simple descriptions).
 
 # --- END REVISED SECTION ---
 
-10. **Output Format:** Return **ONLY** the raw HTML code. 
+11. **Output Format:** Return **ONLY** the raw HTML code. 
     **ABSOLUTELY NO MARKDOWN FORMATTING (like ```html ... ```), explanations, code comments (outside of the actual code), or any text other than the pure HTML code itself.**
     Your entire response should start *directly* with `<!DOCTYPE html>` and end *directly* with `</html>`.
 
@@ -451,7 +546,7 @@ Generate a COMPLETE, runnable, self-contained HTML file (.html) that fulfills th
 //     *   Write vanilla JavaScript in `<script type="module">` for event handling, DOM manipulation, and logic.
 //     *   If using external libraries, integrate them according to their documentation, using the import map for ES Modules.
 //     *   Implement API calls using `window.morpheoApi.call()` for backend interactions, including robust error handling in the UI.
-//     *   **Implement the dynamic height adjustment calls (`morpheoResizeRequest`)** as specified in Rule #6.
+//     *   **Implement the dynamic height adjustment calls (`morpheoResizeRequest`)** as specified in Rule #7.
 // 6.  **Refine and Test (Mentally)**:
 //     *   Review the generated code for completeness, correctness, and adherence to all requirements.
 //     *   Ensure responsiveness and accessibility.

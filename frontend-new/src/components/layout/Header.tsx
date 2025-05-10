@@ -13,7 +13,7 @@ import {
   IconButton,
   Icon,
 } from '@chakra-ui/react';
-import { FiLogOut, FiMoon, FiSun, FiUser, FiChevronDown } from 'react-icons/fi';
+import { FiLogOut, FiMoon, FiSun, FiUser, FiChevronDown, FiMenu } from 'react-icons/fi';
 
 const Header: React.FC = () => {
   const dispatch = useDispatch();
@@ -59,6 +59,7 @@ const Header: React.FC = () => {
         <Flex alignItems="center" gap={4}>
           {isAuthenticated ? (
             <>
+              {/* Desktop Navigation */}
               <Flex as="nav" display={{ base: 'none', md: 'flex' }} gap={4}>
                 <Link to="/generate">
                   <Button 
@@ -114,6 +115,31 @@ const Header: React.FC = () => {
                   </Menu.Content>
                 </Menu.Positioner>
               </Menu.Root>
+
+              {/* Mobile Navigation Menu */}
+              <Box display={{ base: 'block', md: 'none' }}>
+                <Menu.Root>
+                  <Menu.Trigger asChild>
+                    <IconButton
+                      aria-label="Open navigation menu"
+                      variant="ghost"
+                      size="sm"
+                    >
+                      <Icon as={FiMenu} />
+                    </IconButton>
+                  </Menu.Trigger>
+                  <Menu.Positioner>
+                    <Menu.Content>
+                      <Menu.Item value="generator" onClick={() => navigate('/generate')} _hover={{ bg: menuHoverBg }}>
+                        Generator
+                      </Menu.Item>
+                      <Menu.Item value="saved" onClick={() => navigate('/saved')} _hover={{ bg: menuHoverBg }}>
+                        Saved
+                      </Menu.Item>
+                    </Menu.Content>
+                  </Menu.Positioner>
+                </Menu.Root>
+              </Box>
             </>
           ) : (
             <Flex gap={2}>

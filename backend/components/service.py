@@ -235,8 +235,20 @@ class ComponentService:
                 try: 
                     if hasattr(chunk, 'text'):
                         text_chunk = chunk.text
-                        full_response += text_chunk 
-                        yield text_chunk 
+                        # --- Attempt to further break down large text_chunks ---
+                        if len(text_chunk) > 256: # If a single text_chunk from SDK is large
+                            logger.info(f"SDK yielded large text_chunk ({len(text_chunk)} bytes). Breaking it down.")
+                            sub_chunk_size = 128
+                            for i in range(0, len(text_chunk), sub_chunk_size):
+                                sub_segment = text_chunk[i:i+sub_chunk_size]
+                                full_response += sub_segment
+                                yield sub_segment
+                                await asyncio.sleep(0) # Tiny sleep to encourage flushing
+                        else: # If chunk is already small, yield as is
+                            full_response += text_chunk 
+                            yield text_chunk 
+                            await asyncio.sleep(0) # Tiny sleep here too for consistency
+                        # --- End breakdown ---
                     elif hasattr(chunk, 'prompt_feedback') and chunk.prompt_feedback and chunk.prompt_feedback.block_reason:
                          # Handle potential blocking
                          logger.error(f"Stream chunk blocked. Reason: {chunk.prompt_feedback.block_reason}")
@@ -829,33 +841,34 @@ class ComponentService:
     def _create_suggestion_prompt(self, current_html: str) -> str:
         """Creates a prompt to ask the AI for modification suggestions."""
         # Use f-string for easier multi-line definition and interpolation
-        prompt = f"""You are an expert web development assistant.
+        prompt = f"""You are a super friendly and patient creative helper, like a fun teacher explaining things to a young child who is excited to build their first webpage! Forget all technical jargon.
 
-Analyze the following HTML code (which uses Tailwind CSS, DaisyUI, and potentially standard Web Components) and suggest 3-5 specific, actionable improvements or next steps the user could take. Focus on:
+Take a look at this HTML code. Now, can you dream up 3-5 cool and simple ideas to make it even more awesome? 
 
-*   Adding relevant interactivity (e.g., button actions, input handling, animations).
-*   Improving accessibility (e.g., aria attributes, semantic HTML).
-*   Enhancing styling/layout using DaisyUI/Tailwind best practices.
-*   Making the component more responsive.
-*   Adding complementary features relevant to the current component's purpose.
+**VERY, VERY IMPORTANT: Pretend you're talking to a 6-year-old.** Use tiny words. Focus on what fun new thing they can SEE or DO. No big computer words allowed! Keep it short, super easy, and exciting!
 
-Format your response ONLY as a numbered list, with each suggestion being concise and clear. Start directly with '1.'. Do not include any preamble or explanation before the list.
+Think about:
+*   Adding a fun clicky thing? Or something that wiggles or pops up?
+*   Making it easier for everyone to see and use, like bigger buttons or brighter colors if needed?
+*   Making it look extra neat and tidy?
+*   Little surprises that would make someone smile when they use it.
 
-Example Response Format:
-1. Add input validation to the form.
-2. Make the table headers sticky on scroll.
-3. Implement a dark mode toggle using DaisyUI themes.
-4. Add ARIA labels to the icon buttons.
-5. Animate the card entrance using Tailwind transitions.
+**Format your response ONLY as a numbered list. Each idea should be one short, simple sentence.**
 
----
+Example of how to talk (pretend this is for a simple drawing app):
+1.  What if you could click a button and the whole drawing turns sparkly for a second?
+2.  Let's make the crayon colors much bigger so they are easy to tap!
+3.  Maybe add a silly sound when you finish drawing a picture!
+4.  Could we add a button that clears the drawing with a funny 'whoosh' sound?
+
+--- 
 HTML to Analyze:
 ```html
 {current_html}
 ```
 
 ---
-Suggestions (Numbered List Only):
+Your Super Simple and Fun Ideas (Numbered List Only, tiny words, one sentence each):
 """
         return prompt
 
@@ -925,6 +938,55 @@ Suggestions (Numbered List Only):
             logger.error(f"Error reading prompt template file {template_path}: {e}")
             return f"<!-- ERROR: Could not read prompt template: {e} -->"
 
+    # --- NEW: Security Scanning and Correction ---
+    def _scan_for_unsafe_patterns(self, html_content: str) -> List[str]:
+        """Scans HTML content for potentially unsafe patterns."""
+        issues_found = [] 
+        # Regex to find eval\s*\( (eval followed by optional spaces and opening parenthesis)
+        if re.search(r"eval\s*\(", html_content, re.IGNORECASE):
+            issues_found.append("Detected use of 'eval()'.")
+        
+        # Regex to find very long base64 strings (e.g., > 1KB) inside <script> tags
+        # This looks for data:[mime_type];base64,[A-Za-z0-9+/=]{1000,}
+        # It specifically looks for it *within* <script>...</script> blocks
+        script_pattern = r"<script[^>]*>(.*?)</script>"
+        long_base64_pattern = r"data:[a-zA-Z0-9\/\.\+\-]*;base64,([A-Za-z0-9\+\/\=]{1024,})"
+
+        for match in re.finditer(script_pattern, html_content, re.DOTALL | re.IGNORECASE):
+            script_content = match.group(1)
+            if re.search(long_base64_pattern, script_content):
+                issues_found.append("Detected excessively long Base64 string embedded in a script tag. This is often for audio or large data and should be avoided. Use Web Audio API for simple sounds or ensure media is appropriately linked, not embedded in scripts.")
+                # No need to find all instances, one is enough to trigger correction for this type.
+                break
+
+        # Add other security checks here as needed
+        return issues_found
+
+    def _create_security_correction_prompt(
+        self,
+        original_full_prompt: str, # The very first prompt from the user to the generation service
+        original_html_response: str, # The AI's first unsafe response
+        issues_detected: List[str]
+    ) -> str:
+        """Creates a prompt to ask the AI to correct its previous unsafe response."""
+        issues_string = "\n".join([f"- {issue}" for issue in issues_detected])
+        # Construct a new prompt for the AI to correct itself.
+        # It's crucial to give it the original request and its problematic response.
+        correction_prompt = (
+            f"Your previous HTML generation attempt had some security/best-practice issues. "
+            f"Please review your previous response and the original user request, then regenerate the HTML, fixing the identified problems.\n\n"
+            f"The following issues were detected in your previous HTML output:\n"
+            f"{issues_string}\n\n"
+            f"Specific guidance for correction:\n"
+            f"- If 'eval()' was used: REMOVE ALL USES OF 'eval()'. If it was for mathematical expressions, you MUST implement a JavaScript function to parse and compute the result (e.g., using shunting-yard or similar, or for very simple cases, `new Function('return ' + expressionString)()` as a last resort). DO NOT simply comment out 'eval'. Rewrite the logic to be safe. Do not mention 'eval' in comments."
+            f"- If an excessively long Base64 string was embedded in a script (often for audio/data): REMOVE the embedded Base64 string. If it was for a simple sound, use the Web Audio API (`AudioContext`) to generate a tone programmatically. For other large data, this embedding method is inappropriate. Do not simply comment it out. Find an alternative, standards-compliant way to achieve the original goal without embedding large data directly in scripts.\n"
+            f"- Adhere STRICTLY to all original formatting and generation rules, especially regarding NO MARKDOWN and PURE HTML output.\n\n"
+            f"Original User Request was:\n---BEGIN ORIGINAL USER REQUEST---\n{original_full_prompt}\n---END ORIGINAL USER REQUEST---\n\n"
+            f"Your Previous (Problematic) HTML Output was:\n---BEGIN PREVIOUS HTML OUTPUT---\n{original_html_response}\n---END PREVIOUS HTML OUTPUT---\n\n"
+            f"Now, provide the new, corrected, FULL HTML output. REMEMBER: PURE HTML ONLY, starting with <!DOCTYPE html> and ending with </html>."
+        )
+        return correction_prompt
+
     async def generate_ui_from_prompt_and_files(
         self,
         text_prompt: str,
@@ -963,17 +1025,89 @@ Suggestions (Numbered List Only):
         if gemini_file_objects:
             for sdk_file_obj in gemini_file_objects:
                 gemini_api_contents.append(sdk_file_obj)
-        logger.info(f"Constructed Gemini API contents for generation. Main text part length: {len(main_textual_prompt_part)}, Number of SDK file objects: {len(gemini_file_objects)}")
-        try:
-            async for chunk in self._call_gemini_with_retry(
-                contents=gemini_api_contents, 
-                enable_grounding=enable_grounding
+        logger.info(f"Constructed Gemini API contents for initial generation. Main text part length: {len(main_textual_prompt_part)}, Number of SDK file objects: {len(gemini_file_objects)}")
+
+        # --- MODIFIED FOR STREAMING BEFORE SECURITY SCAN ---
+        full_initial_html_for_scan = ""
+        initial_generation_failed = False
+
+        # Phase 1: Stream the initial generation and accumulate for scan
+        logger.info("Phase 1: Streaming initial generation and accumulating for security scan.")
+        # yield "<!-- MORPHEO_INITIAL_STREAM_START -->" # Frontend may not need this if it starts on first chunk
+
+        async for chunk in self._call_gemini_with_retry(
+            contents=gemini_api_contents,
+            enable_grounding=enable_grounding
+        ):
+            if "<!-- ERROR:" in chunk:
+                initial_generation_failed = True
+                logger.error(f"Initial generation failed or returned an error during stream: {chunk}")
+                full_initial_html_for_scan += chunk 
+                yield chunk 
+                break 
+
+            full_initial_html_for_scan += chunk
+            yield chunk 
+            # The asyncio.sleep(0) is already in _call_gemini_api for its sub-chunks.
+            # Adding another one here might be redundant or slightly alter pacing.
+            # Let's rely on the sleeps in _call_gemini_api.
+
+        # yield "<!-- MORPHEO_INITIAL_STREAM_END -->" # Frontend can detect stream end by server closing connection
+
+        if initial_generation_failed:
+            logger.error("Initial generation phase ended with an error. Skipping security checks.")
+            return
+
+        # Phase 2: Security Scan and Correction (if needed) - This part sends signals *after* initial stream.
+        logger.info("Phase 2: Performing security scan on accumulated initial HTML.")
+        detected_issues = self._scan_for_unsafe_patterns(full_initial_html_for_scan)
+        
+        if detected_issues:
+            logger.info(f"Unsafe patterns found. Issues: {detected_issues}. Attempting correction.")
+            yield "<!-- MORPHEO_SECURITY_CORRECTION_START -->"
+            
+            corrected_html_accumulator = ""
+            correction_prompt_text = self._create_security_correction_prompt(main_textual_prompt_part, full_initial_html_for_scan, detected_issues)
+            correction_api_contents = [correction_prompt_text]
+
+            correction_failed = False
+            async for correction_chunk in self._call_gemini_with_retry(
+                contents=correction_api_contents,
+                enable_grounding=False
             ):
-                yield chunk
-        except Exception as e:
-            logger.exception(f"An error occurred in generate_ui_from_prompt_and_files: {e}")
-            error_html = f"""<!DOCTYPE html><html><head><title>Generation Error</title></head>\n                         <body><h1>UI Generation Failed</h1><p>An unexpected error occurred during generation with files:</p>\n                         <pre>{str(e)}</pre></body></html>"""
-            yield error_html
+                if "<!-- ERROR:" in correction_chunk:
+                    correction_failed = True
+                    logger.error(f"Security correction call failed or returned an error during stream: {correction_chunk}")
+                    # corrected_html_accumulator += correction_chunk # Don't accumulate error if we're not sending it
+                    yield correction_chunk # Yield error from correction attempt
+                    break
+                corrected_html_accumulator += correction_chunk
+            
+            if correction_failed:
+                logger.error("Correction phase failed. Original (potentially unsafe) streamed content remains on client.")
+                yield "<!-- MORPHEO_SECURITY_CORRECTION_FAILED_AI_ERROR -->"
+            else:
+                final_issues_after_correction = self._scan_for_unsafe_patterns(corrected_html_accumulator)
+                if not final_issues_after_correction:
+                    logger.info("Security correction successful. No unsafe patterns found in corrected code.")
+                    # Signal frontend to replace its content.
+                    yield "<!-- MORPHEO_REPLACE_WITH_CORRECTED_START -->"
+                    corrected_chunk_size = 128 
+                    for i in range(0, len(corrected_html_accumulator), corrected_chunk_size):
+                        yield corrected_html_accumulator[i:i+corrected_chunk_size]
+                        await asyncio.sleep(0) # Ensure chunks are flushed for the replacement stream
+                    yield "<!-- MORPHEO_REPLACE_WITH_CORRECTED_END -->"
+                else:
+                    logger.warning(f"Security correction attempted, but issues persist: {final_issues_after_correction}. Original streamed content remains on client.")
+                    warning_message = f"<!-- MORPHEO_SECURITY_WARNING: Automated correction attempted, but issues may persist in the already streamed content: {', '.join(final_issues_after_correction)} -->"
+                    yield warning_message
+            
+            yield "<!-- MORPHEO_SECURITY_CORRECTION_END -->"
+        else:
+            logger.info("No security issues detected in initial generation.")
+            # Optionally send: yield "<!-- MORPHEO_SECURITY_CHECKS_PASSED -->"
+
+        # --- END MODIFICATION FOR STREAMING BEFORE SECURITY SCAN ---
 
     async def modify_ui_from_prompt_and_files(
         self,
@@ -1019,11 +1153,83 @@ Suggestions (Numbered List Only):
         
         logger.info(f"Constructed Gemini API contents for modification. Main text part length: {len(full_prompt_text)}, Number of SDK file objects: {len(gemini_file_objects)}")
 
-        # Call Gemini API using the retry logic, passing the combined contents
-        logger.info("Calling _call_gemini_with_retry for modification with files")
-        async for chunk in self._call_gemini_with_retry(contents_for_api, enable_grounding=enable_grounding):
+        # --- MODIFIED FOR SECURITY SCAN AND CORRECTION (mirroring generation flow) ---
+        full_initial_modified_html_for_scan = ""
+        initial_modification_failed = False
+
+        # Phase 1: Stream the initial modification and accumulate for scan
+        logger.info("Phase 1 (Modification): Streaming initial modification and accumulating for security scan.")
+        
+        async for chunk in self._call_gemini_with_retry(
+            contents=contents_for_api,
+            enable_grounding=enable_grounding
+        ):
+            if "<!-- ERROR:" in chunk:
+                initial_modification_failed = True
+                logger.error(f"Initial modification failed or returned an error during stream: {chunk}")
+                full_initial_modified_html_for_scan += chunk
+                yield chunk
+                break
+            
+            full_initial_modified_html_for_scan += chunk
             yield chunk
-        logger.info("Finished yielding modification chunks from _call_gemini_with_retry (with files).")
+            # asyncio.sleep(0) is in _call_gemini_api
+
+        if initial_modification_failed:
+            logger.error("Initial modification phase ended with an error. Skipping security checks.")
+            return
+
+        # Phase 2: Security Scan and Correction (if needed)
+        logger.info("Phase 2 (Modification): Performing security scan on accumulated initial modified HTML.")
+        detected_issues = self._scan_for_unsafe_patterns(full_initial_modified_html_for_scan)
+
+        if detected_issues:
+            logger.info(f"Unsafe patterns found in modification. Issues: {detected_issues}. Attempting correction.")
+            yield "<!-- MORPHEO_SECURITY_CORRECTION_START -->"
+            
+            corrected_html_accumulator = ""
+            # Use the same correction prompt creation logic
+            correction_prompt_text = self._create_security_correction_prompt(main_textual_prompt_part, full_initial_modified_html_for_scan, detected_issues)
+            # For modifications, the correction is just text-based, no extra files needed.
+            correction_api_contents = [correction_prompt_text] 
+
+            correction_failed = False
+            async for correction_chunk in self._call_gemini_with_retry(
+                contents=correction_api_contents, # Pass the simple list with correction prompt
+                enable_grounding=False # Grounding usually not needed for correction
+            ):
+                if "<!-- ERROR:" in correction_chunk:
+                    correction_failed = True
+                    logger.error(f"Security correction call (for modification) failed or returned an error: {correction_chunk}")
+                    yield correction_chunk 
+                    break
+                corrected_html_accumulator += correction_chunk
+            
+            if correction_failed:
+                logger.error("Correction phase (for modification) failed. Original (potentially unsafe) streamed modification remains.")
+                yield "<!-- MORPHEO_SECURITY_CORRECTION_FAILED_AI_ERROR -->"
+            else:
+                final_issues_after_correction = self._scan_for_unsafe_patterns(corrected_html_accumulator)
+                if not final_issues_after_correction:
+                    logger.info("Security correction successful for modification.")
+                    yield "<!-- MORPHEO_REPLACE_WITH_CORRECTED_START -->"
+                    corrected_chunk_size = 128
+                    for i in range(0, len(corrected_html_accumulator), corrected_chunk_size):
+                        yield corrected_html_accumulator[i:i+corrected_chunk_size]
+                        await asyncio.sleep(0) 
+                    yield "<!-- MORPHEO_REPLACE_WITH_CORRECTED_END -->"
+                else:
+                    logger.warning(f"Security correction attempted for modification, but issues persist: {final_issues_after_correction}.")
+                    warning_message = f"<!-- MORPHEO_SECURITY_WARNING: Automated correction attempted for modification, but issues may persist: {', '.join(final_issues_after_correction)} -->"
+                    yield warning_message
+            
+            yield "<!-- MORPHEO_SECURITY_CORRECTION_END -->"
+        else:
+            logger.info("No security issues detected in initial modification.")
+            # Optionally: yield "<!-- MORPHEO_SECURITY_CHECKS_PASSED_MODIFICATION -->"
+        
+        logger.info("Finished yielding modification chunks (with potential security correction).")
+        # --- END SECURITY SCAN AND CORRECTION FOR MODIFICATION ---
 
 def ensure_prompt_template_exists(template_path: str, fallback_content: str):
     """Checks if a prompt template file exists, creates it with fallback content if not."""

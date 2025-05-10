@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { AppDispatch, RootState } from '../store';
-import { generateFullCode, modifyGeneratedCode, clearGeneratedCode, clearError, saveGeneration, clearLoadedGenerationFlags, undoModification, redoModification, fetchSuggestions, generateCodeWithFiles, modifyCodeWithFiles, setLiveUpdateCommand, clearLiveUpdateCommand, extractComponentProperties, PropertySchema } from '../store/slices/uiSlice';
+import { generateFullCode, modifyGeneratedCode, clearGeneratedCode, clearError, saveGeneration, clearLoadedGenerationFlags, undoModification, redoModification, fetchSuggestions, generateCodeWithFiles, modifyCodeWithFiles, setLiveUpdateCommand, clearLiveUpdateCommand, extractComponentProperties, PropertySchema, selectIsCorrectingSecurity, selectSecurityCorrectionError } from '../store/slices/uiSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { auth } from '../config/firebase';
 import InlinePreview from '../components/preview/InlinePreview';
@@ -37,7 +37,7 @@ import {
 } from '@chakra-ui/react';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiMonitor, FiSmartphone, FiSave, FiCode, FiRewind, FiFastForward, FiGift, FiTrash2, FiMove, FiMaximize, FiMinimize, FiEdit } from 'react-icons/fi'; 
+import { FiMonitor, FiSmartphone, FiSave, FiCode, FiRewind, FiFastForward, FiGift, FiTrash2, FiMove, FiMaximize, FiMinimize, FiEdit, FiEdit3 } from 'react-icons/fi'; 
 
 interface ExamplePrompt {
   name: string;
@@ -79,12 +79,17 @@ const GeneratorPage: React.FC = () => {
   const [selectedModifyFiles, setSelectedModifyFiles] = useState<FileList | null>(null);
   const modifyFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Use named selectors for the new states
+  const isCorrectingSecurity = useAppSelector(selectIsCorrectingSecurity);
+  const securityCorrectionError = useAppSelector(selectSecurityCorrectionError);
+
+  // Destructure other ui state properties
   const {
     generatedHtmlContent,
     generatingFullCode,
     modifyingCode,
-    error,
-    modificationError,
+    error, // This is the general error, distinct from securityCorrectionError
+    modificationError, // This is the general modification error
     streamCompletedSuccessfully,
     lastPrompt, 
     loadedGenerationHtml, 
@@ -95,6 +100,7 @@ const GeneratorPage: React.FC = () => {
     loadingSuggestions,
     suggestionsError,
     liveUpdateCommandForPreview,
+    isReplacingForCorrection,
   } = useAppSelector((state: RootState) => state.ui);
 
   const { mode } = useAppSelector((state: RootState) => state.theme);
@@ -110,7 +116,7 @@ const GeneratorPage: React.FC = () => {
 
   const { open: isCodeModalOpen, onOpen: onCodeModalOpen, onClose: onCodeModalClose } = useDisclosure();
 
-  // --- Mock selection state for demonstration ---
+  // Mock selection state for demonstration
   const [selectedComponent, setSelectedComponent] = useState<string | null>(null);
 
   // Local property schema/values map for manual editing
@@ -139,6 +145,21 @@ const GeneratorPage: React.FC = () => {
   // Use breakpoint hook for mobile detection
   const isMobile = useBreakpointValue({ base: true, md: false });
 
+  // Re-define showPreviewArea
+  const showPreviewArea = !!generatedHtmlContent || generatingFullCode;
+
+  // Instrument HTML only if manual edit mode is active
+  let previewHtml = localHtmlContent || generatedHtmlContent || '';
+  if (manualEditMode && !isMobile && previewHtml) { // Don't instrument on mobile
+    previewHtml = instrumentHtmlWithMorpheoIds(previewHtml);
+  }
+
+  // Force mobile preview on mobile devices
+  const currentPreviewMode = isMobile ? 'mobile' : previewMode;
+
+  // Helper to force re-render of InlinePreview when key props change
+  const previewKey = `${manualEditMode}-${(generatingFullCode || modifyingCode || isCorrectingSecurity || isReplacingForCorrection) ? 'streaming_active' : previewHtml.length}-${currentPreviewMode}-${isPreviewFullScreen}`;
+
   // --- DEBUG: Log state during render ---
   console.log('[GeneratorPage Render] State Values:', {
     selectedComponent,
@@ -147,6 +168,8 @@ const GeneratorPage: React.FC = () => {
     isMobile,
     propertySchema,
     propertyValues,
+    isCorrectingSecurity,
+    securityCorrectionError,
   });
   // --- END DEBUG ---
 
@@ -269,18 +292,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return () => window.removeEventListener('message', handleComponentSelect);
   }, [manualEditMode, isMobile]);
 
-  // Instrument HTML only if manual edit mode is active
-  let previewHtml = localHtmlContent || generatedHtmlContent || '';
-  if (manualEditMode && !isMobile && previewHtml) { // Don't instrument on mobile
-    previewHtml = instrumentHtmlWithMorpheoIds(previewHtml);
-  }
-
-  // Force mobile preview on mobile devices
-  const currentPreviewMode = isMobile ? 'mobile' : previewMode;
-
-  // Helper to force re-render of InlinePreview when key props change
-  const previewKey = `${manualEditMode}-${previewHtml.length}-${currentPreviewMode}-${isPreviewFullScreen}`;
-
   useEffect(() => {
     if (loadedGenerationHtml && loadedGenerationPrompt) {
       setPrompt(loadedGenerationPrompt); 
@@ -385,11 +396,33 @@ document.addEventListener('DOMContentLoaded', () => {
     toast.success('Cleared current generation. Ready for a new one!');
   };
 
-  const isProcessing = generatingFullCode || modifyingCode;
-  const showPreviewArea = !!generatedHtmlContent || generatingFullCode;
+  // Combine loading states for a general "Processing..." message or specific ones
+  const isProcessing = generatingFullCode || modifyingCode || isCorrectingSecurity;
+  let processingMessage = "Generating code...";
+  if (modifyingCode) processingMessage = "Applying modifications...";
+  if (isCorrectingSecurity) processingMessage = "Enhancing security...";
+
+  // --- REVISED Spinner Text Logic ---
+  let spinnerDisplayMessage = "Processing...";
+  if (isCorrectingSecurity) {
+    spinnerDisplayMessage = "Enhancing security...";
+  } else if (generatingFullCode) {
+    spinnerDisplayMessage = "Generating UI...";
+  } else if (modifyingCode) {
+    spinnerDisplayMessage = "Applying Modifications...";
+  }
+  // --- END REVISED Spinner Text Logic ---
 
   return (
-    <Flex h="calc(100vh - 4rem)" bg={bgColor} p={4} gap={4} alignItems="flex-start" position="relative">
+    <Flex 
+      direction={{ base: 'column', md: 'row' }} 
+      h="calc(100vh - 4rem)" 
+      bg={bgColor} 
+      p={4} 
+      gap={4} 
+      alignItems={{ base: 'stretch', md: 'flex-start' }}
+      position="relative"
+    >
       {/* ManualEditPanel on the left if a component is selected and manual edit is active */}
       {manualEditMode && !isMobile && selectedComponent && (
         <ManualEditPanel
@@ -401,11 +434,21 @@ document.addEventListener('DOMContentLoaded', () => {
         />
       )}
       {/* Main content (prompt, preview, etc.) */}
-      <Box flex="1" h="100%" display={isPreviewFullScreen ? 'none' : 'block'}> {/* Hide this Box in full screen */}
+      <Box flex="1" h="100%" display={isPreviewFullScreen ? 'none' : 'block'} w={{ base: '100%', md: 'auto' }}>
         <AnimatePresence>
           {!showPreviewArea && (
-            <motion.div key="prompt-section-generatorpage" initial={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -100, transition: { duration: 0.3 } }}
-              style={{ width: '30%', minWidth: '300px', height: 'auto', maxHeight: 'calc(100vh - 5rem)', overflowY: 'auto', display: 'flex' }} >
+            <motion.div 
+              key="prompt-section-generatorpage" 
+              initial={{ opacity: 1, x: 0 }} 
+              exit={{ opacity: 0, x: -100, transition: { duration: 0.3 } }} 
+              style={{ 
+                width: '100%',
+                height: 'auto', 
+                maxHeight: 'calc(100vh - 5rem)', 
+                overflowY: 'auto', 
+                display: 'flex' 
+              }}
+            >
               <VStack bg={promptBg} p={6} borderRadius="lg" boxShadow="md" gap={4} align="stretch" w="100%" borderColor={borderColor} borderWidth="1px">
                 <Heading size="md" color={textColor}>Generate UI</Heading>
                 <Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Describe the UI you want to generate..." flexGrow={1}
@@ -452,14 +495,46 @@ document.addEventListener('DOMContentLoaded', () => {
         </AnimatePresence>
 
         {showPreviewArea && (
-           <motion.div key="main-area-generatorpage" initial={{ opacity: 0, x: showPreviewArea ? 0 : 50 }} animate={{ opacity: 1, x: 0, transition: { duration: 0.5, delay: !showPreviewArea && generatedHtmlContent ? 0 : 0.1 } }}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', gap: '1rem', overflow: 'hidden' }} >
-              <Flex direction="column" flexGrow={1} bg={previewBg} borderRadius="lg" boxShadow="md" borderColor={borderColor} borderWidth="1px" position="relative" overflow="hidden">
-                {(generatingFullCode && !streamCompletedSuccessfully) || modifyingCode && (
-                   <Flex position="absolute" inset={0} bg="blackAlpha.600" zIndex={20} align="center" justify="center">
-                     <Spinner size="xl" color="white" borderWidth="4px" /> 
-                     <Text ml={4} color="white" fontSize="xl" fontWeight="semibold">
-                  {generatingFullCode ? 'Generating Preview...' : 'Applying Modifications...'}
+           <motion.div 
+            key="main-area-generatorpage" 
+            initial={{ opacity: 0, x: showPreviewArea ? 0 : 50 }} 
+            animate={{ opacity: 1, x: 0, transition: { duration: 0.5, delay: !showPreviewArea && generatedHtmlContent ? 0 : 0.1 } }} 
+            style={{ 
+              flex: 1, 
+              display: 'flex', 
+              flexDirection: 'column', 
+              height: '100%', 
+              gap: '1rem', 
+              overflow: 'hidden',
+              width: '100%'
+            }}
+            >
+              <Flex 
+                direction="column" 
+                flexGrow={1} 
+                bg={previewBg} 
+                borderRadius="lg" 
+                boxShadow="md" 
+                borderColor={borderColor} 
+                borderWidth="1px" 
+                position="relative" 
+                overflow="hidden"
+              >
+                {isCorrectingSecurity && !streamCompletedSuccessfully && (
+                   <Flex 
+                     position="absolute" 
+                     inset={0} 
+                     zIndex={20} 
+                     align="center" 
+                     justify="center" 
+                     flexDirection="column" 
+                     gap={3}
+                     pointerEvents="none"
+                   >
+                     <Spinner size="xl" color={mode === 'dark' ? "white" : "purple.500"} borderWidth="4px" /> 
+                     <Text color={mode === 'dark' ? "white" : "purple.500"} fontSize="lg" fontWeight="semibold" mt={2} 
+                       bg={mode === 'dark' ? "rgba(0,0,0,0.7)" : "rgba(255,255,255,0.7)"} p={2} borderRadius="md">
+                       {spinnerDisplayMessage}
                      </Text>
                    </Flex>
                  )}
@@ -568,6 +643,7 @@ document.addEventListener('DOMContentLoaded', () => {
                          key={previewKey}
                          htmlContent={previewHtml}
                          previewMode={currentPreviewMode}
+                         isPreviewFullScreen={isPreviewFullScreen}
                          liveUpdateCommand={liveUpdateCommandForPreview}
                          selectedComponent={manualEditMode && !isMobile ? selectedComponent : null}
                        />
@@ -576,7 +652,7 @@ document.addEventListener('DOMContentLoaded', () => {
                  </Box>
               </Flex>
 
-              {generatedHtmlContent && streamCompletedSuccessfully && !isMobile && (
+              {generatedHtmlContent && streamCompletedSuccessfully && (
                  <VStack bg={modifyBg} p={4} borderRadius="lg" boxShadow="md" gap={3} align="stretch" flexShrink={0} borderColor={borderColor} borderWidth="1px">
                     <Heading size="sm" color={textColor}>Modify Code</Heading>
                     <Textarea value={modificationPrompt} onChange={(e) => setModificationPrompt(e.target.value)} placeholder="Enter modification instructions... (Optional: attach files below)" flexGrow={1}
@@ -618,31 +694,58 @@ document.addEventListener('DOMContentLoaded', () => {
                         <CloseButton position="absolute" right="8px" top="8px" onClick={() => dispatch(clearError())} />
                       </Alert.Root>
                     )}
-                    <Flex justify="space-between" wrap="wrap" gap={2}>
-                      <Button onClick={handleModify} colorScheme={buttonColorScheme} loading={modifyingCode} disabled={!modificationPrompt.trim() || !generatedHtmlContent || isProcessing}
-                        loadingText="Modifying" size="sm">
+                    <Flex 
+                      direction={{ base: 'column', md: 'row' }} 
+                      justify="space-between" 
+                      wrap="wrap" 
+                      gap={2}
+                      alignItems={{ base: 'stretch', md: 'center' }}
+                    >
+                      <Button 
+                        onClick={handleModify} 
+                        colorScheme={buttonColorScheme} 
+                        loading={modifyingCode} 
+                        disabled={!modificationPrompt.trim() || !generatedHtmlContent || isProcessing}
+                        loadingText="Modifying" 
+                        size="sm"
+                        w={{ base: '100%', md: 'auto' }}
+                      >
                         Modify Code
                       </Button>
-                      <Button onClick={handleFetchSuggestions} colorScheme="teal" loading={loadingSuggestions} disabled={!generatedHtmlContent || isProcessing || loadingSuggestions}
-                        loadingText="Thinking..." size="sm">
+                      <Button 
+                        onClick={handleFetchSuggestions} 
+                        colorScheme="teal" 
+                        loading={loadingSuggestions} 
+                        disabled={!generatedHtmlContent || isProcessing || loadingSuggestions}
+                        loadingText="Thinking..." 
+                        size="sm"
+                        w={{ base: '100%', md: 'auto' }}
+                      >
                          <Icon as={FiGift} mr={2} />
                          Suggest Ideas
                       </Button>
-                      <Box flexGrow={{ base: 1, md: 1 }} />
-                      <ButtonGroup size="sm" variant="outline" gap={2} mt={{ base: 2, md: 0 }}>
+                      <ButtonGroup 
+                        size="sm" 
+                        variant="outline" 
+                        gap={2} 
+                        mt={{ base: 2, md: 0 }}
+                        w={{ base: '100%', md: 'auto' }}
+                        flexDirection={{ base: 'column', md: 'row' }}
+                        alignItems={{ base: 'stretch', md: 'center' }}
+                      >
                         <IconButton aria-label="Undo Modification" onClick={() => dispatch(undoModification())} colorScheme={buttonColorScheme} variant="outline"
-                          title="Undo" disabled={historyIndex <= 0} >
+                          title="Undo" disabled={historyIndex <= 0} flexGrow={1} >
                             <FiRewind /> {/* Icon as child */} 
-                          </IconButton>
+                        </IconButton>
                         <IconButton aria-label="Redo Modification" onClick={() => dispatch(redoModification())} colorScheme={buttonColorScheme} variant="outline"
-                          title="Redo" disabled={historyIndex >= htmlHistory.length - 1} >
+                          title="Redo" disabled={historyIndex >= htmlHistory.length - 1} flexGrow={1} >
                             <FiFastForward /> {/* Icon as child */} 
-                          </IconButton>
+                        </IconButton>
                         <IconButton aria-label="View Generated Code" onClick={onCodeModalOpen} colorScheme={buttonColorScheme} variant="outline"
-                          title="View Code" >
+                          title="View Code" flexGrow={1} >
                             <FiCode /> {/* Icon as child */} 
-                          </IconButton>
-                         <Button onClick={handleSaveGeneration} colorScheme="green" disabled={!generatedHtmlContent || isProcessing} size="sm">
+                        </IconButton>
+                         <Button onClick={handleSaveGeneration} colorScheme="green" disabled={!generatedHtmlContent || isProcessing} size="sm" flexGrow={1}>
                           <Icon as={FiSave} mr={2} />
                           Save
                          </Button>
@@ -653,6 +756,7 @@ document.addEventListener('DOMContentLoaded', () => {
                           variant="outline"
                           title="Clear Generation & Start New"
                           disabled={isProcessing}
+                          flexGrow={1}
                         >
                           <FiTrash2 />
                         </IconButton>
@@ -660,8 +764,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     </Flex>
 
                     {(loadingSuggestions || suggestions.length > 0 || suggestionsError) && (
-                      <Box mt={3} pt={3} borderTopWidth="1px" borderColor={borderColor}>
-                          <Heading size="xs" mb={2} color={textColor}>Suggestions:</Heading>
+                      <Box mt={3} pt={3} borderTopWidth="1px" borderColor={borderColor} 
+                        bg={mode === 'dark' ? 'gray.750' : 'gray.50'} // Subtle background for the whole suggestions area
+                        p={4} // Add padding to the suggestions Box
+                        borderRadius="md" // Rounded corners for the Box
+                      >
+                          <Heading size="xs" mb={3} color={textColor}>Suggestions:</Heading> {/* Increased margin-bottom */} 
                           {loadingSuggestions && <Spinner size="sm" color={buttonColorScheme + ".500"} />}
                           {suggestionsError && (
                               <Alert.Root status="error" variant="subtle" size="sm">
@@ -670,11 +778,28 @@ document.addEventListener('DOMContentLoaded', () => {
                               </Alert.Root>
                           )}
                           {!loadingSuggestions && suggestions.length > 0 && (
-                              <VStack align="stretch" gap={1} maxH="100px" overflowY="auto">
+                              <VStack align="stretch" gap={2} maxH="150px" overflowY="auto"> {/* Increased gap and maxHeight */} 
                                   {suggestions.map((suggestion, index) => (
-                                      <Button key={index} variant="ghost" size="xs" onClick={() => handleApplySuggestion(suggestion)} justifyContent="flex-start" 
-                                          textAlign="left" fontWeight="normal" whiteSpace="normal" h="auto" py={1} px={2} colorScheme="gray" 
-                                          _hover={{ bg: mode === 'dark' ? 'gray.700' : 'gray.100' }}>
+                                      <Button 
+                                        key={index} 
+                                        variant="ghost" // Keep ghost, but we can customize hover
+                                        size="sm" // Keep sm, or md if more space needed
+                                        onClick={() => handleApplySuggestion(suggestion)} 
+                                        justifyContent="flex-start" 
+                                        textAlign="left" 
+                                        fontWeight="normal" 
+                                        whiteSpace="normal" 
+                                        h="auto" 
+                                        py={2} // Increased padding for taller buttons
+                                        px={3}
+                                        colorScheme="purple" // Use a color scheme for hover effects
+                                        _hover={{ 
+                                          bg: mode === 'dark' ? 'purple.600' : 'purple.100', // More distinct hover
+                                          color: mode === 'dark' ? 'white' : 'purple.700' 
+                                        }}
+                                        w="100%" // Make button full width
+                                      >
+                                          <Icon as={FiEdit3} mr={2} /> {/* Add Icon as a child with margin */} 
                                           {suggestion}
                                       </Button>
                                   ))}
@@ -739,6 +864,7 @@ document.addEventListener('DOMContentLoaded', () => {
             key={previewKey} // Key forces re-render
             htmlContent={previewHtml} // Use non-instrumented HTML in full screen
             previewMode={'mobile'} // Always mobile in full screen
+            isPreviewFullScreen={true} // Pass the new prop
             liveUpdateCommand={null} // Disable live update in full screen
             selectedComponent={null} // Disable selection in full screen
           />
